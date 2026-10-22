@@ -13,19 +13,35 @@ const genAI = new GoogleGenerativeAI(apiKey);
 app.post('/api/chat', async (req, res) => {
     try {
         const userPrompt = req.body.prompt || req.body.message || req.body.text;
-        if (!userPrompt) {
-            return res.status(400).json({ error: 'Промпт холӣ аст' });
+        if (!userPrompt) return res.status(400).json({ error: 'Промпт пустой' });
+
+        // Пробуем несколько стандартных названий
+        const modelsToTry = ["gemini-1.5-flash", "gemini-1.5-pro", "gemini-pro"];
+        let lastError = null;
+
+        for (const modelName of modelsToTry) {
+            try {
+                console.log(`Попытка вызвать модель: ${modelName}`);
+                const model = genAI.getGenerativeModel({ model: modelName });
+                const result = await model.generateContent(userPrompt);
+                const responseText = result.response.text();
+                
+                console.log(`Успешно сработало с моделью: ${modelName}`);
+                return res.json({ answer: responseText });
+            } catch (err) {
+                console.log(`Модель ${modelName} не ответила: ${err.message}`);
+                lastError = err;
+            }
         }
 
-        // Используем актуальный алиас модели
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
-        const result = await model.generateContent(userPrompt);
-        const responseText = result.response.text();
+        // Если ни одна не сработала — пробрасываем ошибку в ответ
+        throw lastError;
 
-        res.json({ answer: responseText });
     } catch (error) {
-        console.error("Хатогӣ дар сервери AI:", error.message || error);
-        res.status(500).json({ answer: "Хатогӣ: Мушкил дар коркарди дархост аз ҷониби ИИ." });
+        console.error("КРИТИЧЕСКАЯ ОШИБКА GEMINI:", error.message || error);
+        res.status(500).json({ 
+            answer: `Ошибка сервера: ${error.message || 'Неизвестная ошибка'}` 
+        });
     }
 });
 
@@ -35,5 +51,5 @@ app.post('/api/parse', async (req, res) => {
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-    console.log(`Сервер дар порти ${PORT} кор карда истодааст`);
+    console.log(`Сервер запущен на порту ${PORT}`);
 });
