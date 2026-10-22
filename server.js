@@ -7,7 +7,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Инициализация Gemini
 const apiKey = process.env.GEMINI_API_KEY;
 const genAI = new GoogleGenerativeAI(apiKey);
 
@@ -18,7 +17,8 @@ app.post('/api/chat', async (req, res) => {
             return res.status(400).json({ error: 'Промпт холӣ аст' });
         }
 
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // Используем актуальный алиас модели
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
         const result = await model.generateContent(userPrompt);
         const responseText = result.response.text();
 
