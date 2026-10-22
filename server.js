@@ -24,8 +24,8 @@ app.post('/api/chat', async (req, res) => {
 
         console.log("Отправка запроса в Gemini:", userPrompt);
 
-        // Используем проверенную стабильную модель
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        // Передаем актуальное имя модели
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
         const result = await model.generateContent(userPrompt);
         const responseText = result.response.text();
 
