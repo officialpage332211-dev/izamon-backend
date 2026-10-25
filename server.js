@@ -19,10 +19,30 @@ app.post('/api/chat', async (req, res) => {
             return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим нашудааст." });
         }
 
-        console.log("Универсальный запрос к Gemini...");
+        // Шаг 1: Автоматически запрашиваем у Google список моделей, которые РЕАЛЬНО разрешены для твоего ключа
+        const modelsRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+        const modelsData = await modelsRes.json();
 
-        // Используем универсальный endpoint без привязки к устаревшим именам моделей
-        const apiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`, {
+        if (!modelsRes.ok) {
+            const errText = modelsData.error?.message || 'Неверный ключ';
+            return res.status(500).json({ answer: `Хатогии калид аз Google: ${errText}` });
+        }
+
+        // Ищем модель, которая поддерживает генерацию текста
+        const validModel = modelsData.models?.find(m => 
+            m.supportedGenerationMethods && m.supportedGenerationMethods.includes("generateContent")
+        );
+
+        if (!validModel || !validModel.name) {
+            return res.status(500).json({ answer: "Хатогӣ: Барои ин ключ ягон модели дастрас ёфт нашуд." });
+        }
+
+        // validModel.name приходит в формате вроде "models/gemini-1.5-flash" или аналогичном
+        const dynamicModelName = validModel.name;
+        console.log("Автоматически выбрана рабочая модель:", dynamicModelName);
+
+        // Шаг 2: Стучимся на найденный адрес модели
+        const apiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/${dynamicModelName}:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -34,7 +54,7 @@ app.post('/api/chat', async (req, res) => {
 
         if (!apiResponse.ok) {
             const errorMsg = data.error?.message || JSON.stringify(data);
-            return res.status(500).json({ answer: `Хатогӣ аз Google: ${errorMsg}` });
+            return res.status(500).json({ answer: `Хатогӣ аз Google API: ${errorMsg}` });
         }
 
         const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
