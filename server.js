@@ -4,14 +4,11 @@ require('dotenv').config();
 
 const app = express();
 
-// Настройка CORS для Vercel и локальной разработки
 app.use(cors());
 app.use(express.json());
 
-// Берем ключ из переменных окружения Render
 const apiKey = process.env.OPENROUTER_API_KEY || process.env.GEMINI_API_KEY;
 
-// Фирменная системная инструкция iZamoN
 const SYSTEM_INSTRUCTION = `Ты — официальный виртуальный помощник платформы iZamoN (iZamoN AI). 
 Твоя главная задача — помогать пользователям по сервисам и разделам портала iZamoN:
 1. Недвижимость (Хона, фурӯш, иҷора ва замин)
@@ -34,7 +31,6 @@ app.post('/api/chat', async (req, res) => {
             return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим نشده аст." });
         }
 
-        // Запрос к OpenRouter с авто-выбором свободной модели
         const apiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
@@ -71,7 +67,6 @@ app.post('/api/chat', async (req, res) => {
     }
 });
 
-// Дополнительный роут для парсинга/доп. функций
 app.post('/api/parse', async (req, res) => {
     res.json({ success: true, title: "Маълумоти сомона", price: "Шартномавӣ" });
 });
