@@ -1,14 +1,12 @@
 const express = require('express');
 const cors = require('cors');
 require('dotenv').config();
-const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
 const apiKey = process.env.GEMINI_API_KEY;
-const genAI = new GoogleGenerativeAI(apiKey);
 
 app.post('/api/chat', async (req, res) => {
     try {
@@ -18,18 +16,44 @@ app.post('/api/chat', async (req, res) => {
         }
 
         if (!apiKey) {
-            console.error("ОШИБКА: GEMINI_API_KEY не задан в переменной окружения!");
+            console.error("ОШИБКА: GEMINI_API_KEY не задан в Render!");
             return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим нашудааст." });
         }
 
-        // Актуальная рабочая модель Google Gemini 2.0
-        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
-        const result = await model.generateContent(userPrompt);
-        const responseText = result.response.text();
+        console.log("Прямой запрос к Gemini API с промптом:", userPrompt);
+
+        // Прямой HTTP-запрос к Google API (обходит любые ошибки библиотеки)
+        const apiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({
+                contents: [{
+                    parts: [{ text: userPrompt }]
+                }]
+            })
+        });
+
+        const data = await apiResponse.json();
+
+        if (!apiResponse.ok) {
+            const errorMsg = data.error?.message || JSON.stringify(data);
+            console.error("Ошибка от Google API:", errorMsg);
+            return res.status(500).json({ answer: `Хатогӣ аз Google API: ${errorMsg}` });
+        }
+
+        // Извлекаем текст ответа из структуры Google
+        const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+        
+        if (!responseText) {
+            return res.status(500).json({ answer: "Хатогӣ: Посух аз модель холӣ аст." });
+        }
 
         return res.json({ answer: responseText });
+
     } catch (error) {
-        console.error("КРИТИЧЕСКАЯ ОШИБКА GEMINI НА СЕРВЕРЕ:", error.message || error);
+        console.error("КРИТИЧЕСКАЯ ОШИБКА СЕРВЕРА:", error.message || error);
         return res.status(500).json({ 
             answer: `Хатогӣ аз сервер: ${error.message || 'Номаълум'}` 
         });
