@@ -18,14 +18,12 @@ app.post('/api/chat', async (req, res) => {
         }
 
         if (!apiKey) {
-            console.error("ОШИБКА: GEMINI_API_KEY не задан в переменных окружения Render!");
+            console.error("ОШИБКА: GEMINI_API_KEY не задан в переменной окружения!");
             return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим нашудааст." });
         }
 
-        console.log("Отправка запроса в Gemini:", userPrompt);
-
-        // Передаем актуальное имя модели
-        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash-latest" });
+        // Используем проверенную универсальную модель gemini-pro
+        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
         const result = await model.generateContent(userPrompt);
         const responseText = result.response.text();
 
