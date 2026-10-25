@@ -1,5 +1,6 @@
 const express = require('express');
 const cors = require('cors');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 require('dotenv').config();
 
 const app = express();
@@ -7,6 +8,7 @@ app.use(cors());
 app.use(express.json());
 
 const apiKey = process.env.GEMINI_API_KEY;
+const genAI = new GoogleGenerativeAI(apiKey);
 
 app.post('/api/chat', async (req, res) => {
     try {
@@ -19,23 +21,11 @@ app.post('/api/chat', async (req, res) => {
             return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим нашудааст." });
         }
 
-        // Запрос к актуальной рабочей модели Google
-        const apiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ parts: [{ text: userPrompt }] }]
-            })
-        });
+        // Используем стандартную модель через официальный SDK
+        const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+        const result = await model.generateContent(userPrompt);
+        const responseText = result.response.text();
 
-        const data = await apiResponse.json();
-
-        if (!apiResponse.ok) {
-            const errorMsg = data.error?.message || 'Хатогӣ аз Google';
-            return res.status(500).json({ answer: `Хатогӣ аз Google: ${errorMsg}` });
-        }
-
-        const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
         if (!responseText) {
             return res.status(500).json({ answer: "Хатогӣ: Посух аз модель холӣ аст." });
         }
