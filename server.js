@@ -8,6 +8,20 @@ app.use(express.json());
 
 const apiKey = process.env.GEMINI_API_KEY;
 
+// Функция для отправки запроса с автоповтором при высокой нагрузке (High Demand)
+async function fetchWithRetry(url, options, retries = 3, delay = 1500) {
+    for (let i = 0; i < retries; i++) {
+        const response = await fetch(url, options);
+        if (response.ok || response.status !== 503) {
+            return response;
+        }
+        console.warn(`Google перегружен (попытка ${i + 1} из ${retries}). Повторяем через ${delay}ms...`);
+        await new Promise(res => setTimeout(res, delay));
+        delay *= 2; // Увеличиваем задержку экспоненциально
+    }
+    return fetch(url, options); // Последняя попытка
+}
+
 app.post('/api/chat', async (req, res) => {
     try {
         const userPrompt = req.body.prompt || req.body.message || req.body.text;
@@ -19,26 +33,21 @@ app.post('/api/chat', async (req, res) => {
             return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим нашудааст." });
         }
 
-        console.log("Запрос к модели gemini-3.8-flash...");
-
-        // Прямой вызов модели gemini-3.8-flash в соответствии с актуальными требованиями Google
-        const apiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [
-                    {
-                        role: "user",
-                        parts: [{ text: userPrompt }]
-                    }
-                ]
-            })
-        });
+        const apiResponse = await fetchWithRetry(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: userPrompt }] }]
+                })
+            }
+        );
 
         const data = await apiResponse.json();
 
         if (!apiResponse.ok) {
-            const errorMsg = data.error?.message || JSON.stringify(data);
+            const errorMsg = data.error?.message || 'Сервери Google муваққатан дастнорас аст';
             return res.status(500).json({ answer: `Хатогӣ аз Google: ${errorMsg}` });
         }
 
