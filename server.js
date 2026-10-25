@@ -20,30 +20,10 @@ app.post('/api/chat', async (req, res) => {
             return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим нашудааст." });
         }
 
-        // 1. Спрашиваем у Google список моделей, доступных для вашего ключа
-        const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-        const listData = await listRes.json();
+        console.log("Запрос к Gemini API...");
 
-        if (!listRes.ok) {
-            const err = listData.error?.message || JSON.stringify(listData);
-            return res.status(500).json({ answer: `Хатогии калид (API Key Error): ${err}` });
-        }
-
-        // Находим первую доступную модель, поддерживающую generateContent
-        const validModel = listData.models?.find(m => 
-            m.supportedGenerationMethods?.includes("generateContent")
-        );
-
-        if (!validModel) {
-            return res.status(500).json({ answer: "Хатогӣ: Барои ин калид ҳеҷ як модели фаъол ёфт нашуд." });
-        }
-
-        // Берем имя модели, которое вернул сам Google (например, models/gemini-1.5-flash или models/gemini-2.0-flash)
-        const modelName = validModel.name;
-        console.log("Используем доступную модель Google:", modelName);
-
-        // 2. Отправляем запрос к найденной модели
-        const apiResponse = await fetch(`https://generativelanguage.googleapis.com/${modelName}:generateContent?key=${apiKey}`, {
+        // Прямой запрос на стабильный эндпоинт v1
+        const apiResponse = await fetch(`https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -51,7 +31,14 @@ app.post('/api/chat', async (req, res) => {
             })
         });
 
-        const data = await apiResponse.json();
+        const textRes = await apiResponse.text();
+        let data;
+        try {
+            data = JSON.parse(textRes);
+        } catch (e) {
+            console.error("Ответ не в формате JSON:", textRes);
+            return res.status(500).json({ answer: "Хатогӣ: Сервери Google посухи нодуруст фиристод." });
+        }
 
         if (!apiResponse.ok) {
             const errorMsg = data.error?.message || JSON.stringify(data);
@@ -59,7 +46,11 @@ app.post('/api/chat', async (req, res) => {
         }
 
         const responseText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-        return res.json({ answer: responseText || "Посухи холӣ." });
+        if (!responseText) {
+            return res.status(500).json({ answer: "Хатогӣ: Посух аз модель холӣ аст." });
+        }
+
+        return res.json({ answer: responseText });
 
     } catch (error) {
         console.error("КРИТИЧЕСКАЯ ОШИБКА СЕРВЕРА:", error.message || error);
