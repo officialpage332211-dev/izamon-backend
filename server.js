@@ -16,18 +16,20 @@ app.post('/api/chat', async (req, res) => {
         }
 
         if (!apiKey) {
-            return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим نشده аст." });
+            return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим нашудааст." });
         }
 
-        // Используем универсальный рабочий авто-роутер или проверенную бесплатную модель
+        // Используем встроенный авто-роутер OpenRouter, который сам находит свободную модель
         const apiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
             method: "POST",
             headers: {
                 "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json"
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://render.com",
+                "X-Title": "iZamoN AI"
             },
             body: JSON.stringify({
-                "model": "google/gemma-2-9b-it:free",
+                "model": "openrouter/auto",
                 "messages": [
                     { "role": "user", "content": userPrompt }
                 ]
