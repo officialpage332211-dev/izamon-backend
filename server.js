@@ -8,18 +8,16 @@ app.use(express.json());
 
 const apiKey = process.env.GEMINI_API_KEY;
 
-// Функция для отправки запроса с автоповтором при высокой нагрузке (High Demand)
 async function fetchWithRetry(url, options, retries = 3, delay = 1500) {
     for (let i = 0; i < retries; i++) {
         const response = await fetch(url, options);
         if (response.ok || response.status !== 503) {
             return response;
         }
-        console.warn(`Google перегружен (попытка ${i + 1} из ${retries}). Повторяем через ${delay}ms...`);
         await new Promise(res => setTimeout(res, delay));
-        delay *= 2; // Увеличиваем задержку экспоненциально
+        delay *= 2;
     }
-    return fetch(url, options); // Последняя попытка
+    return fetch(url, options);
 }
 
 app.post('/api/chat', async (req, res) => {
@@ -33,8 +31,9 @@ app.post('/api/chat', async (req, res) => {
             return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим нашудааст." });
         }
 
+        // Переходим на актуальный стабильный идентификатор
         const apiResponse = await fetchWithRetry(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`,
             {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -47,7 +46,7 @@ app.post('/api/chat', async (req, res) => {
         const data = await apiResponse.json();
 
         if (!apiResponse.ok) {
-            const errorMsg = data.error?.message || 'Сервери Google муваққатан дастнорас аст';
+            const errorMsg = data.error?.message || 'Хатогии номаълум';
             return res.status(500).json({ answer: `Хатогӣ аз Google: ${errorMsg}` });
         }
 
