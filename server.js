@@ -22,8 +22,8 @@ app.post('/api/chat', async (req, res) => {
             return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим нашудааст." });
         }
 
-        // Используем проверенную универсальную модель gemini-pro
-        const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+        // Актуальная рабочая модель Google Gemini 2.0
+        const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
         const result = await model.generateContent(userPrompt);
         const responseText = result.response.text();
 
