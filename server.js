@@ -19,24 +19,19 @@ app.post('/api/chat', async (req, res) => {
             return res.status(500).json({ answer: "Хатогӣ: Калиди API дар сервер танзим нашудааст." });
         }
 
-        // Жестко используем модель gemini-3.8-flash, которую требует Google
-        const apiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key=${apiKey}`, {
+        // Запрос к актуальной рабочей модели Google
+        const apiResponse = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-                contents: [
-                    {
-                        role: "user",
-                        parts: [{ text: userPrompt }]
-                    }
-                ]
+                contents: [{ parts: [{ text: userPrompt }] }]
             })
         });
 
         const data = await apiResponse.json();
 
         if (!apiResponse.ok) {
-            const errorMsg = data.error?.message || JSON.stringify(data);
+            const errorMsg = data.error?.message || 'Хатогӣ аз Google';
             return res.status(500).json({ answer: `Хатогӣ аз Google: ${errorMsg}` });
         }
 
