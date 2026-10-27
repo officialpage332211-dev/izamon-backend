@@ -7,12 +7,12 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 1. Понятное считывание ключей (с защитой от разного написания)
+// 1. Чтение ключей
 const geminiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
 const openaiKey = process.env.OPEN_AI_KEY || process.env.OPENAI_API_KEY;
 const openrouterKey = process.env.OPENROUTER_API_KEY;
 
-// Инициализация клиентов
+// 2. Инициализация клиентов
 const genAI = geminiKey ? new GoogleGenerativeAI(geminiKey) : null;
 const openai = openaiKey ? new OpenAI({ apiKey: openaiKey }) : null;
 const openrouter = openrouterKey ? new OpenAI({
@@ -20,7 +20,7 @@ const openrouter = openrouterKey ? new OpenAI({
     apiKey: openrouterKey
 }) : null;
 
-// Вспомогательная функция таймаута (5 секунд на провайдера)
+// Функция таймаута (5 секунд)
 const fetchWithTimeout = (promise, ms = 5000) => {
     return Promise.race([
         promise,
@@ -64,8 +64,10 @@ app.post('/api/chat', async (req, res) => {
     if (genAI) {
         try {
             console.log("➡️ Пробуем Gemini...");
+            // Обновлены актуальные названия моделей
+            const modelName = "gemini-2.5-flash"; 
             const model = genAI.getGenerativeModel({ 
-                model: "gemini-1.5-flash",
+                model: modelName,
                 systemInstruction: systemPrompt
             });
             const result = await fetchWithTimeout(model.generateContent(prompt));
@@ -84,7 +86,7 @@ app.post('/api/chat', async (req, res) => {
             console.log("➡️ Пробуем OpenRouter...");
             const completion = await fetchWithTimeout(
                 openrouter.chat.completions.create({
-                    model: "google/gemini-flash-1.5",
+                    model: "openai/gpt-4o-mini", // Обновленный актуальный ID модели на OpenRouter
                     messages: [
                         { role: "system", content: systemPrompt },
                         { role: "user", content: prompt }
@@ -100,7 +102,7 @@ app.post('/api/chat', async (req, res) => {
         console.log("⚠️ OpenRouter пропущен: ключ не найден в process.env");
     }
 
-    // Запасной ответ, если ВСЕ 3 провайдера не ответили
+    // Запасной ответ
     console.error("🚨 ВСЕ ПРОВАЙДЕРЫ ВЫДАЛИ ОШИБКУ ИЛИ КЛЮЧИ НЕ НАЙДЕНЫ!");
     const errFallback = {
         tg: "Маълумот дарёфт нашуд. Дубора кӯшиш кунед.",
