@@ -1,57 +1,46 @@
 const express = require('express');
 const cors = require('cors');
-require('dotenv').config();
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
-
 app.use(cors());
 app.use(express.json());
 
-const apiKey = process.env.OPENROUTER_API_KEY || process.env.GEMINI_API_KEY;
-
-const SYSTEM_INSTRUCTION = `Ты — быстрый, умный помощник платформы iZamoN. 
-Строго соблюдай язык запроса (таджикский, русский, узбекский) и никогда не смешивай их.
-
-ПРАВИЛА:
-1. ПРИВЕТСТВИЕ ("салом", "привет"): Отвечай мягко, тепло и коротко (1-2 предложения), чтобы ответ шел мгновенно.
-2. ИНФО-МОДУЛЬ ([MODULE: INFO]): Выдавай чистую, проверенную справку и аналитику.
-3. СЕРВИСНЫЙ МОДУЛЬ ([MODULE: SERVICE/AD]): Выдавай контент в виде аккуратной карточки 1х1 (параметры, цена, шаги).
-4. НИКАКИХ лишних плашек и «воды».`;
+// Инициализация Gemini API
+const apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
+const genAI = new GoogleGenerativeAI(apiKey);
 
 app.post('/api/chat', async (req, res) => {
+    const { prompt, lang } = req.body;
+
+    if (!prompt) {
+        return res.status(400).json({ error: "Промпт не передан" });
+    }
+
     try {
-        const userPrompt = req.body.prompt || req.body.message || req.body.text;
-        const lang = req.body.lang || 'tg';
-
-        if (!userPrompt) return res.status(400).json({ answer: 'Промпт холӣ аст' });
-        if (!apiKey) return res.status(500).json({ answer: "Хатогӣ: API ключ танзим нашудааст." });
-
-        const apiResponse = await fetch("https://openrouter.ai/api/v1/chat/completions", {
-            method: "POST",
-            headers: {
-                "Authorization": `Bearer ${apiKey}`,
-                "Content-Type": "application/json",
-                "HTTP-Referer": "https://render.com",
-                "X-Title": "iZamoN AI"
-            },
-            body: JSON.stringify({
-                "model": "openrouter/auto",
-                "max_tokens": 400,
-                "messages": [
-                    { "role": "system", "content": SYSTEM_INSTRUCTION + ` Язык: ${lang}.` },
-                    { "role": "user", "content": userPrompt }
-                ]
-            })
+        const model = genAI.getGenerativeModel({ 
+            model: "gemini-1.5-flash",
+            systemInstruction: "Ты — краткий и точный ассистент маркетплейса iZamoN. Отвечай строго по делу, без приветствий и лишних вводных слов, сразу суть на языке запроса."
         });
 
-        const data = await apiResponse.json();
-        if (!apiResponse.ok) return res.status(500).json({ answer: `Хатогӣ: ${data.error?.message || 'AI error'}` });
+        // Таймаут на 10 секунд, чтобы сервер никогда не зависал
+        const timeoutPromise = new Promise((_, reject) => 
+            setTimeout(() => reject(new Error("Timeout")), 10000)
+        );
 
-        const responseText = data.choices?.[0]?.message?.content;
-        return res.json({ answer: responseText || "Посух холӣ аст." });
+        const aiPromise = model.generateContent(prompt);
+        const result = await Promise.race([aiPromise, timeoutPromise]);
+        const responseText = result.response.text();
+
+        return res.json({ answer: responseText });
 
     } catch (error) {
-        return res.status(500).json({ answer: `Хатогӣ аз сервер: ${error.message}` });
+        console.error("Ошибка API:", error.message);
+        return res.json({ 
+            answer: lang === 'ru' 
+                ? "Запрос обрабатывается, повторите попытку." 
+                : "Дархост коркард шуда истодааст, дубора кӯшиш кунед." 
+        });
     }
 });
 
