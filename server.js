@@ -7,12 +7,11 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// 1. Чтение ключей
+// Базовые настройки ключей
 const geminiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
 const openaiKey = process.env.OPEN_AI_KEY || process.env.OPENAI_API_KEY;
 const openrouterKey = process.env.OPENROUTER_API_KEY;
 
-// 2. Инициализация клиентов
 const genAI = geminiKey ? new GoogleGenerativeAI(geminiKey) : null;
 const openai = openaiKey ? new OpenAI({ apiKey: openaiKey }) : null;
 const openrouter = openrouterKey ? new OpenAI({
@@ -20,7 +19,7 @@ const openrouter = openrouterKey ? new OpenAI({
     apiKey: openrouterKey
 }) : null;
 
-// Функция таймаута (5 секунд)
+// Таймаут 5 секунд для защиты от зависаний
 const fetchWithTimeout = (promise, ms = 5000) => {
     return Promise.race([
         promise,
@@ -35,24 +34,24 @@ app.post('/api/chat', async (req, res) => {
         return res.status(400).json({ error: "Промпт не передан" });
     }
 
-    // Универсальный и строгий системный промпт для всех модулей и структур iZamoN
-    const systemPrompt = `Ты — профессиональный, вежливый и лаконичный ассистент цифровой платформы iZamoN. 
-Твоя задача — давать четкие, культурные и прямые ответы по любой теме (финансы, услуги, справки и т.д.).
-ЖЕСТКИЕ ПРАВИЛА:
-1. Никакой воды, долгих вступлений и философских рассуждений. 
-2. Отвечай строго по существу вопроса, максимум в 1-2 предложения.
-3. Отвечай исключительно на том языке, на котором задан вопрос (если на таджикском — на таджикском, если на русском — на русском).
-4. Учитывай контекст текущего раздела приложения для максимальной точности.`;
+    // Точное определение языка для защиты от языковой «аварии»
+    const detectedLang = lang || (/[ӯқҳҷғӣӯў]/i.test(prompt) ? 'tg' : /^[А-Яа-яЁё\s]+$/.test(prompt) ? 'ru' : 'tg');
 
-    // Формируем полный запрос с учетом категории/раздела
+    // Жесткий системный промпт: строгое соответствие языку, без воды и философии
+    const systemPrompt = `Ты — быстрый, вежливый и точный AI-ассистент цифровой платформы iZamoN 🚀. 
+СТРОГИЕ ПРАВИЛА:
+1. ЯЗЫК ОТВЕТА: Отвечай СТРОГО на том же языке, на котором написан вопрос пользователя (таджикский, русский или узбекский). Текущий язык: ${detectedLang}.
+2. НИКАКОЙ ВОДЫ: Никаких вводных лекций, определений («... — это...») и философии. Говори сразу по существу и цифрам! 🎯
+3. ФОРМАТ: Используй смайлики (😊, 📊, 💡, 🔥) для живости, но пиши ультра-кратко (1-2 предложения или короткий список).
+4. КОНТЕКСТ: Учитывай текущий раздел приложения для максимальной точности.`;
+
     const fullMessage = category 
-        ? `Раздел: ${category}. Вопрос пользователя: ${prompt}` 
+        ? `[Раздел: ${category}] ${prompt}` 
         : prompt;
 
     // --- ПРИОРИТЕТ 1: OpenAI ---
     if (openai) {
         try {
-            console.log("➡️ Пробуем OpenAI...");
             const completion = await fetchWithTimeout(
                 openai.chat.completions.create({
                     model: "gpt-4o-mini",
@@ -63,37 +62,29 @@ app.post('/api/chat', async (req, res) => {
                     max_tokens: 250
                 })
             );
-            console.log("✅ Успех: OpenAI ответил!");
             return res.json({ answer: completion.choices[0].message.content, provider: "openai" });
         } catch (err) {
-            console.warn(`❌ OpenAI сбой (${err.message}). Переходим к Gemini...`);
+            console.warn(`OpenAI сбой: ${err.message}`);
         }
-    } else {
-        console.log("⚠️ OpenAI пропущен: ключ не найден в process.env");
     }
 
     // --- ПРИОРИТЕТ 2: Google Gemini ---
     if (genAI) {
         try {
-            console.log("➡️ Пробуем Gemini...");
             const model = genAI.getGenerativeModel({ 
                 model: "gemini-2.5-flash",
                 systemInstruction: systemPrompt
             });
             const result = await fetchWithTimeout(model.generateContent(fullMessage));
-            console.log("✅ Успех: Gemini ответил!");
             return res.json({ answer: result.response.text(), provider: "gemini" });
         } catch (err) {
-            console.warn(`❌ Gemini сбой (${err.message}). Переходим к OpenRouter...`);
+            console.warn(`Gemini сбой: ${err.message}`);
         }
-    } else {
-        console.log("⚠️ Gemini пропущен: ключ не найден в process.env");
     }
 
     // --- ПРИОРИТЕТ 3: OpenRouter ---
     if (openrouter) {
         try {
-            console.log("➡️ Пробуем OpenRouter...");
             const completion = await fetchWithTimeout(
                 openrouter.chat.completions.create({
                     model: "openai/gpt-4o-mini",
@@ -103,26 +94,22 @@ app.post('/api/chat', async (req, res) => {
                     ]
                 })
             );
-            console.log("✅ Успех: OpenRouter ответил!");
             return res.json({ answer: completion.choices[0].message.content, provider: "openrouter" });
         } catch (err) {
-            console.warn(`❌ OpenRouter сбой (${err.message})`);
+            console.warn(`OpenRouter сбой: ${err.message}`);
         }
-    } else {
-        console.log("⚠️ OpenRouter пропущен: ключ не найден в process.env");
     }
 
-    // Запасной ответ, если все провайдеры недоступны
-    console.error("🚨 ВСЕ ПРОВАЙДЕРЫ ВЫДАЛИ ОШИБКУ ИЛИ КЛЮЧИ НЕ НАЙДЕНЫ!");
+    // Запасной ответ с учетом языка
     const errFallback = {
-        tg: "Маълумот дарёфт нашуд. Дубора кӯшиш кунед.",
-        ru: "Информация временно недоступна. Попробуйте ещё раз.",
-        uz: "Ma'lumot topilmadi. Qayta urinib ko'ring."
+        tg: "⚠️ Маълумот айни замон дастнорас аст. Лутфан каме дертар кӯшиш кунед! 🙏",
+        ru: "⚠️ Информация временно недоступна. Попробуйте ещё чуть позже! 🙏",
+        uz: "⚠️ Ma'lumot vaqtincha mavjud emas. Biroz o'tib urinib ko'ring! 🙏"
     };
-    return res.json({ answer: errFallback[lang] || errFallback.tg });
+    return res.json({ answer: errFallback[detectedLang] || errFallback.tg });
 });
 
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-    console.log(`🚀 Сервер iZamoN запущен на порту ${PORT}`);
+    console.log(`🚀 iZamoN бэкенд запущен на порту ${PORT}`);
 });
