@@ -29,13 +29,23 @@ const fetchWithTimeout = (promise, ms = 5000) => {
 };
 
 app.post('/api/chat', async (req, res) => {
-    const { prompt, lang } = req.body;
+    const { prompt, lang, category } = req.body;
 
     if (!prompt) {
         return res.status(400).json({ error: "Промпт не передан" });
     }
 
-    const systemPrompt = "Ты — лаконичный ассистент iZamoN. Отвечай коротко (1-3 предложения), строго по существу, без лишней воды.";
+    // Умный системный промпт (учитывает язык вопроса и текущий раздел)
+    const systemPrompt = `Ты — умный и лаконичный ассистент платформы iZamoN. 
+Строгие правила:
+1. Отвечай строго на том языке, на котором задан вопрос (если вопрос на таджикском — отвечай на таджикском, если на русском — на русском).
+2. Отвечай коротко (1-3 предложения), по существу.
+3. Учитывай контекст текущего раздела приложения, если он указан.`;
+
+    // Формируем полный запрос с учетом категории/раздела, если он передается
+    const fullMessage = category 
+        ? `Раздел: ${category}. Вопрос: ${prompt}` 
+        : prompt;
 
     // --- ПРИОРИТЕТ 1: OpenAI ---
     if (openai) {
@@ -46,7 +56,7 @@ app.post('/api/chat', async (req, res) => {
                     model: "gpt-4o-mini",
                     messages: [
                         { role: "system", content: systemPrompt },
-                        { role: "user", content: prompt }
+                        { role: "user", content: fullMessage }
                     ],
                     max_tokens: 250
                 })
@@ -64,13 +74,11 @@ app.post('/api/chat', async (req, res) => {
     if (genAI) {
         try {
             console.log("➡️ Пробуем Gemini...");
-            // Обновлены актуальные названия моделей
-            const modelName = "gemini-2.5-flash"; 
             const model = genAI.getGenerativeModel({ 
-                model: modelName,
+                model: "gemini-2.5-flash",
                 systemInstruction: systemPrompt
             });
-            const result = await fetchWithTimeout(model.generateContent(prompt));
+            const result = await fetchWithTimeout(model.generateContent(fullMessage));
             console.log("✅ Успех: Gemini ответил!");
             return res.json({ answer: result.response.text(), provider: "gemini" });
         } catch (err) {
@@ -86,10 +94,10 @@ app.post('/api/chat', async (req, res) => {
             console.log("➡️ Пробуем OpenRouter...");
             const completion = await fetchWithTimeout(
                 openrouter.chat.completions.create({
-                    model: "openai/gpt-4o-mini", // Обновленный актуальный ID модели на OpenRouter
+                    model: "openai/gpt-4o-mini",
                     messages: [
                         { role: "system", content: systemPrompt },
-                        { role: "user", content: prompt }
+                        { role: "user", content: fullMessage }
                     ]
                 })
             );
@@ -102,7 +110,7 @@ app.post('/api/chat', async (req, res) => {
         console.log("⚠️ OpenRouter пропущен: ключ не найден в process.env");
     }
 
-    // Запасной ответ
+    // Запасной ответ, если все провайдеры недоступны
     console.error("🚨 ВСЕ ПРОВАЙДЕРЫ ВЫДАЛИ ОШИБКУ ИЛИ КЛЮЧИ НЕ НАЙДЕНЫ!");
     const errFallback = {
         tg: "Маълумот дарёфт нашуд. Дубора кӯшиш кунед.",
