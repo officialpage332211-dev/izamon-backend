@@ -7,7 +7,9 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Базовые настройки ключей
+// ------------------------------------------------------------------
+// 1. Инициализация API-ключей для бесперебойной работы (Fallback)
+// ------------------------------------------------------------------
 const geminiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
 const openaiKey = process.env.OPEN_AI_KEY || process.env.OPENAI_API_KEY;
 const openrouterKey = process.env.OPENROUTER_API_KEY;
@@ -19,14 +21,17 @@ const openrouter = openrouterKey ? new OpenAI({
     apiKey: openrouterKey
 }) : null;
 
-// Таймаут 5 секунд для защиты от зависаний
-const fetchWithTimeout = (promise, ms = 5000) => {
+// Хелпер для предотвращения зависания запросов
+const fetchWithTimeout = (promise, ms = 7000) => {
     return Promise.race([
         promise,
         new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout Exceeded")), ms))
     ]);
 };
 
+// ------------------------------------------------------------------
+// 2. Основной маршрут обработки запросов
+// ------------------------------------------------------------------
 app.post('/api/chat', async (req, res) => {
     const { prompt, lang, category } = req.body;
 
@@ -34,22 +39,26 @@ app.post('/api/chat', async (req, res) => {
         return res.status(400).json({ error: "Промпт не передан" });
     }
 
-    // Точное определение языка для защиты от языковой «аварии»
-    const detectedLang = lang || (/[ӯқҳҷғӣӯў]/i.test(prompt) ? 'tg' : /^[А-Яа-яЁё\s]+$/.test(prompt) ? 'ru' : 'tg');
+    const detectedLang = lang || 'tg';
 
-    // Жесткий системный промпт: строгое соответствие языку, без воды и философии
-    const systemPrompt = `Ты — быстрый, вежливый и точный AI-ассистент цифровой платформы iZamoN 🚀. 
+    // Единый системный промпт для всех 6 разделов и 25 подразделов платформы
+    const systemPrompt = `Ты — официальный AI-ассистент цифровой платформы iZamoN 🚀. 
 СТРОГИЕ ПРАВИЛА:
-1. ЯЗЫК ОТВЕТА: Отвечай СТРОГО на том же языке, на котором написан вопрос пользователя (таджикский, русский или узбекский). Текущий язык: ${detectedLang}.
-2. НИКАКОЙ ВОДЫ: Никаких вводных лекций, определений («... — это...») и философии. Говори сразу по существу и цифрам! 🎯
-3. ФОРМАТ: Используй смайлики (😊, 📊, 💡, 🔥) для живости, но пиши ультра-кратко (1-2 предложения или короткий список).
-4. КОНТЕКСТ: Учитывай текущий раздел приложения для максимальной точности.`;
+1. НИКАКОЙ ВОДЫ И ТЕОРИИ: Запрещено писать вводные фразы, определения и рассуждения. Выдавай сразу точные факты, цифры, списки, цены и контакты!
+2. МАСШТАБ — ВСЁ ТАДЖИКИСТАН: Охватывай рынок всей страны (Душанбе, Худжанд, Бохтар, Куляб, Рашт, ГБАО и регионы).
+3. ИСТОЧНИКИ ПО ВСЕМ 6 РАЗДЕЛАМ И 25 ПОДРАЗДЕЛАМ:
+   - 1. Истиқомат ва амвол (Недвижимость): дома, квартиры, продажа, иҷора (аренда), участки, коммерческая недвижимость по всему РТ.
+   - 2. Нақлиёт ва сафар (Транспорт): автомобили, билеты, поездки, запчасти, авторынки Душанбе и регионов.
+   - 3. Бозор ва молу ашё (Товары): мебель, одежда, техника, телефоны, маркетплейсы Таджикистана.
+   - 4. Молия ва тиҷорат (Финансы и бизнес): официальный курс Национального банка Таджикистана (НБТ), коммерческие банки (Алиф, Эсхата, Спитамен, Ориёнбанк и др.), вакансии и работа по всему Таджикистану (5shanbe.tj, korgar.tj).
+   - 5. Маориф ва илм (Образование): языки, ММТ, донишномаҳо, IT-курсы (IT-RUN, Alif Academy и др.).
+   - 6. Кишоварзӣ (Сельское хозяйство): земли, посев, животноводство, урожай, рынки сырья и техники.
+4. СТРУКТУРА: Отвечай структурированно, используя карточки, списки и выделенные цифры.
+5. ЯЗЫК ОТВЕТА: Отвечай строго на языке пользователя: ${detectedLang} (tg - таджикский, ru - русский, uz - узбекский).`;
 
-    const fullMessage = category 
-        ? `[Раздел: ${category}] ${prompt}` 
-        : prompt;
+    const fullMessage = category ? `[Подраздел: ${category}] ${prompt}` : prompt;
 
-    // --- ПРИОРИТЕТ 1: OpenAI ---
+    // --- ПРИОРИТЕТ 1: OpenAI (GPT-4o-mini) ---
     if (openai) {
         try {
             const completion = await fetchWithTimeout(
@@ -59,16 +68,16 @@ app.post('/api/chat', async (req, res) => {
                         { role: "system", content: systemPrompt },
                         { role: "user", content: fullMessage }
                     ],
-                    max_tokens: 250
+                    max_tokens: 500
                 })
             );
             return res.json({ answer: completion.choices[0].message.content, provider: "openai" });
         } catch (err) {
-            console.warn(`OpenAI сбой: ${err.message}`);
+            console.warn(`[OpenAI Сбой]: ${err.message}`);
         }
     }
 
-    // --- ПРИОРИТЕТ 2: Google Gemini ---
+    // --- ПРИОРИТЕТ 2: Gemini 2.5 Flash ---
     if (genAI) {
         try {
             const model = genAI.getGenerativeModel({ 
@@ -78,11 +87,11 @@ app.post('/api/chat', async (req, res) => {
             const result = await fetchWithTimeout(model.generateContent(fullMessage));
             return res.json({ answer: result.response.text(), provider: "gemini" });
         } catch (err) {
-            console.warn(`Gemini сбой: ${err.message}`);
+            console.warn(`[Gemini Сбой]: ${err.message}`);
         }
     }
 
-    // --- ПРИОРИТЕТ 3: OpenRouter ---
+    // --- ПРИОРИТЕТ 3: OpenRouter (Резервный канал) ---
     if (openrouter) {
         try {
             const completion = await fetchWithTimeout(
@@ -96,20 +105,23 @@ app.post('/api/chat', async (req, res) => {
             );
             return res.json({ answer: completion.choices[0].message.content, provider: "openrouter" });
         } catch (err) {
-            console.warn(`OpenRouter сбой: ${err.message}`);
+            console.warn(`[OpenRouter Сбой]: ${err.message}`);
         }
     }
 
-    // Запасной ответ с учетом языка
+    // --- Резервный ответ при отсутствии подключения ко всем сетям ---
     const errFallback = {
         tg: "⚠️ Маълумот айни замон дастнорас аст. Лутфан каме дертар кӯшиш кунед! 🙏",
         ru: "⚠️ Информация временно недоступна. Попробуйте ещё чуть позже! 🙏",
         uz: "⚠️ Ma'lumot vaqtincha mavjud emas. Biroz o'tib urinib ko'ring! 🙏"
     };
-    return res.json({ answer: errFallback[detectedLang] || errFallback.tg });
+    return res.json({ answer: errFallback[detectedLang] || errFallback.tg, provider: "none" });
 });
 
+// ------------------------------------------------------------------
+// 3. Запуск сервера
+// ------------------------------------------------------------------
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-    console.log(`🚀 iZamoN бэкенд запущен на порту ${PORT}`);
+    console.log(`🚀 iZamoN бэкенд успешно запущен на порту ${PORT}`);
 });
