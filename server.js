@@ -7,9 +7,6 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// ------------------------------------------------------------------
-// 1. Инициализация API-ключей для бесперебойной работы (Fallback)
-// ------------------------------------------------------------------
 const geminiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
 const openaiKey = process.env.OPEN_AI_KEY || process.env.OPENAI_API_KEY;
 const openrouterKey = process.env.OPENROUTER_API_KEY;
@@ -21,17 +18,14 @@ const openrouter = openrouterKey ? new OpenAI({
     apiKey: openrouterKey
 }) : null;
 
-// Хелпер для предотвращения зависания запросов
-const fetchWithTimeout = (promise, ms = 7000) => {
+// Ускоренный таймаут для мгновенного ответа (сброс зависших запросов)
+const fetchWithTimeout = (promise, ms = 4000) => {
     return Promise.race([
         promise,
         new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout Exceeded")), ms))
     ]);
 };
 
-// ------------------------------------------------------------------
-// 2. Основной маршрут обработки запросов
-// ------------------------------------------------------------------
 app.post('/api/chat', async (req, res) => {
     const { prompt, lang, category } = req.body;
 
@@ -41,24 +35,17 @@ app.post('/api/chat', async (req, res) => {
 
     const detectedLang = lang || 'tg';
 
-    // Единый системный промпт для всех 6 разделов и 25 подразделов платформы
+    // Жесткие правила: 0% воды, 100% свежих данных (2026) и постраничный вывод
     const systemPrompt = `Ты — официальный AI-ассистент цифровой платформы iZamoN 🚀. 
 СТРОГИЕ ПРАВИЛА:
-1. НИКАКОЙ ВОДЫ И ТЕОРИИ: Запрещено писать вводные фразы, определения и рассуждения. Выдавай сразу точные факты, цифры, списки, цены и контакты!
-2. МАСШТАБ — ВСЁ ТАДЖИКИСТАН: Охватывай рынок всей страны (Душанбе, Худжанд, Бохтар, Куляб, Рашт, ГБАО и регионы).
-3. ИСТОЧНИКИ ПО ВСЕМ 6 РАЗДЕЛАМ И 25 ПОДРАЗДЕЛАМ:
-   - 1. Истиқомат ва амвол (Недвижимость): дома, квартиры, продажа, иҷора (аренда), участки, коммерческая недвижимость по всему РТ.
-   - 2. Нақлиёт ва сафар (Транспорт): автомобили, билеты, поездки, запчасти, авторынки Душанбе и регионов.
-   - 3. Бозор ва молу ашё (Товары): мебель, одежда, техника, телефоны, маркетплейсы Таджикистана.
-   - 4. Молия ва тиҷорат (Финансы и бизнес): официальный курс Национального банка Таджикистана (НБТ), коммерческие банки (Алиф, Эсхата, Спитамен, Ориёнбанк и др.), вакансии и работа по всему Таджикистану (5shanbe.tj, korgar.tj).
-   - 5. Маориф ва илм (Образование): языки, ММТ, донишномаҳо, IT-курсы (IT-RUN, Alif Academy и др.).
-   - 6. Кишоварзӣ (Сельское хозяйство): земли, посев, животноводство, урожай, рынки сырья и техники.
-4. СТРУКТУРА: Отвечай структурированно, используя карточки, списки и выделенные цифры.
-5. ЯЗЫК ОТВЕТА: Отвечай строго на языке пользователя: ${detectedLang} (tg - таджикский, ru - русский, uz - узбекский).`;
+1. НИКАКОЙ ЛЖИ И СТАРИТНЫХ ДАННЫХ: Все курсы, цены и факты актуальны строго на 28 октября 2026 года. Никаких архивных данных.
+2. ФОРМАТ — КАЖДЫЙ ПУНКТ НА НОВОЙ СТРОКЕ: Запрещены сплошные абзацы. Каждый новый факт, цифра или элемент списка пишется исключительно с новой строки.
+3. НИКАКОЙ ВОДЫ И ТЕОРИИ: Сразу переходи к фактам, точным цифрам, официальным курсам НБТ, банкам (Алиф, Эсхата, Спитамен) и реальным площадкам (5shanbe.tj, korgar.tj) по всему Таджикистану.
+4. ЯЗЫК ОТВЕТА: Строго на языке пользователя: ${detectedLang}.`;
 
     const fullMessage = category ? `[Подраздел: ${category}] ${prompt}` : prompt;
 
-    // --- ПРИОРИТЕТ 1: OpenAI (GPT-4o-mini) ---
+    // Быстрый запрос к OpenAI
     if (openai) {
         try {
             const completion = await fetchWithTimeout(
@@ -68,7 +55,7 @@ app.post('/api/chat', async (req, res) => {
                         { role: "system", content: systemPrompt },
                         { role: "user", content: fullMessage }
                     ],
-                    max_tokens: 500
+                    max_tokens: 350 // Ограничиваем токены для максимальной скорости ответа
                 })
             );
             return res.json({ answer: completion.choices[0].message.content, provider: "openai" });
@@ -77,7 +64,7 @@ app.post('/api/chat', async (req, res) => {
         }
     }
 
-    // --- ПРИОРИТЕТ 2: Gemini 2.5 Flash ---
+    // Быстрый резерв к Gemini
     if (genAI) {
         try {
             const model = genAI.getGenerativeModel({ 
@@ -91,7 +78,7 @@ app.post('/api/chat', async (req, res) => {
         }
     }
 
-    // --- ПРИОРИТЕТ 3: OpenRouter (Резервный канал) ---
+    // Резерв через OpenRouter
     if (openrouter) {
         try {
             const completion = await fetchWithTimeout(
@@ -100,7 +87,8 @@ app.post('/api/chat', async (req, res) => {
                     messages: [
                         { role: "system", content: systemPrompt },
                         { role: "user", content: fullMessage }
-                    ]
+                    ],
+                    max_tokens: 350
                 })
             );
             return res.json({ answer: completion.choices[0].message.content, provider: "openrouter" });
@@ -109,19 +97,15 @@ app.post('/api/chat', async (req, res) => {
         }
     }
 
-    // --- Резервный ответ при отсутствии подключения ко всем сетям ---
     const errFallback = {
-        tg: "⚠️ Маълумот айни замон дастнорас аст. Лутфан каме дертар кӯшиш кунед! 🙏",
-        ru: "⚠️ Информация временно недоступна. Попробуйте ещё чуть позже! 🙏",
-        uz: "⚠️ Ma'lumot vaqtincha mavjud emas. Biroz o'tib urinib ko'ring! 🙏"
+        tg: "⚠️ Маълумот дастнорас аст.",
+        ru: "⚠️ Информация недоступна.",
+        uz: "⚠️ Ma'lumot mavjud emas."
     };
     return res.json({ answer: errFallback[detectedLang] || errFallback.tg, provider: "none" });
 });
 
-// ------------------------------------------------------------------
-// 3. Запуск сервера
-// ------------------------------------------------------------------
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => {
-    console.log(`🚀 iZamoN бэкенд успешно запущен на порту ${PORT}`);
+    console.log(`🚀 iZamoN бэкенд запущен на порту ${PORT}`);
 });
