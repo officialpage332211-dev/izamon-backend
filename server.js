@@ -18,7 +18,8 @@ const openrouter = openrouterKey ? new OpenAI({
     apiKey: openrouterKey
 }) : null;
 
-const fetchWithTimeout = (promise, ms = 4000) => {
+// Увеличили тайм-аут до 8 секунд для стабильности ответов
+const fetchWithTimeout = (promise, ms = 8000) => {
     return Promise.race([
         promise,
         new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout Exceeded")), ms))
@@ -93,8 +94,9 @@ ${practicalDirective}
 
     if (genAI) {
         try {
+            // Исправлено: задействована рабочая модель gemini-1.5-flash
             const model = genAI.getGenerativeModel({ 
-                model: "gemini-2.5-flash",
+                model: "gemini-1.5-flash",
                 systemInstruction: systemPrompt
             });
             const result = await fetchWithTimeout(model.generateContent(fullMessage));
