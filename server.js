@@ -18,7 +18,7 @@ const openrouter = openrouterKey ? new OpenAI({
     apiKey: openrouterKey
 }) : null;
 
-// Увеличили тайм-аут до 8 секунд для стабильности ответов
+// Установлен стабильный тайм-аут 8 секунд
 const fetchWithTimeout = (promise, ms = 8000) => {
     return Promise.race([
         promise,
@@ -94,7 +94,7 @@ ${practicalDirective}
 
     if (genAI) {
         try {
-            // Исправлено: задействована рабочая модель gemini-1.5-flash
+            // ИСПРАВЛЕНО: используется точное рабочее название gemini-1.5-flash
             const model = genAI.getGenerativeModel({ 
                 model: "gemini-1.5-flash",
                 systemInstruction: systemPrompt
