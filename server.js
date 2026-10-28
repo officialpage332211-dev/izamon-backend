@@ -18,7 +18,6 @@ const openrouter = openrouterKey ? new OpenAI({
     apiKey: openrouterKey
 }) : null;
 
-// Ускоренный таймаут для мгновенного ответа (сброс зависших запросов)
 const fetchWithTimeout = (promise, ms = 4000) => {
     return Promise.race([
         promise,
@@ -35,17 +34,45 @@ app.post('/api/chat', async (req, res) => {
 
     const detectedLang = lang || 'tg';
 
-    // Жесткие правила: 0% воды, 100% свежих данных (2026) и постраничный вывод
-    const systemPrompt = `Ты — официальный AI-ассистент цифровой платформы iZamoN 🚀. 
-СТРОГИЕ ПРАВИЛА:
-1. НИКАКОЙ ЛЖИ И СТАРИТНЫХ ДАННЫХ: Все курсы, цены и факты актуальны строго на 28 октября 2026 года. Никаких архивных данных.
-2. ФОРМАТ — КАЖДЫЙ ПУНКТ НА НОВОЙ СТРОКЕ: Запрещены сплошные абзацы. Каждый новый факт, цифра или элемент списка пишется исключительно с новой строки.
-3. НИКАКОЙ ВОДЫ И ТЕОРИИ: Сразу переходи к фактам, точным цифрам, официальным курсам НБТ, банкам (Алиф, Эсхата, Спитамен) и реальным площадкам (5shanbe.tj, korgar.tj) по всему Таджикистану.
-4. ЯЗЫК ОТВЕТА: Строго на языке пользователя: ${detectedLang}.`;
+    let practicalDirective = "";
+    const lowerPrompt = prompt.toLowerCase();
+
+    if (lowerPrompt.includes("кор ва шуғл") || lowerPrompt.includes("работа") || lowerPrompt.includes("вакансия") || lowerPrompt.includes("шуғл")) {
+        practicalDirective = `
+🎯 РЕЖИМ ПОИСКА РАБОТЫ И ВАКАНСИЙ:
+- Полностью ЗАПРЕЩЕНО писать про уровень безработицы, инфляцию и экономику!
+- Помоги человеку найти работу с оптимизмом и верой в его успех ✨.
+- Дай список востребованных сфер в Таджикистане (IT, сервис, продажи) 💼.
+- Назови реальные сайты (korgar.tj, 5shanbe.tj) и проверенные Telegram-каналы 📱.
+- Пожелай удачи и напиши короткий позитивный совет 🤝.`;
+    } else if (lowerPrompt.includes("қурби асъор") || lowerPrompt.includes("курс") || lowerPrompt.includes("асъор")) {
+        practicalDirective = `
+💡 РЕЖИМ ФИНАНСОВ:
+- Дай свежие ориентиры курсов банков Таджикистана (Алиф, Эсхата, Спитамен) и НБТ 🏦.
+- Пожелай успехов и выгодного обмена 💰!`;
+    } else if (lowerPrompt.includes("истиқомат") || lowerPrompt.includes("амвол") || lowerPrompt.includes("хона") || lowerPrompt.includes("недвижимость")) {
+        practicalDirective = `
+🏠 РЕЖИМ НЕДВИЖИМОСТИ:
+- Никакой сухой теории! Напиши ориентиры цен и проверенные площадки (Somon.tj) 🗝️.
+- Пожелай быстро найти лучший вариант ✨.`;
+    } else {
+        practicalDirective = `
+🌟 РЕЖИМ ПОМОЩНИКА iZamoN:
+- Отвечай коротко, тепло, с заботой, эмодзи и только по делу 🚀.`;
+    }
+
+    const systemPrompt = `Ты — дружелюбный и позитивный AI-ассистент платформы iZamoN 🚀.
+
+${practicalDirective}
+
+СТРОЖАЙШЕЕ ПРАВИЛО ФОРМАТИРОВАНИЯ (ЧТОБЫ НЕ ПЕРЕГРУЖАТЬ ТЕКСТ):
+1. Каждое новое предложение ОБЯЗАТЕЛЬНО пиши с нового абзаца (\\n\\n).
+2. Одно предложение = одна отдельная строка. Никаких длинных текстов в один абзац!
+3. Используй дружелюбные эмодзи (✨, 💼, 🚀, 🤝, 💡, 🏠).
+4. Язык ответа: строго ${detectedLang}.`;
 
     const fullMessage = category ? `[Подраздел: ${category}] ${prompt}` : prompt;
 
-    // Быстрый запрос к OpenAI
     if (openai) {
         try {
             const completion = await fetchWithTimeout(
@@ -55,7 +82,7 @@ app.post('/api/chat', async (req, res) => {
                         { role: "system", content: systemPrompt },
                         { role: "user", content: fullMessage }
                     ],
-                    max_tokens: 350 // Ограничиваем токены для максимальной скорости ответа
+                    max_tokens: 350
                 })
             );
             return res.json({ answer: completion.choices[0].message.content, provider: "openai" });
@@ -64,7 +91,6 @@ app.post('/api/chat', async (req, res) => {
         }
     }
 
-    // Быстрый резерв к Gemini
     if (genAI) {
         try {
             const model = genAI.getGenerativeModel({ 
@@ -78,7 +104,6 @@ app.post('/api/chat', async (req, res) => {
         }
     }
 
-    // Резерв через OpenRouter
     if (openrouter) {
         try {
             const completion = await fetchWithTimeout(
@@ -98,9 +123,9 @@ app.post('/api/chat', async (req, res) => {
     }
 
     const errFallback = {
-        tg: "⚠️ Маълумот дастнорас аст.",
-        ru: "⚠️ Информация недоступна.",
-        uz: "⚠️ Ma'lumot mavjud emas."
+        tg: "🌸 Мутаассифона, ҳозир хатогӣ шуд.\n\nЛутфан, дубора кушиш кунед, мо ҳамеша бо шумоем! ✨",
+        ru: "🌸 К сожалению, произошла временная ошибка.\n\nПопробуйте ещё раз, у вас всё обязательно получится! ✨",
+        uz: "🌸 Afsuski, xatolik yuz berdi.\n\nQayta urinib ko'ring, hammasi yaxshi bo'ladi! ✨"
     };
     return res.json({ answer: errFallback[detectedLang] || errFallback.tg, provider: "none" });
 });
