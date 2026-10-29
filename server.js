@@ -41,6 +41,11 @@ const openrouter = openrouterKey ? new OpenAI({
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini';
+const OPENAI_SEARCH_MODEL = process.env.OPENAI_SEARCH_MODEL || 'gpt-4o-mini';
+const SB_URL = () => (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
+const SB_KEY = () => process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_KEY || '';
+function adsOn() { return !!(SB_URL() && SB_KEY()); }
+const VOICES = new Set(['ash', 'onyx', 'echo', 'verse', 'ballad', 'coral']);
 const MAX_ACTIVE = Number(process.env.MAX_CONCURRENT_AI) || 12;
 
 // ---------------------------------------------------------------------------
@@ -331,45 +336,99 @@ function finalize(text, sources, lang) {
 // Провайдеры
 // ---------------------------------------------------------------------------
 let thinkingOk = true;
+const GEMINI_MODELS = [...new Set([GEMINI_MODEL, ...(process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash').split(',').map(x => x.trim()).filter(Boolean)])];
+
+function uniqueSources(list) {
+    const seen = new Set();
+    const out = [];
+    for (const c of list) {
+        const uri = c && c.uri;
+        if (!uri || !/^https:\/\//i.test(uri)) continue;
+        let title = c.title;
+        if (!title) { try { title = new URL(uri).hostname.replace(/^www\./, ''); } catch { title = uri; } }
+        if (seen.has(title)) continue;
+        seen.add(title);
+        out.push({ title, uri });
+        if (out.length === 3) break;
+    }
+    return out;
+}
+
+function parseGemini(response) {
+    let text = '';
+    try { text = (response.text || '').trim(); } catch { text = ''; }
+    if (!text) throw new Error('Empty response');
+    const gm = response.candidates?.[0]?.groundingMetadata || {};
+    const sources = uniqueSources((gm.groundingChunks || []).map(c => ({ title: c?.web?.title, uri: c?.web?.uri })));
+    return { text, sources, searched: (gm.webSearchQueries || []).length > 0 };
+}
 
 async function askGemini(system, userText, useSearch) {
-    const build = withThinking => ({
-        model: GEMINI_MODEL,
-        contents: userText,
-        config: {
-            systemInstruction: system,
-            maxOutputTokens: 2000,
-            ...(useSearch ? { tools: [{ googleSearch: {} }] } : {}),
-            // Короткое «обдумывание» ускоряет ответ. Если API не принял параметр — повторяем без него.
-            ...(withThinking ? { thinkingConfig: { thinkingLevel: 'low' } } : {})
-        }
-    });
     const ms = useSearch ? 20000 : 12000;
-    let response;
-    try {
-        response = await withTimeout(gemini.models.generateContent(build(thinkingOk)), ms);
-    } catch (err) {
-        if (thinkingOk && /think/i.test(String(err.message))) {
-            thinkingOk = false;
-            response = await withTimeout(gemini.models.generateContent(build(false)), ms);
-        } else {
+    let lastErr;
+    for (const model of GEMINI_MODELS) {
+        const build = withThinking => ({
+            model,
+            contents: userText,
+            config: {
+                systemInstruction: system,
+                maxOutputTokens: 2000,
+                ...(useSearch ? { tools: [{ googleSearch: {} }] } : {}),
+                // Короткое «обдумывание» ускоряет ответ. Если API не принял параметр — повторяем без него.
+                ...(withThinking ? { thinkingConfig: { thinkingLevel: 'low' } } : {})
+            }
+        });
+        try {
+            let response;
+            try {
+                response = await withTimeout(gemini.models.generateContent(build(thinkingOk)), ms);
+            } catch (err) {
+                if (thinkingOk && (err.status === 400 || /think/i.test(String(err.message)))) {
+                    response = await withTimeout(gemini.models.generateContent(build(false)), ms);
+                    thinkingOk = false;
+                } else {
+                    throw err;
+                }
+            }
+            return parseGemini(response);
+        } catch (err) {
+            lastErr = err;
+            // Модель не найдена — пробуем запасную.
+            if (err.status === 404 && model !== GEMINI_MODELS[GEMINI_MODELS.length - 1]) continue;
             throw err;
         }
     }
-    const text = (response.text || '').trim();
-    if (!text) throw new Error('Empty response');
-    const chunks = response.candidates?.[0]?.groundingMetadata?.groundingChunks || [];
-    const seen = new Set();
-    const sources = [];
-    for (const c of chunks) {
-        const uri = c?.web?.uri;
-        const title = c?.web?.title || uri;
-        if (!uri || seen.has(title)) continue;
-        seen.add(title);
-        sources.push({ title, uri });
-        if (sources.length === 3) break;
+    throw lastErr;
+}
+
+// Запасной поиск: веб-поиск OpenAI. Работает, если у Gemini поиск недоступен (лимит бесплатного ключа и т.п.).
+async function askOpenAISearch(system, userText) {
+    const run = tool => openai.responses.create({
+        model: OPENAI_SEARCH_MODEL,
+        instructions: system,
+        input: userText,
+        tools: [{ type: tool }],
+        max_output_tokens: 1200
+    });
+    let resp;
+    try {
+        resp = await withTimeout(run('web_search'), 25000);
+    } catch (err) {
+        if (err.status !== 400) throw err;
+        resp = await withTimeout(run('web_search_preview'), 25000);
     }
-    return { text, sources };
+    const parts = [];
+    const cites = [];
+    for (const item of resp.output || []) {
+        if (item.type !== 'message') continue;
+        for (const c of item.content || []) {
+            if (c.type === 'output_text' && typeof c.text === 'string') parts.push(c.text);
+            for (const a of c.annotations || []) if (a.type === 'url_citation') cites.push({ title: a.title && !/\s/.test(a.title) ? a.title : '', uri: a.url });
+        }
+    }
+    const text = (resp.output_text || parts.join('\n')).trim();
+    if (!text) throw new Error('Empty response');
+    return { text, sources: uniqueSources(cites) };
 }
 
 async function askChat(client, model, system, userText) {
@@ -394,35 +453,47 @@ const inflight = new Map();
 let active = 0;
 
 const MIN = 60 * 1000;
-const ttlFor = mode => (mode === 'finance' ? 10 * MIN : 20 * MIN);
+const ttlFor = mode => (mode === 'finance' ? 10 * MIN : (mode === 'ads' && adsOn()) ? 2 * MIN : 20 * MIN);
 
-async function compute({ mode, lang, factual, fullMessage, date }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
     active++;
     try {
         if (factual) {
+            // Сначала объявления самого iZamoN (с контактом автора), затем поиск по интернету.
+            let ownBlock = '';
+            if (mode === 'ads' && adsOn()) {
+                try { ownBlock = formatOwnAds(await searchAds(adsQuery)); } catch (err) { console.warn(`[ads Сбой]: ${err.message}`); }
+            }
             let errored = false;
-            let kept = null;
-            if (gemini) {
+            const engines = [];
+            if (gemini) engines.push({ name: 'gemini', run: (sys, msg) => askGemini(sys, msg, true) });
+            if (openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
+            for (const eng of engines) {
+                let kept = null;
                 // Один повтор со строгим требованием к языку, если в ответе нашлись чужие слова.
                 for (const strict of [false, true]) {
                     try {
-                        const r = await askGemini(buildSystemPrompt({ mode, lang, canSearch: true, date, strict }), fullMessage, true);
+                        const r = await eng.run(buildSystemPrompt({ mode, lang, canSearch: true, date, strict }), fullMessage);
                         if (!r.sources.length) break;
                         if (!strict && mixedLanguage(r.text, lang)) { kept = r; continue; }
                         kept = r;
                         break;
                     } catch (err) {
                         errored = true;
-                        console.warn(`[gemini Сбой]: ${err.status || ''} ${err.message}`);
+                        console.warn(`[${eng.name} поиск Сбой]: ${err.status || ''} ${err.message}`);
                         break;
                     }
                 }
+                if (kept) {
+                    const web = finalize(kept.text, kept.sources, lang);
+                    return { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources: kept.sources }, ttl: ttlFor(mode) };
+                }
             }
-            if (kept) {
-                return { body: { answer: finalize(kept.text, kept.sources, lang), provider: 'gemini', grounded: true, sources: kept.sources }, ttl: ttlFor(mode) };
+            if (ownBlock) {
+                return { body: { answer: ownBlock, provider: 'izamon', grounded: true, sources: [] }, ttl: ttlFor(mode) };
             }
             // Источников нет — фактов не даём вообще.
             return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: errored ? 0 : 3 * MIN };
@@ -494,7 +565,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage, date }));
+        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage, date, adsQuery: topic ? topic.split(' - ').pop() : cleaned }));
         return res.json(r.body);
     } catch (err) {
         console.error('chat failed:', err);
@@ -745,15 +816,16 @@ async function handleSpeak(req, res) {
     if (speakLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
     const lang = ['tg', 'ru', 'uz'].includes(req.body?.lang) ? req.body.lang : 'tg';
     const text = speechText(req.body?.text);
+    const voice = VOICES.has(req.body?.voice) ? req.body.voice : (VOICES.has(process.env.TTS_VOICE) ? process.env.TTS_VOICE : 'ash');
     if (!text) return res.status(400).json({ error: 'empty' });
 
-    const key = crypto.createHash('sha1').update(`${lang}|${text}`).digest('hex');
+    const key = crypto.createHash('sha1').update(`${voice}|${lang}|${text}`).digest('hex');
     let buf = ttsCache.get(key);
     if (!buf) {
         try {
             const audio = await withTimeout(openai.audio.speech.create({
                 model: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
-                voice: process.env.TTS_VOICE || 'coral',
+                voice,
                 input: text,
                 instructions: voiceInstructions(lang),
                 response_format: 'mp3'
@@ -771,6 +843,157 @@ async function handleSpeak(req, res) {
 }
 
 app.post('/api/speak', handleSpeak);
+
+// ---------------------------------------------------------------------------
+// Объявления iZamoN (хранятся в Supabase). Без базы объявления остаются только на устройстве автора.
+// ---------------------------------------------------------------------------
+async function sb(path, { method = 'GET', body, prefer } = {}) {
+    const r = await withTimeout(fetch(`${SB_URL()}/rest/v1/${path}`, {
+        method,
+        headers: {
+            apikey: SB_KEY(),
+            Authorization: `Bearer ${SB_KEY()}`,
+            'Content-Type': 'application/json',
+            ...(prefer ? { Prefer: prefer } : {})
+        },
+        body: body ? JSON.stringify(body) : undefined
+    }), 8000);
+    if (!r.ok) throw new Error(`Supabase ${r.status}`);
+    return r.status === 204 ? null : r.json();
+}
+
+const AD_FIELDS = 'id,created_at,title,price,currency,description,category,location,contact';
+
+function cleanNewAd(b) {
+    const x = b && typeof b === 'object' ? b : {};
+    const ad = {
+        title: clip(x.title, 120),
+        price: toPrice(x.price),
+        currency: clip(x.currency, 5).toUpperCase() || null,
+        description: clip(x.description, 1000),
+        category: CATEGORIES.includes(x.category) ? x.category : 'other',
+        location: clip(x.location, 80) || null,
+        contact: clip(x.contact, 80) || null,
+        owner: clip(x.owner, 64) || null,
+        lang: ['tg', 'ru', 'uz'].includes(x.lang) ? x.lang : 'tg',
+        status: 'active'
+    };
+    return ad.title ? ad : null;
+}
+
+async function createAd(ad) {
+    const rows = await sb('ads', { method: 'POST', body: ad, prefer: 'return=representation' });
+    return rows && rows[0] ? rows[0].id : null;
+}
+
+async function searchAds(q, limit = 5) {
+    if (!adsOn()) return [];
+    const words = [...new Set(norm(String(q || '')).split(' ').filter(w => w.length >= 3))].slice(0, 4);
+    if (!words.length) return [];
+    const conds = words.flatMap(w => ['title', 'description', 'location'].map(f => `${f}.ilike.*${w}*`));
+    const rows = await sb(`ads?select=${AD_FIELDS}&status=eq.active&order=created_at.desc&limit=40&or=(${encodeURIComponent(conds.join(','))})`);
+    return (rows || [])
+        .map(a => {
+            const hay = `${a.title} ${a.description} ${a.location}`.toLowerCase();
+            return { a, score: words.filter(w => hay.includes(w)).length };
+        })
+        .filter(x => x.score > 0)
+        .sort((x, y) => y.score - x.score)
+        .slice(0, limit)
+        .map(x => x.a);
+}
+
+function formatOwnAds(rows) {
+    if (!rows || !rows.length) return '';
+    const lines = ['📌 iZamoN'];
+    for (const a of rows) {
+        const price = a.price ? ` — ${Number(a.price).toLocaleString('en-US').replace(/,/g, ' ')}${a.currency ? ' ' + a.currency : ''}` : '';
+        lines.push(`🏷️ ${escapeHtml(a.title)}${price}`);
+        if (a.location) lines.push(`📍 ${escapeHtml(a.location)}`);
+        lines.push(`📞 ${a.contact ? escapeHtml(a.contact) : '—'}`);
+    }
+    return lines.join('\n');
+}
+
+const adsLimited = makeLimiter(5);
+
+async function handleAdsCreate(req, res) {
+    if (adsLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const ad = cleanNewAd(req.body);
+    if (!ad) return res.status(400).json({ ok: false, error: 'title_required' });
+    if (!adsOn()) return res.json({ ok: true, stored: false });
+    try {
+        const id = await createAd(ad);
+        return res.json({ ok: true, stored: true, id });
+    } catch (err) {
+        console.warn(`[ads create Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+async function handleAdsSearch(req, res) {
+    if (!adsOn()) return res.json({ ok: true, items: [] });
+    try {
+        const q = typeof req.query?.q === 'string' ? req.query.q.slice(0, 100) : '';
+        return res.json({ ok: true, items: await searchAds(q, 10) });
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+async function handleAdsMine(req, res) {
+    const owner = clip(req.query?.owner, 64);
+    if (!owner || !adsOn()) return res.json({ ok: true, items: [] });
+    try {
+        const rows = await sb(`ads?select=${AD_FIELDS}&owner=eq.${encodeURIComponent(owner)}&status=eq.active&order=created_at.desc&limit=50`);
+        return res.json({ ok: true, items: rows || [] });
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+app.post('/api/ads', handleAdsCreate);
+app.get('/api/ads', handleAdsSearch);
+app.get('/api/ads/mine', handleAdsMine);
+
+// ---------------------------------------------------------------------------
+// Диагностика: откройте /diag в браузере — страница покажет, что именно не работает (ключи не показываются).
+// ---------------------------------------------------------------------------
+const diagLimited = makeLimiter(3);
+const scrub = str => String(str || '').replace(/AIza[\w-]+/g, '***').replace(/sk-[\w-]+/g, '***').slice(0, 240);
+async function timed(fn) {
+    const t = Date.now();
+    try { return { ok: true, ms: Date.now() - t, ...(await fn()) }; }
+    catch (err) { return { ok: false, ms: Date.now() - t, status: err.status || null, error: scrub(err.message) }; }
+}
+
+async function handleDiag(req, res) {
+    if (process.env.DIAG_KEY && req.query?.k !== process.env.DIAG_KEY) return res.status(403).json({ error: 'forbidden' });
+    if (diagLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
+    const question = 'Какой сегодня курс доллара к сомони в Таджикистане?';
+    const out = { date: todayTJ().iso, geminiModels: GEMINI_MODELS };
+    if (gemini) {
+        out.gemini_plain = await timed(async () => ({ text: (await askGemini('Отвечай одним словом.', 'Скажи: привет', false)).text.slice(0, 40) }));
+        out.gemini_search = await timed(async () => {
+            const r = await askGemini('Ищи в интернете и отвечай коротко.', question, true);
+            return { text: r.text.slice(0, 60), sources: r.sources.length, searched: r.searched };
+        });
+    } else {
+        out.gemini = 'ключ GEMINI_API_KEY не задан';
+    }
+    if (openai) {
+        out.openai_search = await timed(async () => {
+            const r = await askOpenAISearch('Ищи в интернете и отвечай коротко.', question);
+            return { text: r.text.slice(0, 60), sources: r.sources.length };
+        });
+    } else {
+        out.openai = 'ключ OpenAI не задан';
+    }
+    out.ads_database = adsOn() ? await timed(async () => { await sb('ads?select=id&limit=1'); return {}; }) : 'не подключена (объявления остаются на устройстве автора)';
+    return res.json(out);
+}
+
+app.get('/diag', handleDiag);
 
 // Проверка состояния и «будильник» для бесплатного хостинга. Ключи не показываются.
 app.get('/health', (req, res) => {
@@ -792,5 +1015,6 @@ if (require.main === module) {
 module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
-    isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ
+    isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ,
+    handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
