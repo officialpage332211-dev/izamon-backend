@@ -141,44 +141,110 @@ function normalizePrompt(raw) {
     return { text: withoutModule, topic: (quoted ? quoted[1] : withoutModule).trim() };
 }
 
-function buildUserText({ mode, topic, cleaned }) {
-    if (topic) {
-        if (mode === 'finance') return `Пользователь открыл раздел «${topic}». Покажи актуальные курсы основных валют (доллар, евро, российский рубль) к сомони.`;
-        if (mode === 'jobs') return `Пользователь открыл раздел «${topic}». Найди актуальные вакансии на сегодня.`;
-        if (mode === 'ads') return `Пользователь открыл раздел «${topic}». Найди актуальные объявления на сегодня.`;
-        return `Пользователь открыл раздел «${topic}». Коротко расскажи, чем здесь можно помочь, дай один полезный совет и предложи уточнить, что именно нужно.`;
-    }
+// Кнопки разделов: у каждой свой поисковый запрос, чтобы ответ сразу содержал данные, а не описание раздела.
+const PORTAL_RULES = [
+    { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest',
+      query: 'Найди актуальные IT-курсы в Таджикистане (программирование, дизайн, 1С и др.): название школы, цена, длительность, сайт или контакт.' },
+    { re: /^(?:забонҳо|языки|tillar)$/, mode: 'digest',
+      query: 'Найди актуальные курсы иностранных языков в Таджикистане: язык, цена, формат, сайт или контакт школы.' },
+    { re: /^(?:ммт|mmt|мнт)$/, mode: 'digest',
+      query: 'Найди актуальную информацию про вступительное тестирование ММТ (Маркази миллии тестӣ, Национальный центр тестирования Таджикистана): ближайшие сроки, регистрация, результаты. Если по источникам ММТ означает иное, опирайся на источники.' },
+    { re: /донишномаҳо|энциклопеди|^kitoblar$/, mode: 'digest',
+      query: 'Дай один интересный проверенный факт из науки, истории или природы по энциклопедиям и надёжным источникам. Тема должна быть новой каждый день: выбери её по сегодняшней дате.' },
+    { re: /маслиҳатҳо|^советы$|^maslahat$/, mode: 'digest',
+      query: 'Найди 2–3 актуальные финансовые новости или практичных совета для жителей Таджикистана на сегодня (переводы, кредиты, курс валют, налоги).' },
+    { re: /^(?:кишт|посев|ekin)$/, mode: 'digest',
+      query: 'Что сеять и сажать в Таджикистане именно сейчас, по сегодняшней дате: 3–4 культуры, сроки посева и главный приём ухода, по данным агро-источников.' },
+    { re: /чорводорӣ|животноводств|^chorva$/, mode: 'digest',
+      query: 'Найди актуальные цены и предложения по скоту и кормам в Таджикистане и свежие советы ветеринаров: суть, цена, контакт или сайт.' },
+    { re: /^(?:ҳосил|урожай|hosil)$/, mode: 'digest',
+      query: 'Найди актуальные цены на сельхозпродукцию и урожай на рынках Таджикистана сегодня.' },
+    { re: /^(?:сафарҳо|поездки|safar)$/, mode: 'digest',
+      query: 'Найди актуальные предложения туров и поездок из Таджикистана: направление, цена, даты, контакт оператора.' },
+    { re: /чиптаҳо|^билеты$|^chiptalar$/, mode: 'digest',
+      query: 'Найди актуальные авиабилеты из Душанбе по популярным направлениям: цена, дата, авиакомпания, ссылка.' },
+    { re: /^(?:земли|заминҳои\s+кишт)$/, mode: 'ads',
+      query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане: площадь, цена, место, контакт владельца.' },
+    { re: /^yer$/, portal: /qishloq/, mode: 'ads',
+      query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане: площадь, цена, место, контакт владельца.' }
+];
+
+function resolvePortal(topic) {
+    const parts = String(topic).split(' - ');
+    const item = parts.pop().trim().toLowerCase();
+    const portal = parts.join(' - ').toLowerCase();
+    return PORTAL_RULES.find(r => r.re.test(item) && (!r.portal || r.portal.test(portal))) || null;
+}
+
+function portalQuery(mode, topic) {
+    if (mode === 'finance') return `Покажи актуальные курсы основных валют (доллар, евро, российский рубль) к сомони. Раздел: «${topic}».`;
+    if (mode === 'jobs') return `Найди актуальные вакансии на сегодня. Раздел: «${topic}».`;
+    if (mode === 'ads') return `Найди актуальные объявления на сегодня. Раздел: «${topic}».`;
+    return `Найди и сразу дай 2–3 самых полезных и актуальных пункта по теме «${topic}» для жителя Таджикистана: суть, цена или срок, источник.`;
+}
+
+function buildUserText({ mode, cleaned }) {
     if (mode === 'jobs' && JOBS_EXACT.test(cleaned.toLowerCase())) {
         return `Найди актуальные вакансии на сегодня. Запрос пользователя: «${cleaned}».`;
     }
     return cleaned;
 }
 
+// Единая точка выбора: режим, нужен ли поиск, текст запроса к модели.
+// Любая кнопка раздела — это всегда запрос с поиском, никаких «подсказок раздела».
+function routeRequest({ cleaned, topic, category = '' }) {
+    const rule = topic ? resolvePortal(topic) : (cleaned.length <= 40 ? resolvePortal(cleaned) : null);
+    if (rule) {
+        return {
+            mode: rule.mode,
+            factual: true,
+            userText: topic ? rule.query : `${rule.query} Запрос пользователя: «${cleaned}».`
+        };
+    }
+    const detectOn = topic || cleaned;
+    const mode = detectMode(detectOn, category);
+    if (topic) {
+        const m = mode === 'general' ? 'digest' : mode;
+        return { mode: m, factual: true, userText: portalQuery(m, topic) };
+    }
+    return { mode, factual: needsFacts(detectOn, mode, false), userText: buildUserText({ mode, cleaned }) };
+}
+
 // ---------------------------------------------------------------------------
 // Промпты
 // ---------------------------------------------------------------------------
 const LANG_NAMES = { tg: 'таджикский', ru: 'русский', uz: 'узбекский (латиницей)' };
+const LANG_RULES = {
+    tg: 'Таджикский — только литературный, кириллицей. Проверь изафет (-и), окончания и порядок слов. Никаких русских слов и калек, короткие простые предложения.',
+    ru: 'Русский — грамотный, проверь падежи и согласование. Без таджикских и иностранных вставок.',
+    uz: 'Узбекский — литературный, латиницей. Проверь окончания и порядок слов. Без русских вставок.'
+};
+const FORMS = { tg: '«Шумо»', ru: '«Вы»', uz: '«Siz»' };
 
 const DIRECTIVES = {
     jobs: `РЕЖИМ РАБОТЫ:
 - Ищи вакансии по всему интернету: сайты вакансий, Telegram, Instagram, Facebook и другие соцсети — всё, что нашёл поиск.
-- Дай до 3 актуальных вакансий на сегодня: должность, зарплата, город, контакт и от кого вакансия — всё строго из источника.
-- Не пиши про безработицу и экономику.
+- Сразу дай до 3 актуальных вакансий на сегодня: должность, зарплата, город, контакт и от кого вакансия — строго из источника.
+- Не описывай раздел. Не пиши про безработицу и экономику.
 - Свежих вакансий не нашёл — скажи одной строкой.`,
     finance: `РЕЖИМ КУРСОВ ВАЛЮТ:
-- Дай курсы USD, EUR, RUB к сомони на сегодня: сначала Национальный банк Таджикистана, затем 1–2 банка, если нашёл.
+- Сразу дай курсы USD, EUR, RUB к сомони на сегодня: сначала Национальный банк Таджикистана, затем 1–2 банка, если нашёл.
 - Дата курса обязательна. Нет точных данных — цифр не называй.`,
-    ads: `РЕЖИМ ОБЪЯВЛЕНИЙ (недвижимость, транспорт, товары):
-- Найди до 3 актуальных предложений на сегодня.
+    ads: `РЕЖИМ ОБЪЯВЛЕНИЙ (недвижимость, транспорт, товары, земля):
+- Сразу найди до 3 актуальных предложений на сегодня. Не описывай раздел.
 - Каждое: что это, цена, место, от кого объявление и контакт — строго из источника. Нет контакта в источнике — «контакт не указан».
 - Каждое предложение — отдельный блок из 2–3 коротких строк.
 - Подходящих нет — скажи одной строкой, без выдумок.`,
-    general: `РЕЖИМ ДРУГА И ПОМОЩНИКА:
+    digest: `РЕЖИМ ПОДБОРКИ:
+- Сразу дай конкретику: 2–3 актуальных пункта на сегодня — что это, цена или срок, сайт или контакт источника.
+- Не описывай раздел и не рассказывай, что умеешь: никаких «в этом разделе можно…».
+- Данные только из найденных источников. Не нашёл — одна строка об этом.`,
+    general: `РЕЖИМ ПОМОЩНИКА:
 - Помогай с любыми вопросами: наука, учёба, быт, чувства, планы, как прошёл день.
 - Объясняй по-простому и по делу.`
 };
 
-function buildSystemPrompt({ mode, lang, canSearch, date }) {
+function buildSystemPrompt({ mode, lang, canSearch, date, strict = false }) {
     const truth = canSearch
         ? `ПРАВДИВОСТЬ (важнее всего):
 - Факты (курсы, цены, вакансии, объявления, адреса, телефоны, законы, расписания) бери только из найденных источников и только актуальные на сегодня.
@@ -190,30 +256,48 @@ function buildSystemPrompt({ mode, lang, canSearch, date }) {
 - У тебя нет доступа к интернету. Текущие данные (курсы, цены, новости, вакансии, объявления, расписания, контакты) не называй.
 - Научные и общие знания объясняй свободно; если не уверен — скажи об этом.`;
 
-    return `Ты — iZamoN AI: близкий друг и умный помощник людей Таджикистана и Центральной Азии. Сегодня: ${date.human} (Душанбе).
+    return `Ты — iZamoN AI: внимательный помощник и уважительный друг людей Таджикистана и Центральной Азии. Сегодня: ${date.human} (Душанбе).
 
 ХАРАКТЕР:
-- Говори как близкий друг: на «ты», тепло, просто, без канцелярита. Понимай сленг, диалекты и смесь языков.
+- Обращайся на «Вы» (${FORMS[lang]}): вежливо и тепло, без панибратства. Понимай сленг, диалекты и смесь языков.
 - Слово не понял — переспроси коротко, не угадывай.
 - О чувствах слушай и поддерживай, без лекций. Ты ИИ, не притворяйся человеком.
 - Если человеку очень тяжело или он говорит о желании навредить себе — мягко поддержи и посоветуй обратиться к близким или специалисту.
 
 СТИЛЬ (строго):
 - По умолчанию 2–5 строк. Больше — только если человек просит подробно.
-- Сразу к сути: без вступлений, пересказа вопроса, общих фраз и пожеланий ради пожеланий.
-- Одна строка = одно короткое предложение с одним подходящим по смыслу эмодзи в начале.
-- Строки идут подряд, без пустых строк между ними.
-- Один язык на весь ответ: ${LANG_NAMES[lang]}. Не смешивай языки (имена, бренды и аббревиатуры допустимы).
-- Без Markdown-заголовков, таблиц и HTML; для акцента можно **жирный**.
+- Сразу к сути: сначала данные или ответ. Не описывай раздел, не рассказывай, что умеешь, не пересказывай вопрос.
+- Никаких вопросов и приглашений в конце («уточните», «обращайтесь», «хотите ли…»). Один короткий вопрос допустим, только если без него невозможно ответить.
+- Без пожеланий и общих фраз ради вежливости.
+- Одна строка = одно короткое предложение с одним подходящим по смыслу эмодзи в начале; строки идут подряд, без пустых строк.
+- Один язык на весь ответ: ${LANG_NAMES[lang]}. ${LANG_RULES[lang]} (имена, бренды и аббревиатуры допустимы).
+- Без Markdown-заголовков, таблиц и HTML; для акцента можно **жирный**.${strict ? '\n- ВАЖНО: в прошлой попытке в ответе были слова другого языка. Пиши строго на одном языке, без иностранных и русских слов (кроме названий брендов).' : ''}
 
 ${DIRECTIVES[mode]}
 
 ${truth}`;
 }
 
+// Защита от «языковой аварии»: чужие слова в ответе (латиница, русские слова в таджикском и наоборот).
+const LATIN_OK = new Set(['izamon', 'google', 'telegram', 'whatsapp', 'instagram', 'facebook', 'youtube', 'tiktok', 'linkedin', 'somon', 'iphone', 'samsung', 'python', 'java', 'javascript', 'excel', 'word', 'android', 'windows', 'zoom']);
+const RU_LEAK = new RegExp('(?<![а-яёӣӯқғҳҷ])(?:информаци[яию]|уточните|пожалуйста|можно|также|который|которые|является|раздел[аеу]?|совет[ау]?|например|вопрос[ыа]?|конкретн[а-яё]*|рекомендуем|обратитесь)(?![а-яёӣӯқғҳҷ])', 'i');
+
+function mixedLanguage(text, lang) {
+    if (lang === 'uz') return false;
+    const t = String(text)
+        .replace(/<[^>]*>/g, ' ')
+        .replace(/https?:\/\/\S+/g, ' ')
+        .replace(/(?<![\p{L}])[\p{L}\d-]+\.(?:tj|com|ru|org|net|uz|io|me|info)(?![\p{L}])/giu, ' ');
+    const latin = t.match(/[A-Za-z\u00C0-\u024F]{4,}/g) || [];
+    if (latin.some(w => !LATIN_OK.has(w.toLowerCase()))) return true;
+    if (lang === 'tg' && (RU_LEAK.test(t) || /[ыщ]/i.test(t))) return true;
+    if (lang === 'ru' && /[ӣӯқғҳҷ]/.test(t)) return true;
+    return false;
+}
+
 // Тексты на таджикском и узбекском стоит показать носителю языка.
 const NO_DATA = {
-    ru: '🔍 Подтверждённых данных на сегодня не нашёл, поэтому ничего не выдумываю.\n💡 Уточни запрос или попробуй чуть позже.',
+    ru: '🔍 Подтверждённых данных на сегодня не нашёл, поэтому ничего не выдумываю.\n💡 Уточните запрос или попробуйте чуть позже.',
     tg: '🔍 Барои имрӯз маълумоти тасдиқшуда наёфтам, бинобар ин тахмин намекунам.\n💡 Дархостро дақиқтар кунед ё каме баъдтар кӯшиш кунед.',
     uz: "🔍 Bugun uchun tasdiqlangan ma'lumot topa olmadim, shuning uchun taxmin qilmayman.\n💡 So'rovni aniqroq yozing yoki birozdan keyin urinib ko'ring."
 };
@@ -224,7 +308,7 @@ const RATE_REPLY = {
     uz: "So'rovlar juda ko'p. Bir daqiqa kutib, qayta urinib ko'ring."
 };
 const BUSY_REPLY = {
-    ru: '⏳ Сейчас много людей, попробуй через несколько секунд.',
+    ru: '⏳ Сейчас много людей, попробуйте через несколько секунд.',
     tg: '⏳ Ҳоло одамон зиёданд, баъди чанд сония кӯшиш кунед.',
     uz: "⏳ Hozir odamlar ko'p, bir necha soniyadan keyin urinib ko'ring."
 };
@@ -312,7 +396,7 @@ let active = 0;
 const MIN = 60 * 1000;
 const ttlFor = mode => (mode === 'finance' ? 10 * MIN : 20 * MIN);
 
-async function compute({ mode, lang, factual, fullMessage, date, topic }) {
+async function compute({ mode, lang, factual, fullMessage, date }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -320,33 +404,50 @@ async function compute({ mode, lang, factual, fullMessage, date, topic }) {
     try {
         if (factual) {
             let errored = false;
+            let kept = null;
             if (gemini) {
-                try {
-                    const r = await askGemini(buildSystemPrompt({ mode, lang, canSearch: true, date }), fullMessage, true);
-                    if (r.sources.length) {
-                        return { body: { answer: finalize(r.text, r.sources, lang), provider: 'gemini', grounded: true, sources: r.sources }, ttl: ttlFor(mode) };
+                // Один повтор со строгим требованием к языку, если в ответе нашлись чужие слова.
+                for (const strict of [false, true]) {
+                    try {
+                        const r = await askGemini(buildSystemPrompt({ mode, lang, canSearch: true, date, strict }), fullMessage, true);
+                        if (!r.sources.length) break;
+                        if (!strict && mixedLanguage(r.text, lang)) { kept = r; continue; }
+                        kept = r;
+                        break;
+                    } catch (err) {
+                        errored = true;
+                        console.warn(`[gemini Сбой]: ${err.status || ''} ${err.message}`);
+                        break;
                     }
-                } catch (err) {
-                    errored = true;
-                    console.warn(`[gemini Сбой]: ${err.status || ''} ${err.message}`);
                 }
+            }
+            if (kept) {
+                return { body: { answer: finalize(kept.text, kept.sources, lang), provider: 'gemini', grounded: true, sources: kept.sources }, ttl: ttlFor(mode) };
             }
             // Источников нет — фактов не даём вообще.
             return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: errored ? 0 : 3 * MIN };
         }
 
-        const system = buildSystemPrompt({ mode, lang, canSearch: false, date });
-        const attempts = [];
-        if (openai) attempts.push({ name: 'openai', run: () => askChat(openai, OPENAI_MODEL, system, fullMessage) });
-        if (gemini) attempts.push({ name: 'gemini', run: () => askGemini(system, fullMessage, false) });
-        if (openrouter) attempts.push({ name: 'openrouter', run: () => askChat(openrouter, OPENROUTER_MODEL, system, fullMessage) });
-        for (const a of attempts) {
+        // Разговор без поиска. Для таджикского и узбекского первым идёт Gemini: он грамотнее.
+        const order = lang === 'ru' ? ['openai', 'gemini', 'openrouter'] : ['gemini', 'openai', 'openrouter'];
+        let kept = null;
+        for (const name of order) {
+            const system = buildSystemPrompt({ mode, lang, canSearch: false, date, strict: !!kept });
+            let run = null;
+            if (name === 'openai' && openai) run = () => askChat(openai, OPENAI_MODEL, system, fullMessage);
+            if (name === 'gemini' && gemini) run = () => askGemini(system, fullMessage, false);
+            if (name === 'openrouter' && openrouter) run = () => askChat(openrouter, OPENROUTER_MODEL, system, fullMessage);
+            if (!run) continue;
             try {
-                const r = await a.run();
-                return { body: { answer: finalize(r.text, [], lang), provider: a.name, grounded: false, sources: [] }, ttl: topic ? 6 * 60 * MIN : 0 };
+                const r = await run();
+                if (mixedLanguage(r.text, lang)) { kept = kept || { r, name }; continue; }
+                return { body: { answer: finalize(r.text, [], lang), provider: name, grounded: false, sources: [] }, ttl: 0 };
             } catch (err) {
-                console.warn(`[${a.name} Сбой]: ${err.status || ''} ${err.message}`);
+                console.warn(`[${name} Сбой]: ${err.status || ''} ${err.message}`);
             }
+        }
+        if (kept) {
+            return { body: { answer: finalize(kept.r.text, [], lang), provider: kept.name, grounded: false, sources: [] }, ttl: 0 };
         }
         return { body: { answer: ERR_FALLBACK[lang], provider: 'none', grounded: false, sources: [] }, ttl: 0 };
     } finally {
@@ -380,14 +481,12 @@ async function handleChat(req, res) {
 
     const { text: cleaned, topic } = normalizePrompt(prompt);
     if (!cleaned) return res.status(400).json({ error: 'Промпт не передан' });
+    const { mode, factual, userText } = routeRequest({ cleaned, topic, category });
     const detectOn = topic || cleaned;
-    const mode = detectMode(detectOn, category);
-    const factual = needsFacts(detectOn, mode, !!topic);
-    const userText = buildUserText({ mode, topic, cleaned });
     const fullMessage = category ? `[Подраздел: ${category}] ${userText}` : userText;
     const date = todayTJ();
 
-    const cacheable = factual || !!topic;
+    const cacheable = factual;
     const key = `${date.iso}|${lang}|${mode}|${factual ? 'f' : 'n'}|${norm(detectOn)}`;
     if (cacheable) {
         const hit = answerCache.get(key);
@@ -395,7 +494,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage, date, topic }));
+        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage, date }));
         return res.json(r.body);
     } catch (err) {
         console.error('chat failed:', err);
@@ -692,6 +791,6 @@ if (require.main === module) {
 
 module.exports = {
     app, handleChat, handleImport, handleSpeak,
-    detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt,
+    detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ
 };
