@@ -335,6 +335,17 @@ function finalize(text, sources, lang) {
 // ---------------------------------------------------------------------------
 // Провайдеры
 // ---------------------------------------------------------------------------
+// «Предохранитель»: если у Gemini кончилась квота или он завис, несколько минут его не трогаем,
+// чтобы люди не ждали впустую, а ответы шли через OpenAI.
+let geminiDownUntil = 0;
+const geminiUp = () => !!gemini && Date.now() >= geminiDownUntil;
+function noteGeminiFailure(err) {
+    if (err && (err.status === 429 || err.status === 403 || /timeout/i.test(String(err.message)))) {
+        geminiDownUntil = Date.now() + (Number(process.env.GEMINI_COOLDOWN_MS) || 5 * 60 * 1000);
+    }
+}
+function resetGeminiBreaker() { geminiDownUntil = 0; }
+
 let thinkingOk = true;
 const GEMINI_MODELS = [...new Set([GEMINI_MODEL, ...(process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash').split(',').map(x => x.trim()).filter(Boolean)])];
 
@@ -364,7 +375,7 @@ function parseGemini(response) {
 }
 
 async function askGemini(system, userText, useSearch) {
-    const ms = useSearch ? 20000 : 12000;
+    const ms = useSearch ? 20000 : 8000;
     let lastErr;
     for (const model of GEMINI_MODELS) {
         const build = withThinking => ({
@@ -395,6 +406,7 @@ async function askGemini(system, userText, useSearch) {
             lastErr = err;
             // Модель не найдена — пробуем запасную.
             if (err.status === 404 && model !== GEMINI_MODELS[GEMINI_MODELS.length - 1]) continue;
+            noteGeminiFailure(err);
             throw err;
         }
     }
@@ -469,7 +481,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery }) {
             }
             let errored = false;
             const engines = [];
-            if (gemini) engines.push({ name: 'gemini', run: (sys, msg) => askGemini(sys, msg, true) });
+            if (geminiUp()) engines.push({ name: 'gemini', run: (sys, msg) => askGemini(sys, msg, true) });
             if (openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             for (const eng of engines) {
                 let kept = null;
@@ -506,7 +518,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery }) {
             const system = buildSystemPrompt({ mode, lang, canSearch: false, date, strict: !!kept });
             let run = null;
             if (name === 'openai' && openai) run = () => askChat(openai, OPENAI_MODEL, system, fullMessage);
-            if (name === 'gemini' && gemini) run = () => askGemini(system, fullMessage, false);
+            if (name === 'gemini' && geminiUp()) run = () => askGemini(system, fullMessage, false);
             if (name === 'openrouter' && openrouter) run = () => askChat(openrouter, OPENROUTER_MODEL, system, fullMessage);
             if (!run) continue;
             try {
@@ -963,7 +975,7 @@ const diagLimited = makeLimiter(3);
 const scrub = str => String(str || '').replace(/AIza[\w-]+/g, '***').replace(/sk-[\w-]+/g, '***').slice(0, 240);
 async function timed(fn) {
     const t = Date.now();
-    try { return { ok: true, ms: Date.now() - t, ...(await fn()) }; }
+    try { const v = await fn(); return { ok: true, ms: Date.now() - t, ...v }; }
     catch (err) { return { ok: false, ms: Date.now() - t, status: err.status || null, error: scrub(err.message) }; }
 }
 
@@ -971,7 +983,7 @@ async function handleDiag(req, res) {
     if (process.env.DIAG_KEY && req.query?.k !== process.env.DIAG_KEY) return res.status(403).json({ error: 'forbidden' });
     if (diagLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
     const question = 'Какой сегодня курс доллара к сомони в Таджикистане?';
-    const out = { date: todayTJ().iso, geminiModels: GEMINI_MODELS };
+    const out = { date: todayTJ().iso, geminiModels: GEMINI_MODELS, geminiPauseSec: Math.max(0, Math.round((geminiDownUntil - Date.now()) / 1000)) };
     if (gemini) {
         out.gemini_plain = await timed(async () => ({ text: (await askGemini('Отвечай одним словом.', 'Скажи: привет', false)).text.slice(0, 40) }));
         out.gemini_search = await timed(async () => {
@@ -1016,5 +1028,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ,
-    handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
