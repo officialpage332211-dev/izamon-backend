@@ -606,6 +606,23 @@ async function runShared(key, cacheable, fn) {
     return p;
 }
 
+// Короткая память диалога: сайт присылает последние сообщения текущего разговора.
+// Сервер их нигде не хранит — память живёт только в открытой вкладке человека.
+function cleanHistory(raw) {
+    if (!Array.isArray(raw)) return [];
+    return raw
+        .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
+        .map(m => ({ role: m.role, content: m.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600) }))
+        .filter(m => m.content)
+        .slice(-6);
+}
+
+function withHistory(text, history) {
+    if (!history.length) return text;
+    const lines = history.map(m => `${m.role === 'user' ? 'Пользователь' : 'Помощник'}: ${m.content}`);
+    return `Предыдущие сообщения этого разговора (для понимания контекста, не повторяй их):\n${lines.join('\n')}\n\nНовое сообщение пользователя: ${text}`;
+}
+
 async function handleChat(req, res) {
     const body = req.body || {};
     const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
@@ -620,12 +637,20 @@ async function handleChat(req, res) {
 
     const { text: cleaned, topic } = normalizePrompt(prompt);
     if (!cleaned) return res.status(400).json({ error: 'Промпт не передан' });
-    const { mode, factual, userText } = routeRequest({ cleaned, topic, category });
+    const history = cleanHistory(body.history);
+    // Короткое уточнение («а подешевле?») понимаем вместе с прошлым вопросом.
+    const lastUser = [...history].reverse().find(m => m.role === 'user');
+    const followUp = !topic && lastUser && cleaned.length <= 60;
+    const routeOn = followUp ? `${lastUser.content} ${cleaned}` : cleaned;
+    const routed = routeRequest({ cleaned: routeOn, topic, category });
+    const { mode, factual } = routed;
+    const userText = withHistory(followUp ? cleaned : routed.userText, history);
     const detectOn = topic || cleaned;
     const fullMessage = category ? `[Подраздел: ${category}] ${userText}` : userText;
     const date = todayTJ();
 
-    const cacheable = factual;
+    // С историей ответ зависит от разговора — такие ответы не кэшируем.
+    const cacheable = factual && !history.length;
     const key = `${date.iso}|${lang}|${mode}|${factual ? 'f' : 'n'}|${norm(detectOn)}`;
     if (cacheable) {
         const hit = answerCache.get(key);
@@ -633,7 +658,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage, date, adsQuery: topic ? topic.split(' - ').pop() : cleaned }));
+        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage, date, adsQuery: topic ? topic.split(' - ').pop() : routeOn }));
         return res.json(r.body);
     } catch (err) {
         console.error('chat failed:', err);
@@ -1020,6 +1045,35 @@ async function handleAdsMine(req, res) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Обратная связь: 👍/👎 под ответом сохраняются в Supabase (таблица feedback).
+// ---------------------------------------------------------------------------
+const feedbackLimited = makeLimiter(30);
+
+async function handleFeedback(req, res) {
+    if (feedbackLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const b = req.body || {};
+    const rating = b.rating === 'like' || b.rating === 'dislike' ? b.rating : null;
+    if (!rating) return res.status(400).json({ ok: false, error: 'bad_rating' });
+    const row = {
+        rating,
+        question: clip(b.question, 1000),
+        answer: clip(String(b.answer || '').replace(/<[^>]*>/g, ' '), 3000),
+        lang: ['tg', 'ru', 'uz'].includes(b.lang) ? b.lang : null,
+        owner: clip(b.owner, 64) || null
+    };
+    if (!adsOn()) return res.json({ ok: true, stored: false });
+    try {
+        await sb('feedback', { method: 'POST', body: row, prefer: 'return=minimal' });
+        return res.json({ ok: true, stored: true });
+    } catch (err) {
+        console.warn(`[feedback Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+app.post('/api/feedback', handleFeedback);
+
 app.post('/api/ads', handleAdsCreate);
 app.get('/api/ads', handleAdsSearch);
 app.get('/api/ads/mine', handleAdsMine);
@@ -1084,5 +1138,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, cleanHistory, withHistory, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
