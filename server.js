@@ -155,7 +155,7 @@ const PORTAL_RULES = [
     { re: /^(?:ммт|mmt|мнт)$/, mode: 'digest',
       query: 'Найди актуальную информацию про вступительное тестирование ММТ (Маркази миллии тестӣ, Национальный центр тестирования Таджикистана): ближайшие сроки, регистрация, результаты. Если по источникам ММТ означает иное, опирайся на источники.' },
     { re: /донишномаҳо|энциклопеди|^kitoblar$/, mode: 'digest',
-      query: 'Дай один интересный проверенный факт из науки, истории или природы по энциклопедиям и надёжным источникам. Тема должна быть новой каждый день: выбери её по сегодняшней дате.' },
+      query: 'Дай один интересный вечный факт из энциклопедии (например, Википедии) по науке, истории или природе. Это не новость и не событие сегодняшнего дня. Для разнообразия выбери тему по номеру сегодняшнего дня в году.' },
     { re: /маслиҳатҳо|^советы$|^maslahat$/, mode: 'digest',
       query: 'Найди 2–3 актуальные финансовые новости или практичных совета для жителей Таджикистана на сегодня (переводы, кредиты, курс валют, налоги).' },
     { re: /^(?:кишт|посев|ekin)$/, mode: 'digest',
@@ -229,21 +229,22 @@ const FORMS = { tg: '«Шумо»', ru: '«Вы»', uz: '«Siz»' };
 const DIRECTIVES = {
     jobs: `РЕЖИМ РАБОТЫ:
 - Ищи вакансии по всему интернету: сайты вакансий, Telegram, Instagram, Facebook и другие соцсети — всё, что нашёл поиск.
-- Сразу дай до 3 актуальных вакансий на сегодня: должность, зарплата, город, контакт и от кого вакансия — строго из источника.
+- Сразу дай не больше 3 актуальных вакансий на сегодня: должность, зарплата, город, контакт и от кого вакансия — строго из источника.
 - Не описывай раздел. Не пиши про безработицу и экономику.
 - Свежих вакансий не нашёл — скажи одной строкой.`,
     finance: `РЕЖИМ КУРСОВ ВАЛЮТ:
 - Сразу дай курсы USD, EUR, RUB к сомони на сегодня: сначала Национальный банк Таджикистана, затем 1–2 банка, если нашёл.
 - Дата курса обязательна. Нет точных данных — цифр не называй.`,
     ads: `РЕЖИМ ОБЪЯВЛЕНИЙ (недвижимость, транспорт, товары, земля):
-- Сразу найди до 3 актуальных предложений на сегодня. Не описывай раздел.
+- Сразу найди не больше 3 актуальных предложений на сегодня. Не описывай раздел.
 - Каждое: что это, цена, место, от кого объявление и контакт — строго из источника. Нет контакта в источнике — «контакт не указан».
 - Каждое предложение — отдельный блок из 2–3 коротких строк.
 - Подходящих нет — скажи одной строкой, без выдумок.`,
     digest: `РЕЖИМ ПОДБОРКИ:
 - Сразу дай конкретику: 2–3 актуальных пункта на сегодня — что это, цена или срок, сайт или контакт источника.
 - Не описывай раздел и не рассказывай, что умеешь: никаких «в этом разделе можно…».
-- Данные только из найденных источников. Не нашёл — одна строка об этом.`,
+- Данные только из найденных источников. Нет конкретных дат, цен или названий — скажи об этом одной строкой, без общих фраз.
+- Не больше 3 пунктов, каждый — 1–2 короткие строки.`,
     general: `РЕЖИМ ПОМОЩНИКА:
 - Помогай с любыми вопросами: наука, учёба, быт, чувства, планы, как прошёл день.
 - Объясняй по-простому и по делу.`
@@ -293,7 +294,7 @@ function mixedLanguage(text, lang) {
         .replace(/<[^>]*>/g, ' ')
         .replace(/https?:\/\/\S+/g, ' ')
         .replace(/(?<![\p{L}])[\p{L}\d-]+\.(?:tj|com|ru|org|net|uz|io|me|info)(?![\p{L}])/giu, ' ');
-    const latin = t.match(/[A-Za-z\u00C0-\u024F]{4,}/g) || [];
+    const latin = t.match(/(?<![A-Za-z\u00C0-\u024F])[a-z\u00DF-\u024F][a-z\u00DF-\u024F]{3,}(?![A-Za-z\u00C0-\u024F])/g) || [];
     if (latin.some(w => !LATIN_OK.has(w.toLowerCase()))) return true;
     if (lang === 'tg' && (RU_LEAK.test(t) || /[ыщ]/i.test(t))) return true;
     if (lang === 'ru' && /[ӣӯқғҳҷ]/.test(t)) return true;
@@ -323,9 +324,39 @@ const ERR_FALLBACK = {
     uz: "🌸 Afsuski, xatolik yuz berdi.\n\nQayta urinib ko'ring, hammasi yaxshi bo'ladi! ✨"
 };
 
+// Модель любит разметку Markdown и ссылки на карты — сайт их не понимает. Чистим на сервере.
+function cleanModelText(text) {
+    return String(text)
+        .replace(/\[([^\]\n]+)\]\(\s*https?:\/\/[^)\s]*google\.[a-z.]+\/maps[^)\s]*\)/gi, '$1')
+        .replace(/\[([^\]\n]+)\]\(\s*https?:\/\/[^)\s]+\)/g, '$1')
+        .replace(/https?:\/\/(?:www\.)?google\.[a-z.]+\/maps\S*/gi, '')
+        .replace(/[?&]utm_source=openai/g, '')
+        .replace(/^#{1,6}\s*/gm, '')
+        .replace(/(^|[\s(])_([^_\n]{1,120})_(?=[\s).,;:!?]|$)/g, '$1$2')
+        .replace(/(^|[\s(])\*([^*\n]{1,120})\*(?=[\s).,;:!?]|$)/g, '$1$2')
+        .replace(/\(\s*\)/g, '')
+        .replace(/[ \t]+\n/g, '\n')
+        .replace(/\n\s*\n+/g, '\n')
+        .trim();
+}
+
+function capLines(text, max = 10) {
+    return String(text).split('\n').filter(l => l.trim()).slice(0, max).join('\n');
+}
+
+function linkify(safe) {
+    return safe.replace(/https?:\/\/[^\s<]+/g, raw => {
+        const m = raw.match(/^(.*?)([.,;:!?)\]]*)$/);
+        const url = m[1];
+        let label;
+        try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { return raw; }
+        return `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>${m[2]}`;
+    });
+}
+
 // Сайт вставляет ответ через innerHTML: текст модели экранируется, ссылки на источники собираем сами.
 function finalize(text, sources, lang) {
-    const safe = escapeHtml(text.trim());
+    const safe = linkify(escapeHtml(cleanModelText(text)));
     const links = sources
         .filter(s => /^https:\/\//i.test(s.uri || ''))
         .map(s => `<a href="${escapeAttr(s.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title || s.uri)}</a>`);
@@ -349,12 +380,23 @@ function resetGeminiBreaker() { geminiDownUntil = 0; }
 let thinkingOk = true;
 const GEMINI_MODELS = [...new Set([GEMINI_MODEL, ...(process.env.GEMINI_FALLBACK_MODELS || 'gemini-3.6-flash').split(',').map(x => x.trim()).filter(Boolean)])];
 
+function realSource(uri) {
+    try {
+        const u = new URL(uri);
+        const host = u.hostname.replace(/^www\./, '');
+        if (host === 'maps.google.com') return null;
+        if (/(^|\.)google\.[a-z.]+$/.test(host) && /^\/(maps|search)/.test(u.pathname)) return null;
+        u.searchParams.delete('utm_source');
+        return u.href;
+    } catch { return null; }
+}
+
 function uniqueSources(list) {
     const seen = new Set();
     const out = [];
     for (const c of list) {
-        const uri = c && c.uri;
-        if (!uri || !/^https:\/\//i.test(uri)) continue;
+        const uri = c && c.uri && /^https:\/\//i.test(c.uri) ? realSource(c.uri) : null;
+        if (!uri) continue;
         let title = c.title;
         if (!title) { try { title = new URL(uri).hostname.replace(/^www\./, ''); } catch { title = uri; } }
         if (seen.has(title)) continue;
@@ -443,14 +485,14 @@ async function askOpenAISearch(system, userText) {
     return { text, sources: uniqueSources(cites) };
 }
 
-async function askChat(client, model, system, userText) {
+async function askChat(client, model, system, userText, maxTokens = 300) {
     const completion = await withTimeout(client.chat.completions.create({
         model,
         messages: [
             { role: 'system', content: system },
             { role: 'user', content: userText }
         ],
-        max_tokens: 300
+        max_tokens: maxTokens
     }), 10000);
     const text = completion.choices?.[0]?.message?.content?.trim();
     if (!text) throw new Error('Empty response');
@@ -466,6 +508,28 @@ let active = 0;
 
 const MIN = 60 * 1000;
 const ttlFor = mode => (mode === 'finance' ? 10 * MIN : (mode === 'ads' && adsOn()) ? 2 * MIN : 20 * MIN);
+
+// Поиск лучше работает по-русски и по-английски, а отвечать нужно коротко и на языке человека.
+// Если ответ длинный или на чужом языке — отдельным лёгким вызовом переписываем его по нашим правилам.
+const needsRewrite = (text, lang) => mixedLanguage(text, lang) || text.length > 900 || text.split('\n').filter(l => l.trim()).length > 10;
+
+async function rewriteForUser(text, { mode, lang, date }) {
+    const system = buildSystemPrompt({ mode, lang, canSearch: true, date }) +
+        '\n\nЗАДАЧА: перепиши найденные данные в короткий ответ на нужном языке. Оставь 2–3 самых полезных пункта, не больше 8 строк. Названия, цифры, даты, телефоны и сайты сохрани точно, ничего не добавляй от себя. Если конкретных данных нет, скажи об этом одной строкой.';
+    const runs = [];
+    if (openai) runs.push(() => askChat(openai, OPENAI_MODEL, system, text, 450));
+    if (geminiUp()) runs.push(() => askGemini(system, text, false));
+    if (openrouter) runs.push(() => askChat(openrouter, OPENROUTER_MODEL, system, text, 450));
+    for (const run of runs) {
+        try {
+            const r = await run();
+            if (r.text) return r.text;
+        } catch (err) {
+            console.warn(`[rewrite Сбой]: ${err.status || ''} ${err.message}`);
+        }
+    }
+    return text;
+}
 
 async function compute({ mode, lang, factual, fullMessage, date, adsQuery }) {
     if (active >= MAX_ACTIVE) {
@@ -484,24 +548,16 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery }) {
             if (geminiUp()) engines.push({ name: 'gemini', run: (sys, msg) => askGemini(sys, msg, true) });
             if (openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             for (const eng of engines) {
-                let kept = null;
-                // Один повтор со строгим требованием к языку, если в ответе нашлись чужие слова.
-                for (const strict of [false, true]) {
-                    try {
-                        const r = await eng.run(buildSystemPrompt({ mode, lang, canSearch: true, date, strict }), fullMessage);
-                        if (!r.sources.length) break;
-                        if (!strict && mixedLanguage(r.text, lang)) { kept = r; continue; }
-                        kept = r;
-                        break;
-                    } catch (err) {
-                        errored = true;
-                        console.warn(`[${eng.name} поиск Сбой]: ${err.status || ''} ${err.message}`);
-                        break;
-                    }
-                }
-                if (kept) {
-                    const web = finalize(kept.text, kept.sources, lang);
-                    return { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources: kept.sources }, ttl: ttlFor(mode) };
+                try {
+                    const r = await eng.run(buildSystemPrompt({ mode, lang, canSearch: true, date }), fullMessage);
+                    if (!r.sources.length) continue; // настоящих источников нет — пробуем следующий поиск
+                    let text = cleanModelText(r.text);
+                    if (needsRewrite(text, lang)) text = await rewriteForUser(text, { mode, lang, date });
+                    const web = finalize(capLines(cleanModelText(text), 10), r.sources, lang);
+                    return { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources: r.sources }, ttl: ttlFor(mode) };
+                } catch (err) {
+                    errored = true;
+                    console.warn(`[${eng.name} поиск Сбой]: ${err.status || ''} ${err.message}`);
                 }
             }
             if (ownBlock) {
@@ -1028,5 +1084,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ,
-    resetGeminiBreaker, geminiUp, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
