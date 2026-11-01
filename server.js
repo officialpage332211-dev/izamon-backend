@@ -25,6 +25,7 @@ app.set('trust proxy', 1);
 // Если задана ALLOWED_ORIGINS (адреса сайта через запятую) — принимаем запросы только с них.
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({ ...(allowedOrigins.length ? { origin: allowedOrigins } : {}), methods: ['GET', 'POST', 'DELETE'], allowedHeaders: ['Content-Type', 'Authorization'] }));
+app.use('/api/stt', express.raw({ type: () => true, limit: '6mb' }));
 app.use(express.json({ limit: '20kb' }));
 
 const geminiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
@@ -164,9 +165,9 @@ const PORTAL_RULES = [
       query: 'Найди актуальные цены и предложения по скоту и кормам в Таджикистане и свежие советы ветеринаров: суть, цена, контакт или сайт.' },
     { re: /^(?:ҳосил|урожай|hosil)$/, mode: 'digest',
       query: 'Найди актуальные цены на сельхозпродукцию и урожай на рынках Таджикистана сегодня.' },
-    { re: /^(?:сафарҳо|поездки|safar)$/, mode: 'digest',
+    { re: /^(?:сафарҳо|поездки|safar)$/, mode: 'digest', kind: 'tours',
       query: 'Найди актуальные предложения туров и поездок из Таджикистана: направление, цена, даты, контакт оператора.' },
-    { re: /чиптаҳо|^билеты$|^chiptalar$/, mode: 'digest',
+    { re: /чиптаҳо|^билеты$|^chiptalar$/, mode: 'digest', kind: 'tickets',
       query: 'Найди актуальные авиабилеты из Душанбе по популярным направлениям: цена, дата, авиакомпания, ссылка.' },
     { re: /^(?:земли|заминҳои\s+кишт)$/, mode: 'ads',
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане, сначала на somon.tj: площадь, цена, место, контакт владельца.' },
@@ -197,11 +198,14 @@ function buildUserText({ mode, cleaned }) {
 
 // Единая точка выбора: режим, нужен ли поиск, текст запроса к модели.
 // Любая кнопка раздела — это всегда запрос с поиском, никаких «подсказок раздела».
+const KIND_OF_MODE = { ads: 'ads', jobs: 'jobs', finance: 'rates' };
+
 function routeRequest({ cleaned, topic, category = '' }) {
     const rule = topic ? resolvePortal(topic) : (cleaned.length <= 40 ? resolvePortal(cleaned) : null);
     if (rule) {
         return {
             mode: rule.mode,
+            kind: rule.kind || KIND_OF_MODE[rule.mode] || null,
             factual: true,
             userText: topic ? rule.query : `${rule.query} Запрос пользователя: «${cleaned}».`
         };
@@ -210,9 +214,10 @@ function routeRequest({ cleaned, topic, category = '' }) {
     const mode = detectMode(detectOn, category);
     if (topic) {
         const m = mode === 'general' ? 'digest' : mode;
-        return { mode: m, factual: true, userText: portalQuery(m, topic) };
+        return { mode: m, kind: KIND_OF_MODE[m] || null, factual: true, userText: portalQuery(m, topic) };
     }
-    return { mode, factual: needsFacts(detectOn, mode, false), userText: buildUserText({ mode, cleaned }) };
+    const factual = needsFacts(detectOn, mode, false);
+    return { mode, kind: factual ? (KIND_OF_MODE[mode] || null) : null, factual, userText: buildUserText({ mode, cleaned }) };
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +261,7 @@ function buildSystemPrompt({ mode, lang, canSearch, date, strict = false }) {
         ? `ПРАВДИВОСТЬ (важнее всего):
 - Факты (курсы, цены, вакансии, объявления, адреса, телефоны, законы, расписания) бери только из найденных источников и только актуальные на сегодня.
 - Источник без даты или старше недели не используй.
+- Надёжные источники: официальные сайты (nbt.tj, гос. ведомства), сайты объявлений (somon.tj и др.), крупные СМИ Таджикистана (asiaplustj.info, khovar.tj, avesta.tj), сайты самих компаний. Сомнительные агрегаторы и сайты другой страны для цен в Таджикистане не используй.
 - Сомнительное и непроверенное не пиши вообще.
 - Контакты бери только из источника, ничего не придумывай.
 - Слова «проверено» и «официально» — только если источник действительно официальный.`
@@ -401,11 +407,12 @@ function shapeLines(text, mode = 'general') {
             out.push(STARTS_EMOJI.test(part) ? part : `${MODE_EMOJI[mode] || '🔹'} ${part}`);
         }
     }
-    return out.join('\n');
+    // Разные мысли — через пустую строку, чтобы текст не сливался.
+    return out.join('\n\n');
 }
 
 function capLines(text, max = 10) {
-    return String(text).split('\n').filter(l => l.trim()).slice(0, max).join('\n');
+    return String(text).split('\n').filter(l => l.trim()).slice(0, max).join('\n\n');
 }
 
 function linkify(safe) {
@@ -424,7 +431,7 @@ function finalize(text, sources, lang) {
     const links = sources
         .filter(s => /^https:\/\//i.test(s.uri || ''))
         .map(s => `<a href="${escapeAttr(s.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title || s.uri)}</a>`);
-    return links.length ? `${safe}\n🔎 ${SOURCES_LABEL[lang]}: ${links.join(', ')}` : safe;
+    return links.length ? `${safe}\n\n🔎 ${SOURCES_LABEL[lang]}: ${links.join(', ')}` : safe;
 }
 
 // ---------------------------------------------------------------------------
@@ -455,12 +462,16 @@ function realSource(uri) {
     } catch { return null; }
 }
 
+// Сомнительные агрегаторы и сайты микрокредитов (риба) источником не считаем.
+const BAD_SOURCES = /(^|\.)(selinawamucii\.com|finca\.tj|imon\.tj|tridge\.com|pinterest\.[a-z.]+)$/i;
+
 function uniqueSources(list) {
     const seen = new Set();
     const out = [];
     for (const c of list) {
         const uri = c && c.uri && /^https:\/\//i.test(c.uri) ? realSource(c.uri) : null;
         if (!uri) continue;
+        try { if (BAD_SOURCES.test(new URL(uri).hostname)) continue; } catch { continue; }
         let title = c.title;
         if (!title) { try { title = new URL(uri).hostname.replace(/^www\./, ''); } catch { title = uri; } }
         if (seen.has(title)) continue;
@@ -530,21 +541,27 @@ async function askGemini(system, userText, useSearch) {
 }
 
 // Запасной поиск: веб-поиск OpenAI. Работает, если у Gemini поиск недоступен (лимит бесплатного ключа и т.п.).
-async function askOpenAISearch(system, userText) {
+let searchTool = 'web_search';
+async function openaiSearchRaw(system, userText, maxTokens = 1200) {
+    // tool_choice: 'required' — модель обязана сходить в интернет, а не отвечать «из головы».
     const run = tool => openai.responses.create({
         model: OPENAI_SEARCH_MODEL,
         instructions: system,
         input: userText,
         tools: [{ type: tool }],
-        max_output_tokens: 1200
+        tool_choice: 'required',
+        max_output_tokens: maxTokens
     });
-    let resp;
     try {
-        resp = await withTimeout(run('web_search'), 25000);
+        return await withTimeout(run(searchTool), 30000);
     } catch (err) {
-        if (err.status !== 400) throw err;
-        resp = await withTimeout(run('web_search_preview'), 25000);
+        if (err.status !== 400 || searchTool === 'web_search_preview') throw err;
+        searchTool = 'web_search_preview';
+        return withTimeout(run(searchTool), 30000);
     }
+}
+
+function readSearch(resp) {
     const parts = [];
     const cites = [];
     for (const item of resp.output || []) {
@@ -554,7 +571,17 @@ async function askOpenAISearch(system, userText) {
             for (const a of c.annotations || []) if (a.type === 'url_citation') cites.push({ title: a.title && !/\s/.test(a.title) ? a.title : '', uri: a.url });
         }
     }
-    const text = (resp.output_text || parts.join('\n')).trim();
+    return { text: (resp.output_text || parts.join('\n')).trim(), cites };
+}
+
+async function askOpenAISearch(system, userText) {
+    let resp = await openaiSearchRaw(system, userText);
+    let { text, cites } = readSearch(resp);
+    if (!uniqueSources(cites).length) {
+        // Источников нет — одна повторная попытка с прямым требованием ссылок.
+        resp = await openaiSearchRaw(system, `${userText}\n\nОбязательно найди в интернете и дай ссылки на источники.`);
+        ({ text, cites } = readSearch(resp));
+    }
     if (!text) throw new Error('Empty response');
     return { text, sources: uniqueSources(cites) };
 }
@@ -583,6 +610,150 @@ let active = 0;
 const MIN = 60 * 1000;
 const ttlFor = mode => (mode === 'finance' ? 10 * MIN : (mode === 'ads' && adsOn()) ? 2 * MIN : 20 * MIN);
 
+// ---------------------------------------------------------------------------
+// Объявления, вакансии, билеты, туры — отдельными карточками со ссылкой на источник.
+// ---------------------------------------------------------------------------
+const OPEN_LABEL = { tg: 'Кушодан ↗', ru: 'Открыть ↗', uz: 'Ochish ↗' };
+const FOUND_LABEL = {
+    ads: { tg: 'эълони нав', ru: 'свежих объявлений', uz: "yangi e'lon" },
+    jobs: { tg: 'ҷои кори нав', ru: 'свежих вакансий', uz: 'yangi vakansiya' },
+    tickets: { tg: 'чиптаи ҳавопаймо', ru: 'авиабилетов', uz: 'aviachipta' },
+    tours: { tg: 'сафар', ru: 'туров', uz: 'sayohat' }
+};
+const KIND_TASK = {
+    ads: 'Найди до 10 самых свежих объявлений. Ищи сначала на somon.tj, затем на других сайтах объявлений Таджикистана (ola.tj, arzon.tj и др.) и в Telegram-каналах.',
+    jobs: 'Найди до 10 самых свежих вакансий в Таджикистане: somon.tj, сайты вакансий, Telegram-каналы с вакансиями, сайты компаний. Пропускай вакансии в банках по кредитам, микрокредитах, алкоголе, казино.',
+    tickets: 'Найди до 10 актуальных авиабилетов из Душанбе и Худжанда по популярным направлениям (Москва, Санкт-Петербург, Стамбул, Дубай, Ташкент, Алматы и др.): aviasales, somonair.com, сайты авиакомпаний и турагентств.',
+    tours: 'Найди до 10 актуальных туров и поездок (по Таджикистану и из Таджикистана) у турагентств: цена, даты, оператор.'
+};
+const KIND_EMOJI = { ads: '🏷️', jobs: '💼', tickets: '✈️', tours: '🧳' };
+
+function cleanItem(x) {
+    const o = x && typeof x === 'object' ? x : {};
+    return {
+        title: clip(o.title, 120),
+        price: clip(o.price, 60),
+        place: clip(o.place, 80),
+        date: clip(o.date, 40),
+        contact: clip(o.contact, 60),
+        who: clip(o.who, 80),
+        url: typeof o.url === 'string' && /^https:\/\/[^\s"'<>]+$/i.test(o.url) ? o.url.slice(0, 500) : null
+    };
+}
+
+function parseJsonLoose(text) {
+    const raw = String(text || '').replace(/```(?:json)?/gi, '').trim();
+    const start = raw.indexOf('{');
+    const end = raw.lastIndexOf('}');
+    if (start < 0 || end <= start) throw new Error('no json');
+    return JSON.parse(raw.slice(start, end + 1));
+}
+
+const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
+
+function cardHtml(it, kind, lang) {
+    const host = hostOf(it.url);
+    const rows = [
+        `<div class="iz-lc-t">${KIND_EMOJI[kind] || '🏷️'} ${escapeHtml(it.title)}</div>`,
+        it.price ? `<div>💰 ${escapeHtml(it.price)}</div>` : '',
+        it.place || it.date ? `<div>${it.place ? '📍 ' + escapeHtml(it.place) : ''}${it.place && it.date ? ' · ' : ''}${it.date ? '🗓️ ' + escapeHtml(it.date) : ''}</div>` : '',
+        it.contact || it.who ? `<div>${it.contact ? '📞 ' + escapeHtml(it.contact) : ''}${it.contact && it.who ? ' · ' : ''}${it.who ? '👤 ' + escapeHtml(it.who) : ''}</div>` : '',
+        `<a class="iz-lc-a" href="${escapeAttr(it.url)}" target="_blank" rel="noopener noreferrer">🔗 ${escapeHtml(host)} — ${OPEN_LABEL[lang]}</a>`
+    ];
+    return `<div class="iz-lc">${rows.join('')}</div>`;
+}
+
+function ownCards(rows, lang) {
+    return (rows || []).map(a => cardHtml({
+        title: a.title,
+        price: a.price ? `${Number(a.price).toLocaleString('en-US').replace(/,/g, ' ')}${a.currency ? ' ' + a.currency : ''}` : '',
+        place: a.location || '',
+        date: '',
+        contact: a.contact || '',
+        who: a.seller_name ? `${a.seller_name} · iZamoN` : 'iZamoN',
+        url: a.source_url && /^https:\/\//i.test(a.source_url) ? a.source_url : 'https://izamon.vercel.app/'
+    }, 'ads', lang)).join('');
+}
+
+// Ссылки на поиск билетов — всегда под карточками билетов.
+const TICKET_LINKS = '<div class="iz-lq"><a href="https://www.aviasales.ru/" target="_blank" rel="noopener noreferrer">✈️ aviasales.ru</a><a href="https://somonair.com/" target="_blank" rel="noopener noreferrer">✈️ somonair.com</a></div>';
+
+async function searchListings({ kind, lang, date, query }) {
+    const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${KIND_TASK[kind]}
+Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":""}]}
+title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
+price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — телефон/Telegram, только если он есть в источнике. who — продавец/компания/авиакомпания.
+url — прямая ссылка на это объявление или страницу из результатов поиска. Ничего не выдумывай: нет данных — пустая строка. Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
+    const resp = await openaiSearchRaw(system, query, 2500);
+    const { text, cites } = readSearch(resp);
+    const citedHosts = new Set(cites.map(c => hostOf(c.url || c.uri)).filter(Boolean));
+    let items = [];
+    try { items = (parseJsonLoose(text).items || []).map(cleanItem); } catch { items = []; }
+    const seen = new Set();
+    items = items.filter(it => {
+        if (!it.title || !it.url) return false;
+        const h = hostOf(it.url);
+        // Ссылка должна вести на сайт, который поиск действительно открыл, — выдуманные адреса отсекаются.
+        if (!h || BAD_SOURCES.test(h) || (citedHosts.size && !citedHosts.has(h))) return false;
+        if (HARAM_LINE.test(`${it.title} ${it.who}`)) return false;
+        if (seen.has(it.url)) return false;
+        seen.add(it.url);
+        return true;
+    });
+    if (!citedHosts.size) items = [];
+    items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
+    return items.slice(0, 10);
+}
+
+function listingsAnswer(items, kind, lang, own) {
+    const count = items.length + (own ? own.length : 0);
+    const head = `<div class="iz-lh">🔎 ${count} ${FOUND_LABEL[kind] ? FOUND_LABEL[kind][lang] : ''}</div>`;
+    const ownHtml = own && own.length ? ownCards(own, lang) : '';
+    return `<div class="iz-lcs">${head}${ownHtml}${items.map(it => cardHtml(it, kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
+}
+
+// ---------------------------------------------------------------------------
+// Курсы валют: 10 валют по Нацбанку + Алиф и Душанбе Сити — аккуратной таблицей.
+// ---------------------------------------------------------------------------
+const RATE_HEAD = {
+    tg: { title: 'Қурби асъор', nbt: 'Бонки миллӣ', bank: 'Бонкҳо', buy: 'Харид', sell: 'Фурӯш', per: 'барои 1 адад' },
+    ru: { title: 'Курсы валют', nbt: 'Нацбанк', bank: 'Банки', buy: 'Покупка', sell: 'Продажа', per: 'за 1 единицу' },
+    uz: { title: 'Valyuta kurslari', nbt: 'Milliy bank', bank: 'Banklar', buy: 'Sotib olish', sell: 'Sotish', per: '1 birlik uchun' }
+};
+const FLAGS = { USD: '🇺🇸', EUR: '🇪🇺', RUB: '🇷🇺', CNY: '🇨🇳', KZT: '🇰🇿', UZS: '🇺🇿', KGS: '🇰🇬', TRY: '🇹🇷', AED: '🇦🇪', GBP: '🇬🇧', IRR: '🇮🇷', AFN: '🇦🇫', JPY: '🇯🇵', CHF: '🇨🇭' };
+const num = v => { const n = Number(String(v ?? '').replace(',', '.').replace(/[^\d.]/g, '')); return Number.isFinite(n) && n > 0 ? n : null; };
+
+async function searchRates({ lang, date }) {
+    const system = `Сегодня ${date.human}. Найди в интернете официальные курсы Национального банка Таджикистана (nbt.tj) к сомони на сегодня для 10 валют: USD, EUR, RUB, CNY, KZT, UZS, KGS, TRY, AED, GBP (курс за 1 единицу валюты). И курсы покупки/продажи USD, EUR, RUB в банках «Алиф» (alif.tj) и «Душанбе Сити» (dc.tj) на сегодня, если найдёшь.
+Верни ТОЛЬКО JSON: {"date":"дата курса","nbt":[{"code":"USD","rate":0}],"banks":[{"bank":"Алиф","code":"USD","buy":0,"sell":0}]}. Не нашёл — не включай. Ничего не выдумывай.`;
+    const resp = await openaiSearchRaw(system, 'Курсы валют к сомони на сегодня: Нацбанк Таджикистана, Алиф, Душанбе Сити', 1500);
+    const { text, cites } = readSearch(resp);
+    const sources = uniqueSources(cites);
+    if (!sources.length) return null;
+    let data;
+    try { data = parseJsonLoose(text); } catch { return null; }
+    const nbt = (Array.isArray(data.nbt) ? data.nbt : [])
+        .map(r => ({ code: clip(r && r.code, 5).toUpperCase(), rate: num(r && r.rate) }))
+        .filter(r => /^[A-Z]{3}$/.test(r.code) && r.rate).slice(0, 12);
+    const banks = (Array.isArray(data.banks) ? data.banks : [])
+        .map(b => ({ bank: clip(b && b.bank, 30), code: clip(b && b.code, 5).toUpperCase(), buy: num(b && b.buy), sell: num(b && b.sell) }))
+        .filter(b => b.bank && /^[A-Z]{3}$/.test(b.code) && (b.buy || b.sell)).slice(0, 12);
+    if (nbt.length < 3) return null;
+    return { date: clip(data.date, 40), nbt, banks, sources };
+}
+
+function ratesAnswer(r, lang) {
+    const h = RATE_HEAD[lang];
+    const f = n => (n ? String(+n.toFixed(4)) : '—');
+    const nbtRows = r.nbt.map(x => `<tr><td>${FLAGS[x.code] || '💱'} ${x.code}</td><td>${f(x.rate)}</td></tr>`).join('');
+    const bankRows = r.banks.map(b => `<tr><td>${escapeHtml(b.bank)}</td><td>${FLAGS[b.code] || ''} ${b.code}</td><td>${f(b.buy)}</td><td>${f(b.sell)}</td></tr>`).join('');
+    const links = r.sources.map(s => `<a href="${escapeAttr(s.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title || hostOf(s.uri))}</a>`).join(', ');
+    return `<div class="iz-rates"><div class="iz-lh">💱 ${h.title}${r.date ? ' — ' + escapeHtml(r.date) : ''}</div>` +
+        `<div class="iz-rt-sub">🏦 ${h.nbt} (${h.per})</div><table class="iz-rt">${nbtRows}</table>` +
+        (bankRows ? `<div class="iz-rt-sub">🏧 ${h.bank}</div><table class="iz-rt"><tr><th></th><th></th><th>${h.buy}</th><th>${h.sell}</th></tr>${bankRows}</table>` : '') +
+        `<div class="iz-rt-src">🔎 ${SOURCES_LABEL[lang]}: ${links}</div></div>`;
+}
+
 // Поиск лучше работает по-русски и по-английски, а отвечать нужно коротко и на языке человека.
 // Если ответ длинный или на чужом языке — отдельным лёгким вызовом переписываем его по нашим правилам.
 const needsRewrite = (text, lang) => mixedLanguage(text, lang) || HARAM_LINE.test(text) || text.length > 900 || text.split('\n').filter(l => l.trim()).length > 10;
@@ -605,7 +776,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -614,8 +785,24 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery }) {
         if (factual) {
             // Сначала объявления самого iZamoN (с контактом автора), затем поиск по интернету.
             let ownBlock = '';
+            let ownRows = [];
             if (mode === 'ads' && adsOn()) {
-                try { ownBlock = formatOwnAds(await searchAds(adsQuery)); } catch (err) { console.warn(`[ads Сбой]: ${err.message}`); }
+                try { ownRows = await searchAds(adsQuery); ownBlock = ownRows.length ? listingsAnswer([], 'ads', lang, ownRows) : ''; } catch (err) { console.warn(`[ads Сбой]: ${err.message}`); }
+            }
+            // Карточки (объявления, вакансии, билеты, туры) и таблица курсов — самый понятный вид.
+            if (openai && kind === 'rates') {
+                try {
+                    const r = await searchRates({ lang, date });
+                    if (r) return { body: { answer: ratesAnswer(r, lang), provider: 'openai', grounded: true, sources: r.sources, view: 'rates' }, ttl: ttlFor(mode) };
+                } catch (err) { console.warn(`[rates Сбой]: ${err.status || ''} ${err.message}`); }
+            }
+            if (openai && KIND_TASK[kind]) {
+                try {
+                    const items = await searchListings({ kind, lang, date, query: fullMessage });
+                    if (items.length) {
+                        return { body: { answer: listingsAnswer(items, kind, lang, ownRows), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: ttlFor(mode) };
+                    }
+                } catch (err) { console.warn(`[listings Сбой]: ${err.status || ''} ${err.message}`); }
             }
             let errored = false;
             const engines = [];
@@ -724,7 +911,7 @@ async function handleChat(req, res) {
     const followUp = !topic && lastUser && cleaned.length <= 60;
     const routeOn = followUp ? `${lastUser.content} ${cleaned}` : cleaned;
     const routed = routeRequest({ cleaned: routeOn, topic, category });
-    const { mode, factual } = routed;
+    const { mode, factual, kind } = routed;
     const userText = withHistory(followUp ? cleaned : routed.userText, history);
     const detectOn = topic || cleaned;
     const fullMessage = category ? `[Подраздел: ${category}] ${userText}` : userText;
@@ -732,14 +919,14 @@ async function handleChat(req, res) {
 
     // С историей ответ зависит от разговора — такие ответы не кэшируем.
     const cacheable = factual && !history.length;
-    const key = `${date.iso}|${lang}|${mode}|${factual ? 'f' : 'n'}|${norm(detectOn)}`;
+    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${norm(detectOn)}`;
     if (cacheable) {
         const hit = answerCache.get(key);
         if (hit) return res.json({ ...hit, cached: true });
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage, date, adsQuery: topic ? topic.split(' - ').pop() : routeOn }));
+        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, adsQuery: topic ? topic.split(' - ').pop() : routeOn }));
         return res.json(r.body);
     } catch (err) {
         console.error('chat failed:', err);
@@ -1012,7 +1199,7 @@ const ttsCache = new TTLCache(150);
 const VOICE_LANG = { tg: 'Tajik', ru: 'Russian', uz: 'Uzbek' };
 
 function voiceInstructions(lang) {
-    return `Voice: warm, soft and caring, like a close friend who truly listens. Tone: gentle and emotionally expressive, with a slight smile and natural breaths. Pace: calm, balanced and unhurried, with short pauses between sentences and softly falling endings. Pronounce ${VOICE_LANG[lang]} words carefully and naturally.`;
+    return `Speak as a native ${VOICE_LANG[lang]} speaker from ${lang === 'uz' ? 'Tashkent' : lang === 'ru' ? 'Moscow' : 'Dushanbe'}, with a natural local accent, not a foreign one. Voice: warm, calm and human, like a kind older brother; not robotic, not glassy, not exaggerated. Pace: unhurried, with natural pauses between sentences and softly falling endings. Read numbers and prices naturally.`;
 }
 
 function speechText(raw) {
@@ -1313,6 +1500,116 @@ app.post('/api/favorites', handleFavAdd);
 app.delete('/api/favorites/:id', handleFavDelete);
 
 // ---------------------------------------------------------------------------
+// Словарь местных слов (сленг, диалекты). Пополняет разработчик в секретном разделе «инфобот».
+// ---------------------------------------------------------------------------
+let dictCache = { at: 0, rows: [] };
+async function loadDictionary() {
+    if (!adsOn()) return [];
+    if (Date.now() - dictCache.at < 10 * MIN) return dictCache.rows;
+    try {
+        const rows = await sb('dictionary?select=id,word,meaning,region,lang&order=word.asc&limit=2000');
+        dictCache = { at: Date.now(), rows: rows || [] };
+    } catch (err) {
+        console.warn(`[dict Сбой]: ${err.message}`);
+        dictCache.at = Date.now();
+    }
+    return dictCache.rows;
+}
+loadDictionary.reset = () => { dictCache = { at: 0, rows: [] }; };
+
+function dictionaryHints(text, rows) {
+    const t = ` ${String(text || '').toLowerCase()} `;
+    return (rows || []).filter(r => r.word && t.includes(String(r.word).toLowerCase())).slice(0, 8);
+}
+
+let dictRowsNow = [];
+function withDictionary(message, text) {
+    const hits = dictionaryHints(text, dictRowsNow);
+    if (!hits.length) return message;
+    const lines = hits.map(r => `«${r.word}» — ${r.meaning}${r.region ? ` (${r.region})` : ''}`);
+    return `${message}\n\nМестные слова в сообщении (для понимания): ${lines.join('; ')}`;
+}
+setInterval(() => { loadDictionary().then(r => { dictRowsNow = r; }).catch(() => {}); }, 10 * MIN).unref();
+loadDictionary().then(r => { dictRowsNow = r; }).catch(() => {});
+
+function isAdmin(user) {
+    const list = (process.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
+    return !!(user && user.email && list.includes(String(user.email).toLowerCase()));
+}
+
+async function handleDictList(req, res) {
+    const user = await getUser(req);
+    if (!isAdmin(user)) return res.status(403).json({ ok: false, error: 'admin_only' });
+    loadDictionary.reset();
+    dictRowsNow = await loadDictionary();
+    return res.json({ ok: true, items: dictRowsNow });
+}
+
+async function handleDictAdd(req, res) {
+    const user = await getUser(req);
+    if (!isAdmin(user)) return res.status(403).json({ ok: false, error: 'admin_only' });
+    const b = req.body || {};
+    const row = { word: clip(b.word, 60).toLowerCase(), meaning: clip(b.meaning, 200), region: clip(b.region, 60) || null, lang: ['tg', 'ru', 'uz'].includes(b.lang) ? b.lang : 'tg' };
+    if (!row.word || !row.meaning) return res.status(400).json({ ok: false, error: 'word_meaning_required' });
+    try {
+        await sb('dictionary', { method: 'POST', body: row, prefer: 'return=minimal' });
+        loadDictionary.reset();
+        dictRowsNow = await loadDictionary();
+        return res.json({ ok: true });
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+async function handleDictDelete(req, res) {
+    const user = await getUser(req);
+    if (!isAdmin(user)) return res.status(403).json({ ok: false, error: 'admin_only' });
+    const id = String(req.params?.id || '');
+    if (!/^\d{1,18}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad_id' });
+    try {
+        await sb(`dictionary?id=eq.${id}`, { method: 'DELETE', prefer: 'return=minimal' });
+        loadDictionary.reset();
+        dictRowsNow = await loadDictionary();
+        return res.json({ ok: true });
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+// Голос → текст (Whisper понимает таджикский). Местные слова из словаря подсказываются распознавателю.
+const sttLimited = makeLimiter(12);
+async function handleStt(req, res) {
+    if (!openai) return res.status(503).json({ ok: false, error: 'stt_unavailable' });
+    if (sttLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const buf = Buffer.isBuffer(req.body) ? req.body : null;
+    if (!buf || buf.length < 1000) return res.status(400).json({ ok: false, error: 'empty' });
+    const lang = ['tg', 'ru', 'uz'].includes(req.query?.lang) ? req.query.lang : 'tg';
+    const type = String((req.headers && req.headers['content-type']) || 'audio/webm').split(';')[0];
+    const ext = type.includes('mp4') ? 'mp4' : type.includes('ogg') ? 'ogg' : type.includes('wav') ? 'wav' : 'webm';
+    try {
+        const toFile = OpenAI.toFile || require('openai/uploads').toFile;
+        const file = await toFile(buf, `voice.${ext}`, { type });
+        const words = dictRowsNow.slice(0, 80).map(r => r.word).join(', ');
+        const r = await withTimeout(openai.audio.transcriptions.create({
+            file,
+            model: process.env.STT_MODEL || 'whisper-1',
+            language: lang,
+            ...(words ? { prompt: words } : {})
+        }), 30000);
+        return res.json({ ok: true, text: String(r.text || '').trim() });
+    } catch (err) {
+        console.warn(`[stt Сбой]: ${err.status || ''} ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'stt_failed' });
+    }
+}
+
+app.get('/api/dict', handleDictList);
+app.post('/api/dict', handleDictAdd);
+app.delete('/api/dict/:id', handleDictDelete);
+app.post('/api/stt', handleStt);
+app.get('/api/am-i-admin', async (req, res) => res.json({ admin: isAdmin(await getUser(req)) }));
+
+// ---------------------------------------------------------------------------
 // Обратная связь: 👍/👎 под ответом сохраняются в Supabase (таблица feedback).
 // ---------------------------------------------------------------------------
 const feedbackLimited = makeLimiter(30);
@@ -1405,5 +1702,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
