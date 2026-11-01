@@ -658,22 +658,34 @@ const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } 
 
 const CALL_LABEL = { tg: 'Занг задан', ru: 'Позвонить', uz: "Qo'ng'iroq" };
 
+const KIND_BADGE = {
+    ads: { tg: 'Эълон', ru: 'Объявление', uz: "E'lon" },
+    jobs: { tg: 'Ҷои кор', ru: 'Вакансия', uz: 'Vakansiya' },
+    tickets: { tg: 'Чипта', ru: 'Билет', uz: 'Chipta' },
+    tours: { tg: 'Сафар', ru: 'Тур', uz: 'Sayohat' },
+    services: { tg: 'Хизмат', ru: 'Услуга', uz: 'Xizmat' }
+};
+
 function cardHtml(it, kind, lang) {
     const host = hostOf(it.url);
     const phone = String(it.contact || '').replace(/[^\d+]/g, '');
     const callable = /^\+?\d{9,13}$/.test(phone) && !/x/i.test(it.contact);
-    const chips = [
-        it.place ? `<span class="iz-chip">📍 ${escapeHtml(it.place)}</span>` : '',
-        it.date ? `<span class="iz-chip">🗓️ ${escapeHtml(it.date)}</span>` : '',
-        it.who ? `<span class="iz-chip">👤 ${escapeHtml(it.who)}</span>` : ''
-    ].join('');
+    const badges = `<div class="iz-badges"><span class="iz-badge iz-b-g">✔ ${escapeHtml(host)}</span><span class="iz-badge iz-b-b">${KIND_BADGE[kind] ? KIND_BADGE[kind][lang] : ''}</span>${it.date ? `<span class="iz-badge">🗓️ ${escapeHtml(it.date)}</span>` : ''}</div>`;
+    // характеристики плитками 2×2, как в образце: «Ключ: значение» → подпись + значение
+    const tiles = (it.points || []).map(x => {
+        const m = String(x).match(/^([^:]{2,25}):\s*(.+)$/);
+        return m ? `<div class="iz-tile"><span>${escapeHtml(m[1])}</span><b>${escapeHtml(m[2])}</b></div>` : `<div class="iz-tile"><b>${escapeHtml(x)}</b></div>`;
+    }).join('');
     const parts = [
-        it.image ? `<div class="iz-lc-img"><img src="${escapeAttr(it.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"><span class="iz-src">${escapeHtml(host)}</span></div>` : `<div class="iz-lc-src">${KIND_EMOJI[kind] || '🏷️'} ${escapeHtml(host)}</div>`,
+        it.image
+            ? `<div class="iz-lc-img"><img src="${escapeAttr(it.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('iz-noimg');this.remove()"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[kind] || '🏷️'}</i></div>`
+            : `<div class="iz-lc-img iz-noimg"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[kind] || '🏷️'}</i></div>`,
+        badges,
         `<div class="iz-lc-t">${escapeHtml(it.title)}</div>`,
         it.price ? `<div class="iz-lc-p">${escapeHtml(it.price)}</div>` : '',
-        chips ? `<div class="iz-chips">${chips}</div>` : '',
-        it.points && it.points.length ? `<ul class="iz-pts">${it.points.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>` : '',
-        it.contact && !callable ? `<div class="iz-lc-c">📞 ${escapeHtml(it.contact)}</div>` : '',
+        it.place || it.who ? `<div class="iz-lc-m">${it.place ? '📍 ' + escapeHtml(it.place) : ''}${it.place && it.who ? ' · ' : ''}${it.who ? '👤 ' + escapeHtml(it.who) : ''}</div>` : '',
+        tiles ? `<div class="iz-tiles">${tiles}</div>` : '',
+        it.contact && !callable ? `<div class="iz-lc-m">📞 ${escapeHtml(it.contact)}</div>` : '',
         `<div class="iz-lc-btns"><a class="iz-lc-a" href="${escapeAttr(it.url)}" target="_blank" rel="noopener noreferrer">${OPEN_LABEL[lang]}</a>${callable ? `<a class="iz-lc-call" href="tel:${escapeAttr(phone)}">📞 ${CALL_LABEL[lang]}</a>` : ''}</div>`
     ];
     return `<div class="iz-lc">${parts.join('')}</div>`;
@@ -699,7 +711,7 @@ async function searchListings({ kind, lang, date, query }) {
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
 price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — телефон/Telegram, только если он есть в источнике. who — продавец/компания/авиакомпания.
-url — прямая ссылка на это объявление или страницу из результатов поиска. image — прямая ссылка на фото с этой страницы, если оно есть. points — 2–3 коротких главных факта (состояние, площадь, год, что входит, график и т.п.). Ничего не выдумывай: нет данных — пустая строка. Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
+url — прямая ссылка на это объявление или страницу из результатов поиска. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 главных характеристик в виде «Название: значение» (например «Площадь: 60 м²», «Этаж: 5/9», «Год: 2017», «Пробег: 120 000 км», «График: 5/2»). Ничего не выдумывай: нет данных — пустая строка. Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
     const resp = await openaiSearchRaw(system, query, 2500);
     const { text, cites } = readSearch(resp);
     const citedHosts = new Set(cites.map(c => hostOf(c.url || c.uri)).filter(Boolean));
