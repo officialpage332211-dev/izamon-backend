@@ -1275,7 +1275,7 @@ async function sb(path, { method = 'GET', body, prefer } = {}) {
         },
         body: body ? JSON.stringify(body) : undefined
     }), 8000);
-    if (!r.ok) throw new Error(`Supabase ${r.status}`);
+    if (!r.ok) { const e = new Error(`Supabase ${r.status}`); e.status = r.status; throw e; }
     return r.status === 204 ? null : r.json();
 }
 
@@ -1406,7 +1406,8 @@ async function handleSeller(req, res) {
         return res.json({ ok: true, seller: row });
     } catch (err) {
         console.warn(`[seller Сбой]: ${err.message}`);
-        return res.status(503).json({ ok: false, error: 'store_failed' });
+        const why = err.status === 401 || err.status === 403 ? 'wrong_service_key' : err.status === 404 ? 'table_missing' : 'store_failed';
+        return res.status(503).json({ ok: false, error: why, status: err.status || null });
     }
 }
 
@@ -1691,6 +1692,11 @@ async function handleDiag(req, res) {
     } else {
         out.openai = 'ключ OpenAI не задан';
     }
+    try {
+        const payload = JSON.parse(Buffer.from(String(SB_KEY()).split('.')[1] || '', 'base64url').toString('utf8') || '{}');
+        out.service_key_role = payload.role || (String(SB_KEY()).startsWith('sb_secret_') ? 'secret' : 'unknown');
+    } catch { out.service_key_role = SB_KEY() ? 'unknown' : 'missing'; }
+    out.anon_key = process.env.SUPABASE_ANON_KEY ? 'set' : 'missing';
     out.ads_database = adsOn() ? await timed(async () => { await sb('ads?select=id&limit=1'); return {}; }) : 'не подключена (объявления остаются на устройстве автора)';
     return res.json(out);
 }
