@@ -149,9 +149,9 @@ function normalizePrompt(raw) {
 
 // Кнопки разделов: у каждой свой поисковый запрос, чтобы ответ сразу содержал данные, а не описание раздела.
 const PORTAL_RULES = [
-    { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest',
+    { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest', kind: 'services',
       query: 'Найди актуальные IT-курсы в Таджикистане (программирование, дизайн, 1С и др.): название школы, цена, длительность, сайт или контакт.' },
-    { re: /^(?:забонҳо|языки|tillar)$/, mode: 'digest',
+    { re: /^(?:забонҳо|языки|tillar)$/, mode: 'digest', kind: 'services',
       query: 'Найди актуальные курсы иностранных языков в Таджикистане: язык, цена, формат, сайт или контакт школы.' },
     { re: /^(?:ммт|mmt|мнт)$/, mode: 'digest',
       query: 'Найди актуальную информацию про вступительное тестирование ММТ (Маркази миллии тестӣ, Национальный центр тестирования Таджикистана): ближайшие сроки, регистрация, результаты. Если по источникам ММТ означает иное, опирайся на источники.' },
@@ -161,7 +161,7 @@ const PORTAL_RULES = [
       query: 'Найди 2–3 практичных совета для жителей Таджикистана по семейному бюджету, сбережениям, халяльной торговле и малому бизнесу. Без кредитов, процентов и займов.' },
     { re: /^(?:кишт|посев|ekin)$/, mode: 'digest',
       query: 'Что сеять и сажать в Таджикистане именно сейчас, по сегодняшней дате: 3–4 культуры, сроки посева и главный приём ухода, по данным агро-источников.' },
-    { re: /чорводорӣ|животноводств|^chorva$/, mode: 'digest',
+    { re: /чорводорӣ|животноводств|^chorva$/, mode: 'digest', kind: 'services',
       query: 'Найди актуальные цены и предложения по скоту и кормам в Таджикистане и свежие советы ветеринаров: суть, цена, контакт или сайт.' },
     { re: /^(?:ҳосил|урожай|hosil)$/, mode: 'digest',
       query: 'Найди актуальные цены на сельхозпродукцию и урожай на рынках Таджикистана сегодня.' },
@@ -415,10 +415,11 @@ function capLines(text, max = 10) {
     return String(text).split('\n').filter(l => l.trim()).slice(0, max).join('\n\n');
 }
 
+const LINK_RE = /(https?:\/\/[^\s<]+)|(?<![\w@\/.-])((?:[a-z0-9-]+\.)+(?:tj|com|ru|org|net|uz|kz|kg|info|io|me|app|edu))(?![\w\/@-])/gi;
 function linkify(safe) {
-    return safe.replace(/https?:\/\/[^\s<]+/g, raw => {
-        const m = raw.match(/^(.*?)([.,;:!?)\]]*)$/);
-        const url = m[1];
+    return safe.replace(LINK_RE, (raw, full, bare) => {
+        const m = String(full || bare).match(/^(.*?)([.,;:!?)\]]*)$/);
+        const url = full ? m[1] : `https://${m[1]}`;
         let label;
         try { label = new URL(url).hostname.replace(/^www\./, ''); } catch { return raw; }
         return `<a href="${escapeAttr(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(label)}</a>${m[2]}`;
@@ -618,15 +619,17 @@ const FOUND_LABEL = {
     ads: { tg: 'эълони нав', ru: 'свежих объявлений', uz: "yangi e'lon" },
     jobs: { tg: 'ҷои кори нав', ru: 'свежих вакансий', uz: 'yangi vakansiya' },
     tickets: { tg: 'чиптаи ҳавопаймо', ru: 'авиабилетов', uz: 'aviachipta' },
-    tours: { tg: 'сафар', ru: 'туров', uz: 'sayohat' }
+    tours: { tg: 'сафар', ru: 'туров', uz: 'sayohat' },
+    services: { tg: 'пешниҳод', ru: 'предложений', uz: 'taklif' }
 };
 const KIND_TASK = {
     ads: 'Найди до 10 самых свежих объявлений. Ищи сначала на somon.tj, затем на других сайтах объявлений Таджикистана (ola.tj, arzon.tj и др.) и в Telegram-каналах.',
     jobs: 'Найди до 10 самых свежих вакансий в Таджикистане: somon.tj, сайты вакансий, Telegram-каналы с вакансиями, сайты компаний. Пропускай вакансии в банках по кредитам, микрокредитах, алкоголе, казино.',
     tickets: 'Найди до 10 актуальных авиабилетов из Душанбе и Худжанда по популярным направлениям (Москва, Санкт-Петербург, Стамбул, Дубай, Ташкент, Алматы и др.): aviasales, somonair.com, сайты авиакомпаний и турагентств.',
-    tours: 'Найди до 10 актуальных туров и поездок (по Таджикистану и из Таджикистана) у турагентств: цена, даты, оператор.'
+    tours: 'Найди до 10 актуальных туров и поездок (по Таджикистану и из Таджикистана) у турагентств: цена, даты, оператор.',
+    services: 'Найди до 10 актуальных предложений в Таджикистане (школы, курсы, учебные центры, услуги, магазины): название, цена, город, контакт, сайт.'
 };
-const KIND_EMOJI = { ads: '🏷️', jobs: '💼', tickets: '✈️', tours: '🧳' };
+const KIND_EMOJI = { ads: '🏷️', jobs: '💼', tickets: '✈️', tours: '🧳', services: '🏫' };
 
 function cleanItem(x) {
     const o = x && typeof x === 'object' ? x : {};
@@ -637,6 +640,8 @@ function cleanItem(x) {
         date: clip(o.date, 40),
         contact: clip(o.contact, 60),
         who: clip(o.who, 80),
+        image: typeof o.image === 'string' && /^https:\/\/[^\s"'<>]+$/i.test(o.image) ? o.image.slice(0, 500) : null,
+        points: (Array.isArray(o.points) ? o.points : []).map(x => clip(x, 90)).filter(Boolean).slice(0, 3),
         url: typeof o.url === 'string' && /^https:\/\/[^\s"'<>]+$/i.test(o.url) ? o.url.slice(0, 500) : null
     };
 }
@@ -651,16 +656,27 @@ function parseJsonLoose(text) {
 
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 
+const CALL_LABEL = { tg: 'Занг задан', ru: 'Позвонить', uz: "Qo'ng'iroq" };
+
 function cardHtml(it, kind, lang) {
     const host = hostOf(it.url);
-    const rows = [
-        `<div class="iz-lc-t">${KIND_EMOJI[kind] || '🏷️'} ${escapeHtml(it.title)}</div>`,
-        it.price ? `<div>💰 ${escapeHtml(it.price)}</div>` : '',
-        it.place || it.date ? `<div>${it.place ? '📍 ' + escapeHtml(it.place) : ''}${it.place && it.date ? ' · ' : ''}${it.date ? '🗓️ ' + escapeHtml(it.date) : ''}</div>` : '',
-        it.contact || it.who ? `<div>${it.contact ? '📞 ' + escapeHtml(it.contact) : ''}${it.contact && it.who ? ' · ' : ''}${it.who ? '👤 ' + escapeHtml(it.who) : ''}</div>` : '',
-        `<a class="iz-lc-a" href="${escapeAttr(it.url)}" target="_blank" rel="noopener noreferrer">🔗 ${escapeHtml(host)} — ${OPEN_LABEL[lang]}</a>`
+    const phone = String(it.contact || '').replace(/[^\d+]/g, '');
+    const callable = /^\+?\d{9,13}$/.test(phone) && !/x/i.test(it.contact);
+    const chips = [
+        it.place ? `<span class="iz-chip">📍 ${escapeHtml(it.place)}</span>` : '',
+        it.date ? `<span class="iz-chip">🗓️ ${escapeHtml(it.date)}</span>` : '',
+        it.who ? `<span class="iz-chip">👤 ${escapeHtml(it.who)}</span>` : ''
+    ].join('');
+    const parts = [
+        it.image ? `<div class="iz-lc-img"><img src="${escapeAttr(it.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.remove()"><span class="iz-src">${escapeHtml(host)}</span></div>` : `<div class="iz-lc-src">${KIND_EMOJI[kind] || '🏷️'} ${escapeHtml(host)}</div>`,
+        `<div class="iz-lc-t">${escapeHtml(it.title)}</div>`,
+        it.price ? `<div class="iz-lc-p">${escapeHtml(it.price)}</div>` : '',
+        chips ? `<div class="iz-chips">${chips}</div>` : '',
+        it.points && it.points.length ? `<ul class="iz-pts">${it.points.map(x => `<li>${escapeHtml(x)}</li>`).join('')}</ul>` : '',
+        it.contact && !callable ? `<div class="iz-lc-c">📞 ${escapeHtml(it.contact)}</div>` : '',
+        `<div class="iz-lc-btns"><a class="iz-lc-a" href="${escapeAttr(it.url)}" target="_blank" rel="noopener noreferrer">${OPEN_LABEL[lang]}</a>${callable ? `<a class="iz-lc-call" href="tel:${escapeAttr(phone)}">📞 ${CALL_LABEL[lang]}</a>` : ''}</div>`
     ];
-    return `<div class="iz-lc">${rows.join('')}</div>`;
+    return `<div class="iz-lc">${parts.join('')}</div>`;
 }
 
 function ownCards(rows, lang) {
@@ -680,10 +696,10 @@ const TICKET_LINKS = '<div class="iz-lq"><a href="https://www.aviasales.ru/" tar
 
 async function searchListings({ kind, lang, date, query }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${KIND_TASK[kind]}
-Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":""}]}
+Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
 price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — телефон/Telegram, только если он есть в источнике. who — продавец/компания/авиакомпания.
-url — прямая ссылка на это объявление или страницу из результатов поиска. Ничего не выдумывай: нет данных — пустая строка. Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
+url — прямая ссылка на это объявление или страницу из результатов поиска. image — прямая ссылка на фото с этой страницы, если оно есть. points — 2–3 коротких главных факта (состояние, площадь, год, что входит, график и т.п.). Ничего не выдумывай: нет данных — пустая строка. Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
     const resp = await openaiSearchRaw(system, query, 2500);
     const { text, cites } = readSearch(resp);
     const citedHosts = new Set(cites.map(c => hostOf(c.url || c.uri)).filter(Boolean));
