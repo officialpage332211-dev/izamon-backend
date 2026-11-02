@@ -647,17 +647,29 @@ const KIND_TASK = {
 };
 const KIND_EMOJI = { ads: '🏷️', jobs: '💼', tickets: '✈️', tours: '🧳', services: '🏫' };
 
+// «Н/Д», «Цены уточняются», «не указано» — это не данные, такие значения в карточке не показываем.
+const BLANK_VALUE = new RegExp('^(?:н/?д|n/?a|na|нет|нет\\s+данных|данных\\s+нет|не\\s+указан[а-яё]*|не\\s+известн[а-яё]*|неизвестн[а-яё]*|уточня[а-яё]*|уточните|цен[а-яё]*\\s+уточня[а-яё]*|цена\\s+не\\s+указана|информации\\s+нет|' +
+    'маълумот\\s+нест|номаълум|нишон\\s+дода\\s+нашуда[а-яёӣӯқғҳҷ]*|ошкор\\s+нашуда[а-яёӣӯқғҳҷ]*|нарх(?:и)?\\s+(?:маълум\\s+карда\\s+мешавад|ошкор\\s+нашудааст)|' +
+    "ma.?lumot\\s+yo.?q|noma.?lum|ko.?rsatilmagan|aniqlanmoqda|narx\\s+aniqlanadi|null|none|undefined|[-—–?.]+)$", 'i');
+function blankValue(v) {
+    const s = String(v == null ? '' : v).trim();
+    if (!s) return true;
+    const afterColon = s.includes(':') ? s.slice(s.lastIndexOf(':') + 1).trim() : s;
+    return BLANK_VALUE.test(s.replace(/[.!]+$/, '')) || BLANK_VALUE.test(afterColon.replace(/[.!]+$/, ''));
+}
+const keepValue = (v, n) => { const s = clip(v, n); return blankValue(s) ? '' : s; };
+
 function cleanItem(x) {
     const o = x && typeof x === 'object' ? x : {};
     return {
         title: clip(o.title, 120),
-        price: clip(o.price, 60),
-        place: clip(o.place, 80),
-        date: clip(o.date, 40),
-        contact: clip(o.contact, 60),
-        who: clip(o.who, 80),
+        price: keepValue(o.price, 60),
+        place: keepValue(o.place, 80),
+        date: keepValue(o.date, 40),
+        contact: keepValue(o.contact, 60),
+        who: keepValue(o.who, 80),
         image: typeof o.image === 'string' && /^https:\/\/[^\s"'<>]+$/i.test(o.image) ? o.image.slice(0, 500) : null,
-        points: (Array.isArray(o.points) ? o.points : []).map(x => clip(x, 90)).filter(Boolean).slice(0, 3),
+        points: (Array.isArray(o.points) ? o.points : []).map(x => clip(x, 90)).filter(p => p && !blankValue(p)).slice(0, 3),
         url: typeof o.url === 'string' && /^https:\/\/[^\s"'<>]+$/i.test(o.url) ? o.url.slice(0, 500) : null
     };
 }
@@ -750,7 +762,66 @@ url — прямая ссылка на это объявление или стр
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
     if (debug) Object.assign(debug, { status: resp.status || null, textStart: text.slice(0, 120), parseError, rawItems, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
-    return items.slice(0, 10);
+    return localizeItems(items.slice(0, 10), lang, debug);
+}
+
+// Поиск отдаёт текст на языке сайта-источника (чаще русском). Карточку переводим на язык сайта одним
+// коротким запросом без поиска. Не получилось — остаются исходные карточки, как раньше.
+const TRANSLATE_TIMEOUT_MS = 15000;
+const NEEDS_TRANSLATE_RU = /[ӣӯқғҳҷ]/;
+
+function itemTexts(it) { return [it.title, it.price, it.place, it.date, it.who, ...(it.points || [])].join(' | '); }
+
+async function localizeItems(items, lang, debug) {
+    const note = extra => { if (debug) Object.assign(debug, extra); };
+    if (!items.length) return items;
+    // Русский сайт: переводим, только если в карточках таджикские буквы.
+    if (lang === 'ru' && !items.some(it => NEEDS_TRANSLATE_RU.test(itemTexts(it)))) return items;
+    const system = `Ты переводчик для сайта объявлений. Переведи текст карточек на ${LANG_NAMES[lang]}. ${LANG_RULES[lang]}
+Верни ТОЛЬКО JSON: {"items":[{"title":"","price":"","place":"","date":"","who":"","points":["",""]}]} — ровно ${items.length} объектов, в том же порядке и с теми же полями.
+Правила: переводи слова и обороты, в points — и название характеристики слева от двоеточия, и значение справа («Площадь: 60 м²» → на нужном языке). «вчера», «2 дня назад», «физическое лицо», «договорная» и т.п. — тоже переводи.
+Не меняй числа, цены, валюту, телефоны, адреса сайтов и даты, записанные цифрами. Названия брендов, компаний, людей, марки и модели оставь как есть. Пустые поля оставь пустыми. Ничего не добавляй и не выдумывай. Слова «Н/Д», «не указано», «уточняется» не пиши — оставь поле пустым.`;
+    const payload = JSON.stringify({ items: items.map(it => ({ title: it.title, price: it.price, place: it.place, date: it.date, who: it.who, points: it.points })) });
+    const runs = [];
+    const viaOpenAI = () => ['openai', () => askChat(openai, OPENAI_MODEL, system, payload, 2500)];
+    const viaGemini = () => ['gemini', () => askGemini(system, payload, false)];
+    const viaRouter = () => ['openrouter', () => askChat(openrouter, OPENROUTER_MODEL, system, payload, 2500)];
+    // Таджикский и узбекский Gemini пишет грамотнее; пока у него лимит, идём через OpenAI.
+    if (lang !== 'ru' && geminiUp()) runs.push(viaGemini());
+    if (openai) runs.push(viaOpenAI());
+    if (lang === 'ru' && geminiUp()) runs.push(viaGemini());
+    if (openrouter) runs.push(viaRouter());
+    const t0 = Date.now();
+    const attempt = async () => {
+        for (const [name, run] of runs) {
+            try {
+                const r = await run();
+                const arr = parseJsonLoose(r.text).items;
+                if (!Array.isArray(arr) || arr.length !== items.length) throw new Error('bad shape');
+                const digits = s => String(s || '').replace(/\D/g, '');
+                // Перевод принимаем, только если цифры (цена, год, площадь) не изменились; иначе остаётся исходное значение.
+                const pick = (orig, tr) => { const t = typeof tr === 'string' ? tr.trim() : ''; return t && digits(t) === digits(orig) ? t : orig; };
+                const out = items.map((it, i) => {
+                    const t = arr[i] && typeof arr[i] === 'object' ? arr[i] : {};
+                    const tp = Array.isArray(t.points) ? t.points.filter(p => typeof p === 'string') : [];
+                    // Ссылка, фото и телефон — только исходные; переводится только текст.
+                    return cleanItem({
+                        ...it,
+                        title: pick(it.title, t.title), price: pick(it.price, t.price), place: pick(it.place, t.place),
+                        date: pick(it.date, t.date), who: pick(it.who, t.who),
+                        points: tp.length && digits(tp.join(' ')) === digits(it.points.join(' ')) ? tp : it.points
+                    });
+                });
+                note({ localized: name, localizeMs: Date.now() - t0 });
+                return out;
+            } catch (err) {
+                note({ localizeError: scrub(err.message) });
+            }
+        }
+        return items;
+    };
+    try { return await withTimeout(attempt(), TRANSLATE_TIMEOUT_MS); }
+    catch (err) { note({ localized: false, localizeError: scrub(err.message) }); return items; }
 }
 
 function listingsAnswer(items, kind, lang, own) {
@@ -1730,9 +1801,11 @@ async function handleDiag(req, res) {
     // Пробный запуск карточек и курсов: /diag?cards=1. Тратит несколько запросов к поиску, поэтому только по просьбе.
     if (openai && req.query?.cards === '1') {
         const dbgL = {};
+        const diagLang = ['tg', 'ru', 'uz'].includes(req.query?.lang) ? req.query.lang : 'ru';
         out.cards_test = await timed(async () => {
-            const items = await searchListings({ kind: 'ads', lang: 'ru', date: todayTJ(), query: 'Найди актуальные объявления на сегодня: сначала на somon.tj. Раздел: «Хона».', debug: dbgL });
-            return { items: items.length, firstHost: items[0] ? hostOf(items[0].url) : null, ...dbgL };
+            const items = await searchListings({ kind: 'ads', lang: diagLang, date: todayTJ(), query: 'Найди актуальные объявления на сегодня: сначала на somon.tj. Раздел: «Хона».', debug: dbgL });
+            const f = items[0];
+            return { lang: diagLang, items: items.length, firstHost: f ? hostOf(f.url) : null, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, ...dbgL };
         });
         if (!out.cards_test.ok) out.cards_test.debug = dbgL;
         const dbgR = {};
