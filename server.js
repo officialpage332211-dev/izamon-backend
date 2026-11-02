@@ -792,12 +792,33 @@ function ownCards(rows, lang) {
 // Ссылки на поиск билетов — всегда под карточками билетов.
 const TICKET_LINKS = '<div class="iz-lq"><a href="https://www.aviasales.ru/" target="_blank" rel="noopener noreferrer">✈️ aviasales.ru</a><a href="https://somonair.com/" target="_blank" rel="noopener noreferrer">✈️ somonair.com</a></div>';
 
+// Модель иногда ломает JSON (лишняя кавычка, пропущенная запятая). Режим json_object гарантирует корректный JSON.
+async function repairJson(text) {
+    const client = openai || openrouter;
+    if (!client) return [];
+    const system = 'Ты чинишь JSON. Верни ТОЛЬКО корректный JSON {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":[""]}]}. Возьми все пункты из текста пользователя, ничего не добавляй и не выдумывай, значения не меняй. Ссылки — обычный текст https://…, без Markdown.';
+    try {
+        const completion = await withTimeout(client.chat.completions.create({
+            model: client === openai ? OPENAI_MODEL : OPENROUTER_MODEL,
+            messages: [{ role: 'system', content: system }, { role: 'user', content: String(text).slice(0, 9000) }],
+            max_tokens: 2500,
+            response_format: { type: 'json_object' }
+        }), 14000);
+        const out = completion.choices?.[0]?.message?.content || '';
+        const list = parseJsonLoose(out).items;
+        return Array.isArray(list) ? list.filter(x => x && typeof x === 'object') : [];
+    } catch (err) {
+        console.warn(`[repairJson Сбой]: ${err.status || ''} ${err.message}`);
+        return [];
+    }
+}
+
 async function searchListings({ kind, lang, date, query, debug }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
 price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — телефон/Telegram, только если он есть в источнике. who — продавец/компания/авиакомпания.
-url — ОБЯЗАТЕЛЬНО: обычная ссылка https://… (без Markdown и скобок) на страницу именно этого объявления, вакансии или предложения из результатов поиска; у разных пунктов ссылки разные. Нет ссылки — не включай этот пункт. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 главных характеристик в виде «Название: значение» (например «Площадь: 60 м²», «Этаж: 5/9», «Год: 2017», «Пробег: 120 000 км», «График: 5/2»). Ничего не выдумывай: нет данных — пустая строка (кроме url). Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
+url — обычная ссылка https://… (без Markdown и скобок) на страницу этого пункта; если отдельной страницы нет — на страницу из результатов поиска, где он найден (например, страница списка). Не пропускай пункт только из-за отсутствия отдельной страницы. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 главных характеристик в виде «Название: значение» (например «Площадь: 60 м²», «Этаж: 5/9», «Год: 2017», «Пробег: 120 000 км», «График: 5/2»). Ничего не выдумывай: нет данных — пустая строка (кроме url). Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
     const resp = await openaiSearchRaw(system, query, 2500);
     const { text, cites, consulted } = readSearch(resp);
     // Сайт считается «открытым поиском», если на него есть цитата или он в списке просмотренных страниц.
@@ -806,11 +827,20 @@ url — ОБЯЗАТЕЛЬНО: обычная ссылка https://… (без 
     let parseError = null;
     let salvaged = false;
     let rawList = [];
+    let repaired = false;
+    let parseAt = null;
     try { rawList = parseJsonLoose(text).items || []; } catch (err) {
         parseError = scrub(err.message);
+        const at = Number((String(err.message).match(/position (\d+)/) || [])[1]);
+        if (debug && at >= 0) parseAt = scrub(text.slice(Math.max(0, at - 70), at + 70));
         // Длинный ответ мог оборваться на полуслове (лимит длины): целые карточки до обрыва сохраняем.
         rawList = salvageItems(text);
         salvaged = rawList.length > 0;
+        // Почти ничего не уцелело — просим лёгкую модель переписать тот же текст корректным JSON (без нового поиска).
+        if (rawList.length < 2 && text.length > 20) {
+            const fixed = await repairJson(text);
+            if (fixed.length > rawList.length) { rawList = fixed; repaired = true; }
+        }
     }
     items = rawList.map(cleanItem);
     const rawItems = items.length;
@@ -828,7 +858,7 @@ url — ОБЯЗАТЕЛЬНО: обычная ссылка https://… (без 
         // Одну и ту же страницу объявления дважды не показываем. Если ссылка ведёт на общую страницу списка
         // (в адресе нет номера объявления), разные пункты с ней оставляем, повтор по заголовку убираем.
         let specific = true;
-        try { const path = new URL(it.url).pathname; specific = /\d{3,}/.test(path) || path.length > 40; } catch { specific = true; }
+        try { const path = new URL(it.url).pathname; specific = /\d{3,}/.test(path); } catch { specific = true; }
         const key = specific ? it.url : `${it.url}|${it.title.toLowerCase()}`;
         if (seen.has(key)) { drop.dup++; return false; }
         seen.add(key);
@@ -836,16 +866,17 @@ url — ОБЯЗАТЕЛЬНО: обычная ссылка https://… (без 
     });
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
-    if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
+    if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
     return localizeItems(items.slice(0, 10), lang, debug);
 }
 
 // Поиск отдаёт текст на языке сайта-источника (чаще русском). Карточку переводим на язык сайта одним
 // коротким запросом без поиска. Не получилось — остаются исходные карточки, как раньше.
 const TRANSLATE_TIMEOUT_MS = 24000;
+const PREFER_WAIT_MS = 9000; // сколько ждём любимую модель (Gemini), прежде чем взять готовый ответ второй
 // Слова, которые слабые модели чаще всего оставляют по-русски. Подсказка для перевода карточек.
 const CARD_GLOSSARY = {
-    tg: 'Примеры: «Зарплата» → «Маош», «Договорная» → «Тавофуқӣ», «Цена по запросу» → «Нарх тибқи дархост», «График» → «Реҷаи корӣ», «Посменно» → «Баргардон», «Требования» → «Талабот», «Опыт» → «Таҷриба», «Образование» → «Маълумот», «Физическое лицо» → «Шахси воқеӣ», «Высокая + премия» → «Баланд + мукофот», «Полный день» → «Рӯзи пурра».',
+    tg: 'Примеры: «Зарплата» → «Маош», «Договорная» → «Тавофуқӣ», «Цена по запросу» → «Нарх тибқи дархост», «График» → «Реҷаи корӣ», «Посменно» → «Баргардон», «Требования» → «Талабот», «Опыт» → «Таҷриба», «Образование» → «Маълумот», «Физическое лицо» → «Шахси воқеӣ», «Высокая + премия» → «Баланд + мукофот», «Полный день» → «Рӯзи пурра», «вчера» → «дирӯз», «сегодня» → «имрӯз», месяцы: «окт» → «октябр», «ноя» → «ноябр», «дек» → «декабр».',
     uz: "Misollar: «Зарплата» → «Maosh», «Договорная» → «Kelishilgan», «Цена по запросу» → «Narx so'rov bo'yicha», «График» → «Ish jadvali», «Посменно» → «Smenali», «Требования» → «Talablar», «Опыт» → «Tajriba», «Физическое лицо» → «Jismoniy shaxs», «Полный день» → «To'liq kun»."
 };
 const NEEDS_TRANSLATE_RU = /[ӣӯқғҳҷ]/;
@@ -887,38 +918,59 @@ ${CARD_GLOSSARY[lang] || ''}
         return total >= 2 ? same / total : 0;
     };
     let best = null; // лучший из неидеальных переводов — на случай, если ни одна модель не справится чисто
-    const attempt = async () => {
-        for (const [name, run] of runs) {
-            try {
-                const r = await run();
-                const arr = parseJsonLoose(r.text).items;
-                if (!Array.isArray(arr) || arr.length !== items.length) throw new Error('bad shape');
-                const digits = s => String(s || '').replace(/\D/g, '');
-                // Перевод принимаем, только если цифры (цена, год, площадь) не изменились; иначе остаётся исходное значение.
-                const pick = (orig, tr) => { const t = typeof tr === 'string' ? tr.trim() : ''; return t && digits(t) === digits(orig) ? t : orig; };
-                const out = items.map((it, i) => {
-                    const t = arr[i] && typeof arr[i] === 'object' ? arr[i] : {};
-                    const tp = Array.isArray(t.points) ? t.points.filter(p => typeof p === 'string') : [];
-                    // Ссылка, фото и телефон — только исходные; переводится только текст.
-                    return cleanItem({
-                        ...it,
-                        title: pick(it.title, t.title), price: pick(it.price, t.price), place: pick(it.place, t.place),
-                        date: pick(it.date, t.date), who: pick(it.who, t.who),
-                        points: tp.length && digits(tp.join(' ')) === digits(it.points.join(' ')) ? tp : it.points
-                    });
-                });
-                // Для таджикского и узбекского модель не должна оставлять русские цену, график и т.п. как есть.
-                const share = lang === 'ru' ? 0 : untranslated(out);
-                if (share > 0.5) {
-                    if (!best || share < best.share) best = { out, share, name };
-                    note({ localizeError: `${name}: оставил без перевода ${Math.round(share * 100)}%` });
-                    continue;
-                }
-                note({ localized: name, localizeMs: Date.now() - t0 });
-                return out;
-            } catch (err) {
-                note({ localizeError: scrub(err.message) });
+    // Разбор ответа одной модели: форма, цифры, доля непереведённого. Возвращает { out, share } или бросает ошибку.
+    const evaluate = r => {
+        const arr = parseJsonLoose(r.text).items;
+        if (!Array.isArray(arr) || arr.length !== items.length) throw new Error('bad shape');
+        const digits = s => String(s || '').replace(/\D/g, '');
+        // Перевод принимаем, только если цифры (цена, год, площадь) не изменились; иначе остаётся исходное значение.
+        const pick = (orig, tr) => { const t = typeof tr === 'string' ? tr.trim() : ''; return t && digits(t) === digits(orig) ? t : orig; };
+        const out = items.map((it, i) => {
+            const t = arr[i] && typeof arr[i] === 'object' ? arr[i] : {};
+            const tp = Array.isArray(t.points) ? t.points.filter(p => typeof p === 'string') : [];
+            // Ссылка, фото и телефон — только исходные; переводится только текст.
+            return cleanItem({
+                ...it,
+                title: pick(it.title, t.title), price: pick(it.price, t.price), place: pick(it.place, t.place),
+                date: pick(it.date, t.date), who: pick(it.who, t.who),
+                points: tp.length && digits(tp.join(' ')) === digits(it.points.join(' ')) ? tp : it.points
+            });
+        });
+        // Для таджикского и узбекского модель не должна оставлять русские цену, график и т.п. как есть.
+        return { out, share: lang === 'ru' ? 0 : untranslated(out) };
+    };
+    // Первые две модели стартуют одновременно: если любимая (Gemini) долго молчит, ответ второй уже готов.
+    const launch = ([name, run]) => ({ name, p: run().then(r => ({ r }), err => ({ err })) });
+    const within = (promise, ms) => { let t; return Promise.race([promise, new Promise(res => { t = setTimeout(() => res(null), ms); })]).finally(() => clearTimeout(t)); };
+    const take = (job, res) => {
+        if (!res) return null;
+        if (res.err) { note({ localizeError: `${job.name}: ${scrub(res.err.message)}` }); return null; }
+        try {
+            const ev = evaluate(res.r);
+            if (ev.share > 0.5) {
+                if (!best || ev.share < best.share) best = { out: ev.out, share: ev.share, name: job.name };
+                note({ localizeError: `${job.name}: оставил без перевода ${Math.round(ev.share * 100)}%` });
+                return null;
             }
+            note({ localized: job.name, localizeMs: Date.now() - t0 });
+            return ev.out;
+        } catch (err) {
+            note({ localizeError: `${job.name}: ${scrub(err.message)}` });
+            return null;
+        }
+    };
+    const attempt = async () => {
+        const jobs = runs.slice(0, 2).map(launch);
+        for (let i = 0; i < jobs.length; i++) {
+            const out = take(jobs[i], await within(jobs[i].p, i === 0 && jobs.length > 1 ? PREFER_WAIT_MS : TRANSLATE_TIMEOUT_MS));
+            if (out) return out;
+        }
+        // Вторая не справилась — ещё раз смотрим на первую: она могла закончить пока ждали.
+        if (jobs.length > 1) { const out = take(jobs[0], await within(jobs[0].p, 1)); if (out) return out; }
+        for (const entry of runs.slice(2)) {
+            const job = launch(entry);
+            const out = take(job, await job.p);
+            if (out) return out;
         }
         if (best) { note({ localized: best.name + '*', localizeMs: Date.now() - t0 }); return best.out; }
         return items;
