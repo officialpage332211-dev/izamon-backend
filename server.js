@@ -543,36 +543,52 @@ async function askGemini(system, userText, useSearch) {
 
 // Запасной поиск: веб-поиск OpenAI. Работает, если у Gemini поиск недоступен (лимит бесплатного ключа и т.п.).
 let searchTool = 'web_search';
+// include: полный список страниц, которые поиск реально открыл. Ответ в формате JSON (карточки, курсы) приходит
+// без ссылок-цитат, поэтому «источники» берём из этого списка. Если API параметр не принял — работаем без него.
+let wantSources = true;
 async function openaiSearchRaw(system, userText, maxTokens = 1200) {
     // tool_choice: 'required' — модель обязана сходить в интернет, а не отвечать «из головы».
-    const run = tool => openai.responses.create({
+    const run = (tool, withSources) => openai.responses.create({
         model: OPENAI_SEARCH_MODEL,
         instructions: system,
         input: userText,
         tools: [{ type: tool }],
         tool_choice: 'required',
-        max_output_tokens: maxTokens
+        max_output_tokens: maxTokens,
+        ...(withSources ? { include: ['web_search_call.action.sources'] } : {})
     });
-    try {
-        return await withTimeout(run(searchTool), 30000);
-    } catch (err) {
-        if (err.status !== 400 || searchTool === 'web_search_preview') throw err;
-        searchTool = 'web_search_preview';
-        return withTimeout(run(searchTool), 30000);
+    let lastErr;
+    for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+            return await withTimeout(run(searchTool, wantSources), 30000);
+        } catch (err) {
+            lastErr = err;
+            if (err.status !== 400) throw err;
+            if (wantSources && /include|sources/i.test(String(err.message))) { wantSources = false; continue; }
+            if (searchTool === 'web_search_preview') throw err;
+            searchTool = 'web_search_preview';
+        }
     }
+    throw lastErr;
 }
 
 function readSearch(resp) {
     const parts = [];
     const cites = [];
+    const consulted = []; // страницы, которые поиск открыл (даже если модель не поставила ссылок-цитат)
     for (const item of resp.output || []) {
+        if (item.type === 'web_search_call') {
+            const list = item.action && Array.isArray(item.action.sources) ? item.action.sources : [];
+            for (const s of list) if (s && typeof s.url === 'string') consulted.push({ title: '', uri: s.url });
+            continue;
+        }
         if (item.type !== 'message') continue;
         for (const c of item.content || []) {
             if (c.type === 'output_text' && typeof c.text === 'string') parts.push(c.text);
             for (const a of c.annotations || []) if (a.type === 'url_citation') cites.push({ title: a.title && !/\s/.test(a.title) ? a.title : '', uri: a.url });
         }
     }
-    return { text: (resp.output_text || parts.join('\n')).trim(), cites };
+    return { text: (resp.output_text || parts.join('\n')).trim(), cites, consulted };
 }
 
 async function askOpenAISearch(system, userText) {
@@ -706,17 +722,20 @@ function ownCards(rows, lang) {
 // Ссылки на поиск билетов — всегда под карточками билетов.
 const TICKET_LINKS = '<div class="iz-lq"><a href="https://www.aviasales.ru/" target="_blank" rel="noopener noreferrer">✈️ aviasales.ru</a><a href="https://somonair.com/" target="_blank" rel="noopener noreferrer">✈️ somonair.com</a></div>';
 
-async function searchListings({ kind, lang, date, query }) {
+async function searchListings({ kind, lang, date, query, debug }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
 price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — телефон/Telegram, только если он есть в источнике. who — продавец/компания/авиакомпания.
 url — прямая ссылка на это объявление или страницу из результатов поиска. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 главных характеристик в виде «Название: значение» (например «Площадь: 60 м²», «Этаж: 5/9», «Год: 2017», «Пробег: 120 000 км», «График: 5/2»). Ничего не выдумывай: нет данных — пустая строка. Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
     const resp = await openaiSearchRaw(system, query, 2500);
-    const { text, cites } = readSearch(resp);
-    const citedHosts = new Set(cites.map(c => hostOf(c.url || c.uri)).filter(Boolean));
+    const { text, cites, consulted } = readSearch(resp);
+    // Сайт считается «открытым поиском», если на него есть цитата или он в списке просмотренных страниц.
+    const citedHosts = new Set([...cites, ...consulted].map(c => hostOf(c.url || c.uri)).filter(Boolean));
     let items = [];
-    try { items = (parseJsonLoose(text).items || []).map(cleanItem); } catch { items = []; }
+    let parseError = null;
+    try { items = (parseJsonLoose(text).items || []).map(cleanItem); } catch (err) { items = []; parseError = scrub(err.message); }
+    const rawItems = items.length;
     const seen = new Set();
     items = items.filter(it => {
         if (!it.title || !it.url) return false;
@@ -730,6 +749,7 @@ url — прямая ссылка на это объявление или стр
     });
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
+    if (debug) Object.assign(debug, { status: resp.status || null, textStart: text.slice(0, 120), parseError, rawItems, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
     return items.slice(0, 10);
 }
 
@@ -751,12 +771,15 @@ const RATE_HEAD = {
 const FLAGS = { USD: '🇺🇸', EUR: '🇪🇺', RUB: '🇷🇺', CNY: '🇨🇳', KZT: '🇰🇿', UZS: '🇺🇿', KGS: '🇰🇬', TRY: '🇹🇷', AED: '🇦🇪', GBP: '🇬🇧', IRR: '🇮🇷', AFN: '🇦🇫', JPY: '🇯🇵', CHF: '🇨🇭' };
 const num = v => { const n = Number(String(v ?? '').replace(',', '.').replace(/[^\d.]/g, '')); return Number.isFinite(n) && n > 0 ? n : null; };
 
-async function searchRates({ lang, date }) {
+async function searchRates({ lang, date, debug }) {
     const system = `Сегодня ${date.human}. Найди в интернете официальные курсы Национального банка Таджикистана (nbt.tj) к сомони на сегодня для 10 валют: USD, EUR, RUB, CNY, KZT, UZS, KGS, TRY, AED, GBP (курс за 1 единицу валюты). И курсы покупки/продажи USD, EUR, RUB в банках «Алиф» (alif.tj) и «Душанбе Сити» (dc.tj) на сегодня, если найдёшь.
 Верни ТОЛЬКО JSON: {"date":"дата курса","nbt":[{"code":"USD","rate":0}],"banks":[{"bank":"Алиф","code":"USD","buy":0,"sell":0}]}. Не нашёл — не включай. Ничего не выдумывай.`;
     const resp = await openaiSearchRaw(system, 'Курсы валют к сомони на сегодня: Нацбанк Таджикистана, Алиф, Душанбе Сити', 1500);
-    const { text, cites } = readSearch(resp);
-    const sources = uniqueSources(cites);
+    const { text, cites, consulted } = readSearch(resp);
+    let sources = uniqueSources(cites);
+    // Ответ в формате JSON приходит без цитат: тогда берём только официальные сайты из списка открытых страниц.
+    if (!sources.length) sources = uniqueSources(consulted.filter(c => /(^|\.)(nbt\.tj|alif\.tj|dc\.tj)$/i.test(hostOf(c.uri))));
+    if (debug) Object.assign(debug, { status: resp.status || null, textStart: text.slice(0, 120), cites: cites.length, consulted: consulted.length, sources: sources.length });
     if (!sources.length) return null;
     let data;
     try { data = parseJsonLoose(text); } catch { return null; }
@@ -1703,6 +1726,22 @@ async function handleDiag(req, res) {
         });
     } else {
         out.openai = 'ключ OpenAI не задан';
+    }
+    // Пробный запуск карточек и курсов: /diag?cards=1. Тратит несколько запросов к поиску, поэтому только по просьбе.
+    if (openai && req.query?.cards === '1') {
+        const dbgL = {};
+        out.cards_test = await timed(async () => {
+            const items = await searchListings({ kind: 'ads', lang: 'ru', date: todayTJ(), query: 'Найди актуальные объявления на сегодня: сначала на somon.tj. Раздел: «Хона».', debug: dbgL });
+            return { items: items.length, firstHost: items[0] ? hostOf(items[0].url) : null, ...dbgL };
+        });
+        if (!out.cards_test.ok) out.cards_test.debug = dbgL;
+        const dbgR = {};
+        out.rates_test = await timed(async () => {
+            const r = await searchRates({ lang: 'ru', date: todayTJ(), debug: dbgR });
+            return { table: !!r, nbtRows: r ? r.nbt.length : 0, ...dbgR };
+        });
+        if (!out.rates_test.ok) out.rates_test.debug = dbgR;
+        out.search_include_sources = wantSources;
     }
     try {
         const payload = JSON.parse(Buffer.from(String(SB_KEY()).split('.')[1] || '', 'base64url').toString('utf8') || '{}');
