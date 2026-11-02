@@ -431,7 +431,7 @@ function finalize(text, sources, lang) {
     const safe = linkify(escapeHtml(cleanModelText(text)));
     const links = sources
         .filter(s => /^https:\/\//i.test(s.uri || ''))
-        .map(s => `<a href="${escapeAttr(s.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title || s.uri)}</a>`);
+        .map(s => `<a href="${escapeAttr(s.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceLabel(s.title, s.uri))}</a>`);
     return links.length ? `${safe}\n\n🔎 ${SOURCES_LABEL[lang]}: ${links.join(', ')}` : safe;
 }
 
@@ -466,6 +466,18 @@ function realSource(uri) {
 // Сомнительные агрегаторы и сайты микрокредитов (риба) источником не считаем.
 const BAD_SOURCES = /(^|\.)(selinawamucii\.com|finca\.tj|imon\.tj|tridge\.com|pinterest\.[a-z.]+)$/i;
 
+// Подпись ссылки на источник — всегда адрес сайта («somon.tj»), а не заголовок страницы вроде «Главная».
+// У Gemini ссылка ведёт через служебный адрес Google, там настоящий сайт стоит в заголовке.
+const LOOKS_LIKE_HOST = /^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i;
+function sourceLabel(title, uri) {
+    let host = '';
+    try { host = new URL(uri).hostname.replace(/^www\./, ''); } catch { host = ''; }
+    const t = String(title || '').trim().replace(/^www\./i, '');
+    const redirect = /(^|\.)(vertexaisearch\.cloud\.google\.com|googleusercontent\.com)$/i.test(host);
+    if (redirect) return LOOKS_LIKE_HOST.test(t) ? t : (host || String(uri));
+    return host || (LOOKS_LIKE_HOST.test(t) ? t : String(uri));
+}
+
 function uniqueSources(list) {
     const seen = new Set();
     const out = [];
@@ -473,8 +485,7 @@ function uniqueSources(list) {
         const uri = c && c.uri && /^https:\/\//i.test(c.uri) ? realSource(c.uri) : null;
         if (!uri) continue;
         try { if (BAD_SOURCES.test(new URL(uri).hostname)) continue; } catch { continue; }
-        let title = c.title;
-        if (!title) { try { title = new URL(uri).hostname.replace(/^www\./, ''); } catch { title = uri; } }
+        const title = sourceLabel(c.title, uri);
         if (seen.has(title)) continue;
         seen.add(title);
         out.push({ title, uri });
@@ -682,6 +693,35 @@ function parseJsonLoose(text) {
     return JSON.parse(raw.slice(start, end + 1));
 }
 
+// Достаёт целые объекты из обрезанного JSON вида {"items":[{...},{...},{"title":"обор
+function salvageItems(text) {
+    const raw = String(text || '').replace(/```(?:json)?/gi, '');
+    const arr = raw.indexOf('[');
+    if (arr < 0) return [];
+    const out = [];
+    let depth = 0, start = -1, inStr = false, esc = false;
+    for (let i = arr + 1; i < raw.length; i++) {
+        const ch = raw[i];
+        if (inStr) {
+            if (esc) esc = false;
+            else if (ch === '\\') esc = true;
+            else if (ch === '"') inStr = false;
+            continue;
+        }
+        if (ch === '"') inStr = true;
+        else if (ch === '{') { if (depth === 0) start = i; depth++; }
+        else if (ch === '}') {
+            depth--;
+            if (depth === 0 && start >= 0) {
+                try { out.push(JSON.parse(raw.slice(start, i + 1))); } catch { /* битая карточка — пропускаем */ }
+                start = -1;
+            }
+            if (depth < 0) break;
+        }
+    }
+    return out;
+}
+
 const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } catch { return ''; } };
 
 const CALL_LABEL = { tg: 'Занг задан', ru: 'Позвонить', uz: "Qo'ng'iroq" };
@@ -746,22 +786,29 @@ url — прямая ссылка на это объявление или стр
     const citedHosts = new Set([...cites, ...consulted].map(c => hostOf(c.url || c.uri)).filter(Boolean));
     let items = [];
     let parseError = null;
-    try { items = (parseJsonLoose(text).items || []).map(cleanItem); } catch (err) { items = []; parseError = scrub(err.message); }
+    let salvaged = false;
+    try { items = (parseJsonLoose(text).items || []).map(cleanItem); } catch (err) {
+        parseError = scrub(err.message);
+        // Длинный ответ мог оборваться на полуслове (лимит длины): целые карточки до обрыва сохраняем.
+        items = salvageItems(text).map(cleanItem);
+        salvaged = items.length > 0;
+    }
     const rawItems = items.length;
     const seen = new Set();
+    const drop = { noUrl: 0, notOpened: 0, forbidden: 0, dup: 0 };
     items = items.filter(it => {
-        if (!it.title || !it.url) return false;
+        if (!it.title || !it.url) { drop.noUrl++; return false; }
         const h = hostOf(it.url);
         // Ссылка должна вести на сайт, который поиск действительно открыл, — выдуманные адреса отсекаются.
-        if (!h || BAD_SOURCES.test(h) || (citedHosts.size && !citedHosts.has(h))) return false;
-        if (HARAM_LINE.test(`${it.title} ${it.who}`)) return false;
-        if (seen.has(it.url)) return false;
+        if (!h || BAD_SOURCES.test(h) || (citedHosts.size && !citedHosts.has(h))) { drop.notOpened++; return false; }
+        if (HARAM_LINE.test(`${it.title} ${it.who}`)) { drop.forbidden++; return false; }
+        if (seen.has(it.url)) { drop.dup++; return false; }
         seen.add(it.url);
         return true;
     });
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
-    if (debug) Object.assign(debug, { status: resp.status || null, textStart: text.slice(0, 120), parseError, rawItems, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
+    if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, rawItems, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
     return localizeItems(items.slice(0, 10), lang, debug);
 }
 
@@ -869,7 +916,7 @@ function ratesAnswer(r, lang) {
     const f = n => (n ? String(+n.toFixed(4)) : '—');
     const nbtRows = r.nbt.map(x => `<tr><td>${FLAGS[x.code] || '💱'} ${x.code}</td><td>${f(x.rate)}</td></tr>`).join('');
     const bankRows = r.banks.map(b => `<tr><td>${escapeHtml(b.bank)}</td><td>${FLAGS[b.code] || ''} ${b.code}</td><td>${f(b.buy)}</td><td>${f(b.sell)}</td></tr>`).join('');
-    const links = r.sources.map(s => `<a href="${escapeAttr(s.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(s.title || hostOf(s.uri))}</a>`).join(', ');
+    const links = r.sources.map(s => `<a href="${escapeAttr(s.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceLabel(s.title, s.uri))}</a>`).join(', ');
     return `<div class="iz-rates"><div class="iz-lh">💱 ${h.title}${r.date ? ' — ' + escapeHtml(r.date) : ''}</div>` +
         `<div class="iz-rt-sub">🏦 ${h.nbt} (${h.per})</div><table class="iz-rt">${nbtRows}</table>` +
         (bankRows ? `<div class="iz-rt-sub">🏧 ${h.bank}</div><table class="iz-rt"><tr><th></th><th></th><th>${h.buy}</th><th>${h.sell}</th></tr>${bankRows}</table>` : '') +
@@ -880,22 +927,35 @@ function ratesAnswer(r, lang) {
 // Если ответ длинный или на чужом языке — отдельным лёгким вызовом переписываем его по нашим правилам.
 const needsRewrite = (text, lang) => mixedLanguage(text, lang) || HARAM_LINE.test(text) || text.length > 900 || text.split('\n').filter(l => l.trim()).length > 10;
 
+// Строки, в которых остались слова чужого языка, не показываем: лучше короче, чем на двух языках сразу.
+function dropMixedLines(text, lang) {
+    return String(text).split('\n').filter(l => !l.trim() || !mixedLanguage(l, lang)).join('\n').trim();
+}
+
 async function rewriteForUser(text, { mode, lang, date, strict = false }) {
-    const system = buildSystemPrompt({ mode, lang, canSearch: true, date, strict }) +
-        `\n\nЗАДАЧА: перепиши найденные данные в короткий ответ ПОЛНОСТЬЮ на языке: ${LANG_NAMES[lang]}. Переведи всё, кроме названий компаний, сайтов и брендов. Оставь 2–3 самых полезных пункта, не больше 8 строк, каждая строка — одно простое предложение с эмодзи в начале. Названия, цифры, даты, телефоны и сайты сохрани точно, ничего не добавляй от себя. Полностью убери пункты про кредиты, проценты, займы, алкоголь, казино и другое запретное по шариату. Если конкретных данных не осталось, скажи об этом одной строкой.`;
-    const runs = [];
-    if (openai) runs.push(() => askChat(openai, OPENAI_MODEL, system, text, 450));
-    if (geminiUp()) runs.push(() => askGemini(system, text, false));
-    if (openrouter) runs.push(() => askChat(openrouter, OPENROUTER_MODEL, system, text, 450));
-    for (const run of runs) {
+    const task = `\n\nЗАДАЧА: перепиши найденные данные в короткий ответ ПОЛНОСТЬЮ на языке: ${LANG_NAMES[lang]}. Переведи всё, кроме названий компаний, сайтов и брендов. Оставь 2–3 самых полезных пункта, не больше 8 строк, каждая строка — одно простое предложение с эмодзи в начале. Названия, цифры, даты, телефоны и сайты сохрани точно, ничего не добавляй от себя. Полностью убери пункты про кредиты, проценты, займы, алкоголь, казино и другое запретное по шариату. Если конкретных данных не осталось, скажи об этом одной строкой.`;
+    // Для таджикского и узбекского первым идёт Gemini: он грамотнее. Каждая следующая попытка — строже.
+    const order = lang === 'ru' ? ['openai', 'gemini', 'openrouter'] : ['gemini', 'openai', 'openrouter'];
+    let fallback = null;
+    let tries = 0;
+    for (const name of order) {
+        const system = buildSystemPrompt({ mode, lang, canSearch: true, date, strict: strict || tries > 0 }) + task;
+        let run = null;
+        if (name === 'openai' && openai) run = () => askChat(openai, OPENAI_MODEL, system, text, 450);
+        if (name === 'gemini' && geminiUp()) run = () => askGemini(system, text, false);
+        if (name === 'openrouter' && openrouter) run = () => askChat(openrouter, OPENROUTER_MODEL, system, text, 450);
+        if (!run) continue;
+        tries++;
         try {
             const r = await run();
-            if (r.text) return r.text;
+            if (!r.text) continue;
+            if (!mixedLanguage(r.text, lang)) return r.text; // чистый язык — берём сразу
+            fallback = fallback || r.text;
         } catch (err) {
             console.warn(`[rewrite Сбой]: ${err.status || ''} ${err.message}`);
         }
     }
-    return text;
+    return fallback || text;
 }
 
 async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind }) {
@@ -937,7 +997,8 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind 
                     if (!sources.length) continue; // настоящих источников нет — пробуем следующий поиск
                     let text = cleanModelText(r.text);
                     if (needsRewrite(text, lang)) text = await rewriteForUser(text, { mode, lang, date });
-                    if (mixedLanguage(text, lang)) text = await rewriteForUser(text, { mode, lang, date, strict: true });
+                    // Последняя защита: чужой язык до человека не доходит. Не осталось строк — пробуем другой поиск.
+                    if (mixedLanguage(text, lang)) text = dropMixedLines(text, lang);
                     text = capLines(shapeLines(dropHaramLines(cleanModelText(text)), mode), 10);
                     if (!text.trim()) continue;
                     const web = finalize(text, sources, lang);
@@ -1776,12 +1837,24 @@ async function timed(fn) {
     catch (err) { return { ok: false, ms: Date.now() - t, status: err.status || null, error: scrub(err.message) }; }
 }
 
+// Пункты меню для проверки карточек: /diag?cards=1&lang=tg&item=jobs (jobs, livestock, tickets, tours, land)
+const DIAG_TOPICS = {
+    jobs: '4. Молия ва тиҷорат - Кор ва шуғл',
+    livestock: '6. Кишоварзӣ - Чорводорӣ',
+    tickets: '2. Нақлиёт ва сафар - Чиптаҳо',
+    tours: '2. Нақлиёт ва сафар - Сафарҳо',
+    land: '6. Кишоварзӣ - Заминҳои кишт'
+};
+
 async function handleDiag(req, res) {
     if (process.env.DIAG_KEY && req.query?.k !== process.env.DIAG_KEY) return res.status(403).json({ error: 'forbidden' });
     if (diagLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
     const question = 'Какой сегодня курс доллара к сомони в Таджикистане?';
     const out = { date: todayTJ().iso, geminiModels: GEMINI_MODELS, geminiPauseSec: Math.max(0, Math.round((geminiDownUntil - Date.now()) / 1000)) };
-    if (gemini) {
+    const diagTopic = DIAG_TOPICS[req.query?.item] || null;
+    if (diagTopic) {
+        out.item = req.query.item;
+    } else if (gemini) {
         out.gemini_plain = await timed(async () => ({ text: (await askGemini('Отвечай одним словом.', 'Скажи: привет', false)).text.slice(0, 40) }));
         out.gemini_search = await timed(async () => {
             const r = await askGemini('Ищи в интернете и отвечай коротко.', question, true);
@@ -1790,7 +1863,9 @@ async function handleDiag(req, res) {
     } else {
         out.gemini = 'ключ GEMINI_API_KEY не задан';
     }
-    if (openai) {
+    if (diagTopic) {
+        // быстрые проверки пропускаем: нужен только выбранный раздел
+    } else if (openai) {
         out.openai_search = await timed(async () => {
             const r = await askOpenAISearch('Ищи в интернете и отвечай коротко.', question);
             return { text: r.text.slice(0, 60), sources: r.sources.length };
@@ -1803,17 +1878,30 @@ async function handleDiag(req, res) {
         const dbgL = {};
         const diagLang = ['tg', 'ru', 'uz'].includes(req.query?.lang) ? req.query.lang : 'ru';
         out.cards_test = await timed(async () => {
-            const items = await searchListings({ kind: 'ads', lang: diagLang, date: todayTJ(), query: 'Найди актуальные объявления на сегодня: сначала на somon.tj. Раздел: «Хона».', debug: dbgL });
+            let kind = 'ads';
+            let query = 'Найди актуальные объявления на сегодня: сначала на somon.tj. Раздел: «Хона».';
+            let routed = null;
+            if (diagTopic) {
+                // тот же путь, что и у настоящей кнопки раздела
+                const r = routeRequest({ cleaned: diagTopic, topic: diagTopic });
+                routed = { mode: r.mode, kind: r.kind };
+                kind = r.kind;
+                query = withDictionary(r.userText, diagTopic);
+            }
+            if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
+            const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL });
             const f = items[0];
-            return { lang: diagLang, items: items.length, firstHost: f ? hostOf(f.url) : null, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, ...dbgL };
+            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, ...dbgL };
         });
         if (!out.cards_test.ok) out.cards_test.debug = dbgL;
-        const dbgR = {};
-        out.rates_test = await timed(async () => {
-            const r = await searchRates({ lang: 'ru', date: todayTJ(), debug: dbgR });
-            return { table: !!r, nbtRows: r ? r.nbt.length : 0, ...dbgR };
-        });
-        if (!out.rates_test.ok) out.rates_test.debug = dbgR;
+        if (!diagTopic) {
+            const dbgR = {};
+            out.rates_test = await timed(async () => {
+                const r = await searchRates({ lang: 'ru', date: todayTJ(), debug: dbgR });
+                return { table: !!r, nbtRows: r ? r.nbt.length : 0, ...dbgR };
+            });
+            if (!out.rates_test.ok) out.rates_test.debug = dbgR;
+        }
         out.search_include_sources = wantSources;
     }
     try {
@@ -1847,6 +1935,6 @@ if (require.main === module) {
 module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
-    isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ,
+    isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser,
     resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
