@@ -513,8 +513,11 @@ function parseGemini(response) {
     return { text, sources, searched: (gm.webSearchQueries || []).length > 0 };
 }
 
-async function askGemini(system, userText, useSearch) {
-    const ms = useSearch ? 20000 : 8000;
+// «Модель перегружена» (503) — не наша вина и не лимит: пробуем запасную модель, а Gemini не отключаем.
+const geminiBusy = err => [500, 502, 503, 504].includes(Number(err && (err.status || err.code))) || /UNAVAILABLE|high demand|overloaded/i.test(String(err && err.message));
+
+async function askGemini(system, userText, useSearch, timeoutMs) {
+    const ms = timeoutMs || (useSearch ? 20000 : 8000);
     let lastErr;
     for (const model of GEMINI_MODELS) {
         const build = withThinking => ({
@@ -543,9 +546,9 @@ async function askGemini(system, userText, useSearch) {
             return parseGemini(response);
         } catch (err) {
             lastErr = err;
-            // Модель не найдена — пробуем запасную.
-            if (err.status === 404 && model !== GEMINI_MODELS[GEMINI_MODELS.length - 1]) continue;
-            noteGeminiFailure(err);
+            // Модель не найдена или перегружена — пробуем запасную.
+            if ((err.status === 404 || geminiBusy(err)) && model !== GEMINI_MODELS[GEMINI_MODELS.length - 1]) continue;
+            if (!geminiBusy(err)) noteGeminiFailure(err);
             throw err;
         }
     }
@@ -670,18 +673,33 @@ function blankValue(v) {
 }
 const keepValue = (v, n) => { const s = clip(v, n); return blankValue(s) ? '' : s; };
 
+// Модель иногда оборачивает ссылку: «([somon.tj](https://somon.tj/adv/1))». Достаём саму ссылку и убираем разметку из текста.
+const MD_LINK = /\(?\[[^\]]*\]\((https:\/\/[^)\s]+)\)\)?/g;
+const stripLinks = v => (typeof v === 'string' ? v.replace(MD_LINK, '').replace(/\s{2,}/g, ' ').trim() : v);
+function pickUrl(v) {
+    if (typeof v !== 'string') return null;
+    const m = v.match(/https:\/\/[^\s"'<>)\]]+/);
+    if (!m) return null;
+    try {
+        const u = new URL(m[0].replace(/[.,;]+$/, ''));
+        u.searchParams.delete('utm_source');
+        return u.href.length <= 500 ? u.href : null;
+    } catch { return null; }
+}
+
 function cleanItem(x) {
     const o = x && typeof x === 'object' ? x : {};
+    const inTitle = typeof o.title === 'string' ? [...o.title.matchAll(MD_LINK)][0] : null;
     return {
-        title: clip(o.title, 120),
-        price: keepValue(o.price, 60),
-        place: keepValue(o.place, 80),
-        date: keepValue(o.date, 40),
-        contact: keepValue(o.contact, 60),
-        who: keepValue(o.who, 80),
-        image: typeof o.image === 'string' && /^https:\/\/[^\s"'<>]+$/i.test(o.image) ? o.image.slice(0, 500) : null,
-        points: (Array.isArray(o.points) ? o.points : []).map(x => clip(x, 90)).filter(p => p && !blankValue(p)).slice(0, 3),
-        url: typeof o.url === 'string' && /^https:\/\/[^\s"'<>]+$/i.test(o.url) ? o.url.slice(0, 500) : null
+        title: clip(stripLinks(o.title), 120),
+        price: keepValue(stripLinks(o.price), 60),
+        place: keepValue(stripLinks(o.place), 80),
+        date: keepValue(stripLinks(o.date), 40),
+        contact: keepValue(stripLinks(o.contact), 60),
+        who: keepValue(stripLinks(o.who), 80),
+        image: pickUrl(o.image),
+        points: (Array.isArray(o.points) ? o.points : []).map(x => clip(stripLinks(x), 90)).filter(p => p && !blankValue(p)).slice(0, 3),
+        url: pickUrl(o.url) || (inTitle ? pickUrl(inTitle[1]) : null)
     };
 }
 
@@ -779,7 +797,7 @@ async function searchListings({ kind, lang, date, query, debug }) {
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
 price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — телефон/Telegram, только если он есть в источнике. who — продавец/компания/авиакомпания.
-url — прямая ссылка на это объявление или страницу из результатов поиска. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 главных характеристик в виде «Название: значение» (например «Площадь: 60 м²», «Этаж: 5/9», «Год: 2017», «Пробег: 120 000 км», «График: 5/2»). Ничего не выдумывай: нет данных — пустая строка. Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
+url — ОБЯЗАТЕЛЬНО: обычная ссылка https://… (без Markdown и скобок) на страницу именно этого объявления, вакансии или предложения из результатов поиска; у разных пунктов ссылки разные. Нет ссылки — не включай этот пункт. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 главных характеристик в виде «Название: значение» (например «Площадь: 60 м²», «Этаж: 5/9», «Год: 2017», «Пробег: 120 000 км», «График: 5/2»). Ничего не выдумывай: нет данных — пустая строка (кроме url). Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
     const resp = await openaiSearchRaw(system, query, 2500);
     const { text, cites, consulted } = readSearch(resp);
     // Сайт считается «открытым поиском», если на него есть цитата или он в списке просмотренных страниц.
@@ -787,13 +805,18 @@ url — прямая ссылка на это объявление или стр
     let items = [];
     let parseError = null;
     let salvaged = false;
-    try { items = (parseJsonLoose(text).items || []).map(cleanItem); } catch (err) {
+    let rawList = [];
+    try { rawList = parseJsonLoose(text).items || []; } catch (err) {
         parseError = scrub(err.message);
         // Длинный ответ мог оборваться на полуслове (лимит длины): целые карточки до обрыва сохраняем.
-        items = salvageItems(text).map(cleanItem);
-        salvaged = items.length > 0;
+        rawList = salvageItems(text);
+        salvaged = rawList.length > 0;
     }
+    items = rawList.map(cleanItem);
     const rawItems = items.length;
+    // Для проверки: как модель записала первую карточку и какие ссылки дала (в настоящем ответе не показывается).
+    const rawFirst = rawItems && debug ? scrub(JSON.stringify(rawList[0])).slice(0, 300) : null;
+    const rawUrls = debug ? rawList.slice(0, 10).map(it => String(it && it.url || '').slice(0, 70)) : null;
     const seen = new Set();
     const drop = { noUrl: 0, notOpened: 0, forbidden: 0, dup: 0 };
     items = items.filter(it => {
@@ -802,19 +825,29 @@ url — прямая ссылка на это объявление или стр
         // Ссылка должна вести на сайт, который поиск действительно открыл, — выдуманные адреса отсекаются.
         if (!h || BAD_SOURCES.test(h) || (citedHosts.size && !citedHosts.has(h))) { drop.notOpened++; return false; }
         if (HARAM_LINE.test(`${it.title} ${it.who}`)) { drop.forbidden++; return false; }
-        if (seen.has(it.url)) { drop.dup++; return false; }
-        seen.add(it.url);
+        // Одну и ту же страницу объявления дважды не показываем. Если ссылка ведёт на общую страницу списка
+        // (в адресе нет номера объявления), разные пункты с ней оставляем, повтор по заголовку убираем.
+        let specific = true;
+        try { const path = new URL(it.url).pathname; specific = /\d{3,}/.test(path) || path.length > 40; } catch { specific = true; }
+        const key = specific ? it.url : `${it.url}|${it.title.toLowerCase()}`;
+        if (seen.has(key)) { drop.dup++; return false; }
+        seen.add(key);
         return true;
     });
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
-    if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, rawItems, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
+    if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
     return localizeItems(items.slice(0, 10), lang, debug);
 }
 
 // Поиск отдаёт текст на языке сайта-источника (чаще русском). Карточку переводим на язык сайта одним
 // коротким запросом без поиска. Не получилось — остаются исходные карточки, как раньше.
-const TRANSLATE_TIMEOUT_MS = 15000;
+const TRANSLATE_TIMEOUT_MS = 24000;
+// Слова, которые слабые модели чаще всего оставляют по-русски. Подсказка для перевода карточек.
+const CARD_GLOSSARY = {
+    tg: 'Примеры: «Зарплата» → «Маош», «Договорная» → «Тавофуқӣ», «Цена по запросу» → «Нарх тибқи дархост», «График» → «Реҷаи корӣ», «Посменно» → «Баргардон», «Требования» → «Талабот», «Опыт» → «Таҷриба», «Образование» → «Маълумот», «Физическое лицо» → «Шахси воқеӣ», «Высокая + премия» → «Баланд + мукофот», «Полный день» → «Рӯзи пурра».',
+    uz: "Misollar: «Зарплата» → «Maosh», «Договорная» → «Kelishilgan», «Цена по запросу» → «Narx so'rov bo'yicha», «График» → «Ish jadvali», «Посменно» → «Smenali», «Требования» → «Talablar», «Опыт» → «Tajriba», «Физическое лицо» → «Jismoniy shaxs», «Полный день» → «To'liq kun»."
+};
 const NEEDS_TRANSLATE_RU = /[ӣӯқғҳҷ]/;
 
 function itemTexts(it) { return [it.title, it.price, it.place, it.date, it.who, ...(it.points || [])].join(' | '); }
@@ -827,11 +860,13 @@ async function localizeItems(items, lang, debug) {
     const system = `Ты переводчик для сайта объявлений. Переведи текст карточек на ${LANG_NAMES[lang]}. ${LANG_RULES[lang]}
 Верни ТОЛЬКО JSON: {"items":[{"title":"","price":"","place":"","date":"","who":"","points":["",""]}]} — ровно ${items.length} объектов, в том же порядке и с теми же полями.
 Правила: переводи слова и обороты, в points — и название характеристики слева от двоеточия, и значение справа («Площадь: 60 м²» → на нужном языке). «вчера», «2 дня назад», «физическое лицо», «договорная» и т.п. — тоже переводи.
+${CARD_GLOSSARY[lang] || ''}
+Каждое слово на другом языке обязательно переведи: нельзя оставлять русский текст как есть (кроме названий брендов, компаний, людей, марок и моделей).
 Не меняй числа, цены, валюту, телефоны, адреса сайтов и даты, записанные цифрами. Названия брендов, компаний, людей, марки и модели оставь как есть. Пустые поля оставь пустыми. Ничего не добавляй и не выдумывай. Слова «Н/Д», «не указано», «уточняется» не пиши — оставь поле пустым.`;
     const payload = JSON.stringify({ items: items.map(it => ({ title: it.title, price: it.price, place: it.place, date: it.date, who: it.who, points: it.points })) });
     const runs = [];
     const viaOpenAI = () => ['openai', () => askChat(openai, OPENAI_MODEL, system, payload, 2500)];
-    const viaGemini = () => ['gemini', () => askGemini(system, payload, false)];
+    const viaGemini = () => ['gemini', () => askGemini(system, payload, false, 14000)];
     const viaRouter = () => ['openrouter', () => askChat(openrouter, OPENROUTER_MODEL, system, payload, 2500)];
     // Таджикский и узбекский Gemini пишет грамотнее; пока у него лимит, идём через OpenAI.
     if (lang !== 'ru' && geminiUp()) runs.push(viaGemini());
@@ -839,6 +874,19 @@ async function localizeItems(items, lang, debug) {
     if (lang === 'ru' && geminiUp()) runs.push(viaGemini());
     if (openrouter) runs.push(viaRouter());
     const t0 = Date.now();
+    // Доля описательных полей (цена, дата, характеристики), которые модель вернула без перевода.
+    const untranslated = out => {
+        let total = 0, same = 0;
+        const chk = (a, b) => {
+            const x = String(a || '').trim();
+            if (!/[а-яё]{4,}/i.test(x) || /[ӣӯқғҳҷ]/.test(x)) return; // уже не русский текст
+            total++;
+            if (x.toLowerCase() === String(b || '').trim().toLowerCase()) same++;
+        };
+        items.forEach((it, i) => { chk(it.price, out[i].price); chk(it.date, out[i].date); (it.points || []).forEach((p, j) => chk(p, (out[i].points || [])[j])); });
+        return total >= 2 ? same / total : 0;
+    };
+    let best = null; // лучший из неидеальных переводов — на случай, если ни одна модель не справится чисто
     const attempt = async () => {
         for (const [name, run] of runs) {
             try {
@@ -859,16 +907,28 @@ async function localizeItems(items, lang, debug) {
                         points: tp.length && digits(tp.join(' ')) === digits(it.points.join(' ')) ? tp : it.points
                     });
                 });
+                // Для таджикского и узбекского модель не должна оставлять русские цену, график и т.п. как есть.
+                const share = lang === 'ru' ? 0 : untranslated(out);
+                if (share > 0.5) {
+                    if (!best || share < best.share) best = { out, share, name };
+                    note({ localizeError: `${name}: оставил без перевода ${Math.round(share * 100)}%` });
+                    continue;
+                }
                 note({ localized: name, localizeMs: Date.now() - t0 });
                 return out;
             } catch (err) {
                 note({ localizeError: scrub(err.message) });
             }
         }
+        if (best) { note({ localized: best.name + '*', localizeMs: Date.now() - t0 }); return best.out; }
         return items;
     };
     try { return await withTimeout(attempt(), TRANSLATE_TIMEOUT_MS); }
-    catch (err) { note({ localized: false, localizeError: scrub(err.message) }); return items; }
+    catch (err) {
+        // Время вышло: берём лучший из полученных переводов, иначе исходные карточки.
+        note({ localized: best ? best.name + '*' : false, localizeError: scrub(err.message) });
+        return best ? best.out : items;
+    }
 }
 
 function listingsAnswer(items, kind, lang, own) {
@@ -1935,6 +1995,6 @@ if (require.main === module) {
 module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
-    isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser,
+    isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
     resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
