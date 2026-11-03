@@ -913,7 +913,10 @@ function cardHtml(it, kind, lang) {
         it.contact ? `<div class="iz-lc-m">📞 ${escapeHtml(it.contact)}</div>` : '',
         `<div class="iz-lc-btns"><a class="iz-lc-a" href="${escapeAttr(it.url)}" target="_blank" rel="noopener noreferrer">${OPEN_LABEL[lang]}</a>${callable ? `<a class="iz-lc-call" href="tel:${escapeAttr(phone)}">📞 ${CALL_LABEL[lang]}</a>` : ''}</div>`
     ];
-    return `<div class="iz-lc">${parts.join('')}</div>`;
+    // Для кнопок «Дешевле» / «Новее» на сайте: цена числом, её валюта и возраст объявления в минутах (только то, что известно точно)
+    const sortAttrs = (it.pn > 0 && /^[A-Z]{3}$/.test(it.pc || '') && ['ads', 'services', 'masters'].includes(kind) ? ` data-pn="${Number(it.pn)}" data-pc="${it.pc}"` : '') +
+        (Number.isFinite(it.age) && it.age >= 0 ? ` data-age="${Math.round(it.age)}"` : '');
+    return `<div class="iz-lc"${sortAttrs}>${parts.join('')}</div>`;
 }
 
 function ownItems(rows) {
@@ -928,7 +931,8 @@ function ownItems(rows) {
             who: a.seller_name ? `${a.seller_name} · iZamoN` : 'iZamoN',
             url: a.source_url && /^https:\/\//i.test(a.source_url) ? a.source_url : 'https://izamon.vercel.app/',
             pn: Number(a.price) > 0 ? Number(a.price) : 0,
-            pc: /^[A-Z]{3}$/.test(cur) ? cur : ''
+            pc: /^[A-Z]{3}$/.test(cur) ? cur : '',
+            age: a.created_at && Number.isFinite(Date.parse(a.created_at)) ? Math.max(0, Math.floor((Date.now() - Date.parse(a.created_at)) / 60000)) : null
         };
     });
 }
@@ -1538,6 +1542,17 @@ function pageDate(html) {
     return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
 }
 
+// Возраст объявления в минутах по дате вида 2026-11-01 или 01.11.2026 (с точностью до суток). Даты нет или она в будущем — null.
+function ageFromDate(str) {
+    const t = String(str || '').trim();
+    let ms = null, m;
+    if ((m = t.match(/^(\d{4})-(\d{2})-(\d{2})/))) ms = Date.UTC(+m[1], +m[2] - 1, +m[3]);
+    else if ((m = t.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/))) ms = Date.UTC(+m[3], +m[2] - 1, +m[1]);
+    if (ms === null || !Number.isFinite(ms)) return null;
+    const days = Math.round((Date.parse(todayTJ().iso) - ms) / 86400000);
+    return days >= 0 && days < 3660 ? days * 1440 : null;
+}
+
 // Подпись времени: до недели — «5 дней назад», старше недели — календарная дата цифрами (ДД.ММ.ГГГГ).
 // Дату берём со страницы объявления; если её нет или она не сходится с тем, что пишет сайт в списке, остаётся «2 недели назад».
 function dateLabel(pub, lang, iso) {
@@ -1688,7 +1703,9 @@ async function finishItems(top, kind, lang, debug) {
         const count = t.trusted && img ? (t.photoCount || gal.length || 1) : 0;
         if (img && gal.length && gal[0] !== img) gal = [img, ...gal.filter(x => x !== img)];
         if (count) gal = gal.slice(0, count);
-        return { ...it, pn: t.pn || 0, pc: t.pc || '', date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
+        // Возраст объявления; у билетов и туров дата — это день вылета/поездки, а не публикации, поэтому возраста у них нет
+        const age = kind === 'tickets' || kind === 'tours' ? null : (t.pub ? t.pub.ageMin : ageFromDate(it.date));
+        return { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
     });
 }
@@ -3483,7 +3500,7 @@ async function handleDiag(req, res) {
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
             const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon });
             const f = items[0];
-            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, ...dbgL };
+            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, sort: { priced: items.filter(x => x.pn > 0).length, aged: items.filter(x => Number.isFinite(x.age)).length, cheap: cheapFlags(items).filter(Boolean).length, prices: items.map(x => x.pn > 0 ? x.pn + x.pc : '-').join(' '), ages: items.map(x => Number.isFinite(x.age) ? x.age : '-').join(' ') }, ...dbgL };
         });
         if (!out.cards_test.ok) out.cards_test.debug = dbgL;
         if (!diagTopic) {
@@ -3525,7 +3542,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    priceParts, cheapFlags, ownItems,
+    priceParts, cheapFlags, ownItems, ageFromDate,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
