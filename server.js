@@ -1403,6 +1403,45 @@ function pageImages(html, base) {
     return out.slice(0, 4);
 }
 
+// Ссылка ведёт на конкретное объявление, а не на общий список: в пути есть номер (3+ цифр) или в запросе есть id.
+function isListingUrl(raw) {
+    let x;
+    try { x = new URL(raw); } catch { return false; }
+    if (/\d{3,}/.test(x.pathname)) return true;
+    return /[?&](?:id|adv|ad|item|listing|oid|pid|product|post)[_a-z]*=\d{2,}/i.test(x.search);
+}
+
+// Запасной вариант, если в служебных тегах страницы фото нет: картинки из самой страницы (галерея объявления).
+// Берём только крупные (проверка размера строже), чтобы не взять значок, баннер или миниатюру чужого объявления.
+function galleryImages(html, base) {
+    const raw = [];
+    const tagRe = /<(?:img|source)\b[^>]*>/gi;
+    let m, guard = 0;
+    while ((m = tagRe.exec(html)) && guard++ < 400) {
+        const tag = m[0];
+        for (const attr of ['data-src', 'data-original', 'data-lazy-src', 'src']) {
+            const v = (new RegExp(`\\s${attr}=["']([^"']+)["']`, 'i').exec(tag) || [])[1];
+            if (v) raw.push(v);
+        }
+        const ss = (/\s(?:data-)?srcset=["']([^"']+)["']/i.exec(tag) || [])[1];
+        if (ss) {
+            const parts = ss.split(',').map(x => x.trim().split(/\s+/)).filter(x => x[0]);
+            parts.sort((a, b) => (parseInt(b[1], 10) || 0) - (parseInt(a[1], 10) || 0));
+            if (parts[0]) raw.push(parts[0][0]);
+        }
+    }
+    const out = [];
+    for (const r of raw) {
+        const u = absImageUrl(r, base);
+        if (!u || out.includes(u)) continue;
+        let path = '';
+        try { path = new URL(u).pathname; } catch { continue; }
+        if (PHOTO_BAD_NAME.test(path) || /\.(?:svg|gif|ico)(?:$|\?)/i.test(path)) continue;
+        out.push(u);
+    }
+    return out.slice(0, 6);
+}
+
 // Размер картинки по первым байтам файла (PNG, GIF, WebP, JPEG). null — это не картинка.
 function imageSize(b) {
     if (!b || b.length < 12) return null;
@@ -1431,11 +1470,14 @@ function imageSize(b) {
 }
 
 // '' — картинка подходит, иначе причина отказа. total — размер файла в байтах (0 — неизвестен).
-function judgeImage(head, total) {
+// opts.minW/minH — более строгий порог; opts.needSize — размер обязан быть известен (для менее надёжных кандидатов).
+function judgeImage(head, total, opts = {}) {
     const s = imageSize(head);
     if (!s) return 'не картинка';
     if (total && total < PHOTO_MIN_BYTES) return 'слишком маленький файл';
-    if (s.w && s.h && (s.w < PHOTO_MIN_W || s.h < PHOTO_MIN_H)) return `слишком маленькая ${s.w}x${s.h}`;
+    const minW = opts.minW || PHOTO_MIN_W, minH = opts.minH || PHOTO_MIN_H;
+    if (opts.needSize && !(s.w && s.h)) return 'размер не определён';
+    if (s.w && s.h && (s.w < minW || s.h < minH)) return `слишком маленькая ${s.w}x${s.h}`;
     return '';
 }
 
@@ -1458,7 +1500,8 @@ async function readBytes(res, cap) {
 
 // Открывает начало файла и решает, настоящее ли это фото. '' — да; иначе причина.
 // Причина с «?» в начале — мягкая: проверить не удалось (сайт не пускает бота, тайм-аут), но фото не признано плохим.
-async function checkImage(startUrl) {
+// Тип «image/*» не обязателен: часть хранилищ отдаёт фото как application/octet-stream — тогда смотрим на сами байты.
+async function checkImage(startUrl, opts = {}) {
     try {
         let url = startUrl;
         for (let hop = 0; hop < 3; hop++) {
@@ -1472,15 +1515,20 @@ async function checkImage(startUrl) {
             const loc = r.headers.get('location');
             if (r.status >= 300 && r.status < 400 && loc) { url = new URL(loc, u).href; continue; }
             if (r.status !== 200 && r.status !== 206) return (r.status === 404 || r.status === 410 ? '' : '?') + `статус ${r.status}`;
-            const type = String(r.headers.get('content-type') || '');
-            if (!/^image\//i.test(type) || /svg/i.test(type)) return 'не картинка';
+            const type = String(r.headers.get('content-type') || '').toLowerCase();
+            const isImg = /^image\//.test(type), loose = !type || /octet-stream|binary/.test(type);
+            if ((!isImg && !loose) || /svg|icon/.test(type)) return 'не картинка';
             const head = await withTimeout(readBytes(r, 16384), 4000);
             let total = 0;
             const cr = /\/(\d+)\s*$/.exec(r.headers.get('content-range') || '');
             if (cr) total = Number(cr[1]);
             else if (r.status === 200 && r.headers.get('content-length')) total = Number(r.headers.get('content-length')) || 0;
             else if (head.length < 16384) total = head.length;
-            return judgeImage(head, total);
+            // AVIF, HEIC и т.п.: браузер их покажет, а размер мы по первым байтам не читаем — смотрим только на вес файла
+            if (isImg && !imageSize(head) && /^image\/(avif|heic|heif|bmp|tiff?|jxl|jp2)/.test(type) && !opts.needSize) {
+                return total && total < PHOTO_MIN_BYTES ? 'слишком маленький файл' : '';
+            }
+            return judgeImage(head, total, opts);
         }
         return 'много перенаправлений';
     } catch (err) {
@@ -1498,20 +1546,18 @@ const sameSite = (a, b) => {
 // Ссылка на общую страницу списка (без номера объявления) не говорит, чьё это фото, — такие карточки остаются без фото.
 async function resolvePhotos(items, debug) {
     if (process.env.PHOTO_CHECK === 'off') return items.map(it => it.image || null);
-    const stat = { items: items.length, fromPage: 0, fromModel: 0, none: 0, why: {} };
+    const stat = { items: items.length, fromPage: 0, fromModel: 0, none: 0, why: {}, samples: [] };
     const why = (r) => { stat.why[r] = (stat.why[r] || 0) + 1; };
     const one = async (it) => {
-        let specific = false;
-        try { specific = /\d{3,}/.test(new URL(it.url).pathname); } catch { specific = false; }
-        if (!specific) return { img: null, why: 'общая страница списка' };
+        if (!isListingUrl(it.url)) return { img: null, why: 'общая страница списка' };
         const hit = PHOTO_CACHE.get(it.url);
         if (hit && Date.now() - hit.at < PHOTO_CACHE_MS) return { img: hit.img, why: hit.why, cached: true };
         const cands = [];
-        let how = '';
+        let how = '', page = null;
         try {
-            const page = await fetchPage(it.url, { cap: 400000, timeoutMs: 4500 });
+            page = await fetchPage(it.url, { cap: 400000, timeoutMs: 4500 });
             for (const c of pageImages(page.html, page.url)) cands.push({ url: c, from: 'page' });
-            if (!cands.length) how = 'на странице нет фото';
+            if (!cands.length) how = 'на странице нет фото в тегах';
         } catch (err) { how = `страница: ${String(err && err.message || err).slice(0, 40)}`; }
         if (it.image && sameSite(hostOf(it.image), hostOf(it.url))) cands.push({ url: it.image, from: 'model' });
         let last = how, soft = null;
@@ -1524,6 +1570,14 @@ async function resolvePhotos(items, debug) {
         // Проверить не удалось (сайт не отвечает боту), но фото не признано плохим: браузер покупателя откроет его сам,
         // а битая ссылка просто покажет карточку без фото.
         if (soft) return { img: soft.c.url, why: soft.c.from + '?', unchecked: true };
+        // В служебных тегах фото не было вовсе: пробуем крупные картинки из самой страницы (строгая проверка размера).
+        if (page && !cands.some(c => c.from === 'page')) {
+            for (const g of galleryImages(page.html, page.url).slice(0, 4)) {
+                const bad = await checkImage(g, { minW: 400, minH: 250, needSize: true });
+                if (!bad) return { img: g, why: 'gallery' };
+            }
+            last = (last ? last + '; ' : '') + 'в галерее страницы нет подходящих';
+        }
         return { img: null, why: last || 'нет кандидатов' };
     };
     const res = await Promise.all(items.map(it => withTimeout(one(it), 9500).catch(() => ({ img: null, why: 'время вышло' }))));
@@ -1540,6 +1594,11 @@ async function resolvePhotos(items, debug) {
             }
         }
         if (r.img) { if (r.why.startsWith('model')) stat.fromModel++; else stat.fromPage++; if (r.unchecked) stat.unchecked = (stat.unchecked || 0) + 1; } else { stat.none++; why(r.why); }
+        if (stat.samples.length < 8) {
+            let path = '';
+            try { path = new URL(items[i].url).pathname.slice(0, 40); } catch { path = ''; }
+            stat.samples.push({ host: hostOf(items[i].url), path, ok: !!r.img, why: r.why });
+        }
     });
     if (debug) debug.photos = stat;
     return res.map(r => r.img);
@@ -2176,7 +2235,7 @@ async function handleDiag(req, res) {
     if (process.env.DIAG_KEY && req.query?.k !== process.env.DIAG_KEY) return res.status(403).json({ error: 'forbidden' });
     if (diagLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
     const question = 'Какой сегодня курс доллара к сомони в Таджикистане?';
-    const out = { date: todayTJ().iso, geminiModels: GEMINI_MODELS, geminiPauseSec: Math.max(0, Math.round((geminiDownUntil - Date.now()) / 1000)) };
+    const out = { date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), geminiModels: GEMINI_MODELS, geminiPauseSec: Math.max(0, Math.round((geminiDownUntil - Date.now()) / 1000)) };
     const diagTopic = DIAG_TOPICS[req.query?.item] || null;
     if (diagTopic) {
         out.item = req.query.item;
@@ -2262,5 +2321,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, pageImages, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, pageImages, galleryImages, isListingUrl, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
