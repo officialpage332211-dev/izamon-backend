@@ -825,6 +825,12 @@ const CALL_LABEL = { tg: 'Занг задан', ru: 'Позвонить', uz: "Q
 // ---------- Цена числом и метка «ниже, чем у большинства найденных» ----------
 // Метка — только сравнение с другими карточками этой же выдачи, не «цена рынка». Показываем её, когда в выдаче есть минимум
 // CHEAP_MIN цен в одной валюте; цену дешевле 5% от середины считаем заглушкой или опечаткой (на somon.tj «договорная» часто «1 сом.»).
+// «Продавец на iZamoN»: с какого дня выкладывает объявления и сколько их сейчас. Текст на tg/uz — наш перевод, не модель.
+const SELLER_LINE = {
+    ru: (d, n) => `Продавец на iZamoN с ${d} · объявлений: ${n}`,
+    tg: (d, n) => `Фурӯшанда дар iZamoN аз ${d} · эълонҳо: ${n}`,
+    uz: (d, n) => `iZamoN'da sotuvchi ${d} dan beri · e'lonlar: ${n}`
+};
 const CHEAP_MIN = 5;
 const CHEAP_LABEL = {
     ru: 'Цена ниже, чем у большинства найденных',
@@ -908,6 +914,7 @@ function cardHtml(it, kind, lang) {
         `<div class="iz-lc-t">${escapeHtml(it.title)}</div>`,
         it.price ? `<div class="iz-lc-p">${escapeHtml(it.price)}</div>` : '',
         it.cheap && CHEAP_LABEL[lang] ? `<div class="iz-lc-pl">↓ ${escapeHtml(CHEAP_LABEL[lang])}</div>` : '',
+        it.sellerSince && it.sellerCount > 0 && SELLER_LINE[lang] ? `<div class="iz-lc-sl">${escapeHtml(SELLER_LINE[lang](it.sellerSince, it.sellerCount))}</div>` : '',
         it.place || it.who ? `<div class="iz-lc-m">${it.place ? '📍 ' + escapeHtml(it.place) : ''}${it.place && it.who ? ' · ' : ''}${it.who ? '👤 ' + escapeHtml(it.who) : ''}</div>` : '',
         tiles ? `<div class="iz-tiles">${tiles}</div>` : '',
         it.contact ? `<div class="iz-lc-m">📞 ${escapeHtml(it.contact)}</div>` : '',
@@ -935,7 +942,9 @@ function ownItems(rows, lang) {
             url: a.source_url && /^https:\/\//i.test(a.source_url) ? a.source_url : 'https://izamon.vercel.app/',
             pn: Number(a.price) > 0 ? Number(a.price) : 0,
             pc: /^[A-Z]{3}$/.test(cur) ? cur : '',
-            age
+            age,
+            sellerSince: a.seller_since && Number.isFinite(Date.parse(a.seller_since)) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dushanbe' }).format(new Date(a.seller_since)).split('-').reverse().join('.') : '',
+            sellerCount: Number(a.seller_count) || 0
         };
     });
 }
@@ -2039,7 +2048,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
             let ownBlock = '';
             let ownRows = [];
             if (mode === 'ads' && adsOn()) {
-                try { ownRows = await searchAds(adsQuery); ownBlock = ownRows.length ? listingsAnswer([], 'ads', lang, ownRows) : ''; } catch (err) { console.warn(`[ads Сбой]: ${err.message}`); }
+                try { ownRows = await withSellerStats(await searchAds(adsQuery)); ownBlock = ownRows.length ? listingsAnswer([], 'ads', lang, ownRows) : ''; } catch (err) { console.warn(`[ads Сбой]: ${err.message}`); }
             }
             // Карточки (объявления, вакансии, билеты, туры) и таблица курсов — самый понятный вид.
             if (openai && kind === 'rates') {
@@ -2996,6 +3005,38 @@ async function createAd(ad) {
     return rows && rows[0] ? rows[0].id : null;
 }
 
+// Продавец на iZamoN: с какого дня он выкладывает объявления и сколько их сейчас активно. Только настоящие данные из базы.
+// Код владельца дальше этой функции не уходит. Нет данных или сбой — карточка остаётся без этой строки.
+async function withSellerStats(rows) {
+    if (!rows || !rows.length || !adsOn()) return rows || [];
+    try {
+        const ids = rows.map(r => String(r.id)).filter(id => /^[\w-]{1,64}$/.test(id));
+        if (!ids.length) return rows;
+        const own = await sb(`ads?select=id,owner&id=in.(${ids.join(',')})`);
+        const ownerOf = new Map((own || []).filter(x => x && x.owner).map(x => [String(x.id), String(x.owner)]));
+        const owners = [...new Set(ownerOf.values())].filter(o => /^[\w-]{8,64}$/.test(o)).slice(0, 20);
+        if (!owners.length) return rows;
+        const all = await sb(`ads?select=owner,created_at,status&owner=in.(${owners.join(',')})&order=created_at.asc&limit=1000`);
+        if (!Array.isArray(all) || all.length >= 1000) return rows; // слишком много записей — числу уже нельзя верить
+        const since = Date.parse(adsSince());
+        const stat = {};
+        for (const a of all) {
+            const t = Date.parse(a.created_at);
+            if (!Number.isFinite(t)) continue;
+            const st = stat[a.owner] || (stat[a.owner] = { first: t, active: 0 });
+            if (t < st.first) st.first = t;
+            if (a.status === 'active' && t >= since) st.active++;
+        }
+        return rows.map(r => {
+            const st = stat[ownerOf.get(String(r.id))];
+            return st && st.active > 0 ? { ...r, seller_since: new Date(st.first).toISOString(), seller_count: st.active } : r;
+        });
+    } catch (err) {
+        console.warn(`[seller stats]: ${err.message}`);
+        return rows;
+    }
+}
+
 async function searchAds(q, limit = 5) {
     if (!adsOn()) return [];
     const words = [...new Set(norm(String(q || '')).split(' ').filter(w => w.length >= 3))].slice(0, 4);
@@ -3572,7 +3613,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    priceParts, cheapFlags, ownItems, ageFromDate, pubFromAge, pubFromDate,
+    priceParts, cheapFlags, ownItems, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
