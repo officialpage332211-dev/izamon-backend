@@ -687,6 +687,16 @@ function pickUrl(v) {
     } catch { return null; }
 }
 
+// Контакты: до 160 знаков; если длиннее — обрезаем по границе «; », чтобы не оборвать номер посередине.
+function clipContact(v) {
+    const s = clip(v, 400);
+    if (blankValue(s)) return '';
+    if (s.length <= 160) return s;
+    const cut = s.slice(0, 160);
+    const at = cut.lastIndexOf(';');
+    return at > 0 ? cut.slice(0, at).trim() : '';
+}
+
 function cleanItem(x) {
     const o = x && typeof x === 'object' ? x : {};
     const inTitle = typeof o.title === 'string' ? [...o.title.matchAll(MD_LINK)][0] : null;
@@ -695,7 +705,7 @@ function cleanItem(x) {
         price: keepValue(stripLinks(o.price), 60),
         place: keepValue(stripLinks(o.place), 80),
         date: keepValue(stripLinks(o.date), 40),
-        contact: keepValue(stripLinks(o.contact), 60),
+        contact: clipContact(stripLinks(o.contact)),
         who: keepValue(stripLinks(o.who), 80),
         image: pickUrl(o.image),
         points: (Array.isArray(o.points) ? o.points : []).map(x => clip(stripLinks(x), 90)).filter(p => p && !blankValue(p)).slice(0, 3),
@@ -752,10 +762,23 @@ const KIND_BADGE = {
     services: { tg: 'Хизмат', ru: 'Услуга', uz: 'Xizmat' }
 };
 
+const MESSENGER_WORD = /whats\s*-?\s*app|wa\.me|ват[сц]\s?[аa]п+|вацап+|воцап+|вотсап+|telegram|t\.me|телеграм+|viber|вайбер|вибер|instagram|инстаграм+|(?<![\p{L}\p{N}])(?:imo|имо|тг|tg)(?![\p{L}\p{N}])/iu;
+function firstCallable(contact) {
+    for (const seg of String(contact || '').split(/[;\n|]+|\s·\s|,\s*/)) {
+        if (MESSENGER_WORD.test(seg) || /x/i.test(seg)) continue;
+        const m = seg.match(/\+?\d[\d\s().-]{7,}\d/);
+        if (!m) continue;
+        const digits = m[0].replace(/\D/g, '');
+        if (digits.length < 9 || digits.length > 13) continue;
+        return (m[0].trim().startsWith('+') ? '+' : '') + digits;
+    }
+    return '';
+}
+
 function cardHtml(it, kind, lang) {
     const host = hostOf(it.url);
-    const phone = String(it.contact || '').replace(/[^\d+]/g, '');
-    const callable = /^\+?\d{9,13}$/.test(phone) && !/x/i.test(it.contact);
+    const phone = firstCallable(it.contact);
+    const callable = !!phone;
     const badges = `<div class="iz-badges"><span class="iz-badge iz-b-g">✔ ${escapeHtml(host)}</span><span class="iz-badge iz-b-b">${KIND_BADGE[kind] ? KIND_BADGE[kind][lang] : ''}</span>${it.date ? `<span class="iz-badge">🗓️ ${escapeHtml(it.date)}</span>` : ''}</div>`;
     // характеристики плитками 2×2, как в образце: «Ключ: значение» → подпись + значение
     const tiles = (it.points || []).map(x => {
@@ -771,7 +794,7 @@ function cardHtml(it, kind, lang) {
         it.price ? `<div class="iz-lc-p">${escapeHtml(it.price)}</div>` : '',
         it.place || it.who ? `<div class="iz-lc-m">${it.place ? '📍 ' + escapeHtml(it.place) : ''}${it.place && it.who ? ' · ' : ''}${it.who ? '👤 ' + escapeHtml(it.who) : ''}</div>` : '',
         tiles ? `<div class="iz-tiles">${tiles}</div>` : '',
-        it.contact && !callable ? `<div class="iz-lc-m">📞 ${escapeHtml(it.contact)}</div>` : '',
+        it.contact ? `<div class="iz-lc-m">📞 ${escapeHtml(it.contact)}</div>` : '',
         `<div class="iz-lc-btns"><a class="iz-lc-a" href="${escapeAttr(it.url)}" target="_blank" rel="noopener noreferrer">${OPEN_LABEL[lang]}</a>${callable ? `<a class="iz-lc-call" href="tel:${escapeAttr(phone)}">📞 ${CALL_LABEL[lang]}</a>` : ''}</div>`
     ];
     return `<div class="iz-lc">${parts.join('')}</div>`;
@@ -817,7 +840,7 @@ async function searchListings({ kind, lang, date, query, debug }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
-price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — телефон/Telegram, только если он есть в источнике. who — продавец/компания/авиакомпания.
+price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — ВСЕ способы связи, которые написаны в источнике, через «; »: телефоны (+992…), «WhatsApp: номер», «Telegram: @имя», «Instagram: @имя», электронная почта. Имя продавца сюда не пиши (оно в who). Нет в источнике — пустая строка, номера не придумывай. who — продавец/компания/авиакомпания.
 url — обычная ссылка https://… (без Markdown и скобок) на страницу этого пункта; если отдельной страницы нет — на страницу из результатов поиска, где он найден (например, страница списка). Не пропускай пункт только из-за отсутствия отдельной страницы. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 главных характеристик в виде «Название: значение» (например «Площадь: 60 м²», «Этаж: 5/9», «Год: 2017», «Пробег: 120 000 км», «График: 5/2»). Ничего не выдумывай: нет данных — пустая строка (кроме url). Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
     const resp = await openaiSearchRaw(system, query, 2500);
     const { text, cites, consulted } = readSearch(resp);
