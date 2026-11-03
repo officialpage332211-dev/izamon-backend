@@ -1205,6 +1205,14 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
 async function finishItems(top, kind, lang, debug) {
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
     const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug)]);
+    // Контакты из полного текста объявления на странице (в списке текст бывает пустым): только то, что продавец написал сам
+    top.forEach((t, i) => {
+        const pd = photos.descs && photos.descs[i];
+        if (t.trusted && pd) {
+            const fromPage = somonContacts(pd);
+            if (fromPage) t.contact = fromPage;
+        }
+    });
     const verified = await verifyItems(top, localized, kind, debug);
     // Время публикации (у карточек с somon.tj): до недели — «5 дней назад», старше — календарная дата цифрами
     const dates = await Promise.all(top.map(async it => {
@@ -1819,21 +1827,34 @@ function pageImages(html, base) {
     return out.slice(0, 4);
 }
 
-// Крупные фото галереи somon.tj: страница подгружает их заранее тегами <link rel="preload" as="image">.
-// Первыми идут сами фото объявления по порядку (дальше может быть служебная картинка — её отрезаем по числу фото из списка).
+// Крупные фото объявления somon.tj: в данных страницы (JSON-LD, Product → image) лежат полноразмерные фото по порядку
+// (первое — то же, что og:image). Теги <link rel="preload"> и полоска под фото — только крошечные превью (5–10 КБ),
+// их для просмотра не берём: именно из-за них фото со второго были мелкими.
 function pageGallery(html, max) {
     const out = [];
-    for (const m of String(html || '').matchAll(/<link\b[^>]*>/gi)) {
-        const tag = m[0];
-        if (!/\sas=["']image["']/i.test(tag) || !/\srel=["']preload["']/i.test(tag)) continue;
-        const raw = (/\shref=["']([^"']+)["']/i.exec(tag) || [])[1];
+    const take = (raw) => {
         const u = absImageUrl(raw, 'https://somon.tj/');
-        if (!u) continue;
-        let q; try { q = new URL(u); } catch { continue; }
-        if (q.hostname !== 'cdntj.somon.tj' || !q.pathname.startsWith('/media/') || out.includes(u)) continue;
+        if (!u || out.includes(u)) return;
+        let q; try { q = new URL(u); } catch { return; }
+        if (q.hostname !== 'cdntj.somon.tj' || !q.pathname.startsWith('/media/')) return;
         out.push(u);
+    };
+    for (const ld of jsonLdItems(String(html || ''))) {
+        const types = [].concat(ld['@type'] || []);
+        if (!types.includes('Product')) continue;
+        for (const x of [].concat(ld.image || [])) take(typeof x === 'string' ? x : x && x.url);
     }
     return out.slice(0, max || 16);
+}
+
+// Полный текст объявления со страницы (JSON-LD, Product → description): в списке у некоторых разделов (недвижимость) он пустой.
+// Телефон или мессенджер, которые продавец написал в тексте, берём отсюда; номер за кнопкой «Показать телефон» на странице не лежит.
+function pageDescription(html) {
+    for (const ld of jsonLdItems(String(html || ''))) {
+        if (![].concat(ld['@type'] || []).includes('Product')) continue;
+        if (typeof ld.description === 'string' && ld.description.trim()) return ld.description.replace(/\s+/g, ' ').trim().slice(0, 3000);
+    }
+    return '';
 }
 
 // Ссылка ведёт на конкретное объявление, а не на общий список: в пути есть номер (3+ цифр) или в запросе есть id.
@@ -2154,35 +2175,35 @@ async function resolvePhotos(items, debug) {
     const one = async (it) => {
         if (!isListingUrl(it.url)) return { img: null, why: 'общая страница списка' };
         const hit = PHOTO_CACHE.get(it.url);
-        if (hit && Date.now() - hit.at < PHOTO_CACHE_MS) return { img: hit.img, why: hit.why, cached: true, gallery: hit.gallery || [] };
+        if (hit && Date.now() - hit.at < PHOTO_CACHE_MS) return { img: hit.img, why: hit.why, cached: true, gallery: hit.gallery || [], desc: hit.desc || '' };
         const cands = [];
-        let how = '', page = null, gallery = [];
+        let how = '', page = null, gallery = [], desc = '';
         try {
             page = await getPage(it.url);
             for (const c of pageImages(page.html, page.url)) cands.push({ url: c, from: 'page' });
-            if (it.trusted) gallery = pageGallery(page.html, it.photoCount || 16);
+            if (it.trusted) { gallery = pageGallery(page.html, it.photoCount || 16); desc = pageDescription(page.html); }
             if (!cands.length) how = 'на странице нет фото в тегах';
         } catch (err) { how = `страница: ${String(err && err.message || err).slice(0, 40)}`; }
         if (it.image && sameSite(hostOf(it.image), hostOf(it.url))) cands.push({ url: it.image, from: 'model' });
         let last = how, soft = null;
         for (const c of cands.slice(0, 4)) {
             const bad = await checkImage(c.url);
-            if (!bad) return { img: c.url, why: c.from, gallery };
+            if (!bad) return { img: c.url, why: c.from, gallery, desc };
             if (bad[0] === '?') { if (!soft) soft = { c, bad }; last = `${c.from}: ${bad.slice(1)}`; continue; }
             last = `${c.from}: ${bad}`;
         }
         // Проверить не удалось (сайт не отвечает боту), но фото не признано плохим: браузер покупателя откроет его сам,
         // а битая ссылка просто покажет карточку без фото.
-        if (soft) return { img: soft.c.url, why: soft.c.from + '?', unchecked: true, gallery };
+        if (soft) return { img: soft.c.url, why: soft.c.from + '?', unchecked: true, gallery, desc };
         // В служебных тегах фото не было вовсе: пробуем крупные картинки из самой страницы (строгая проверка размера).
         if (page && !cands.some(c => c.from === 'page')) {
             for (const g of galleryImages(page.html, page.url).slice(0, 4)) {
                 const bad = await checkImage(g, { minW: 400, minH: 250, needSize: true });
-                if (!bad) return { img: g, why: 'gallery', gallery };
+                if (!bad) return { img: g, why: 'gallery', gallery, desc };
             }
             last = (last ? last + '; ' : '') + 'в галерее страницы нет подходящих';
         }
-        return { img: null, why: last || 'нет кандидатов' };
+        return { img: null, why: last || 'нет кандидатов', desc };
     };
     const res = await Promise.all(items.map(it => withTimeout(one(it), 9500).catch(() => ({ img: null, why: 'время вышло' }))));
     // Одно и то же фото у разных объявлений — это картинка сайта, а не фото товара.
@@ -2194,7 +2215,7 @@ async function resolvePhotos(items, debug) {
             // запоминаем только удачу: сбой сети или таймаут не должен надолго лишать объявление фото
             if (r.img) {
                 if (PHOTO_CACHE.size >= PHOTO_CACHE_MAX) PHOTO_CACHE.delete(PHOTO_CACHE.keys().next().value);
-                PHOTO_CACHE.set(items[i].url, { at: Date.now(), img: r.img, why: r.why, gallery: r.gallery || [] });
+                PHOTO_CACHE.set(items[i].url, { at: Date.now(), img: r.img, why: r.why, gallery: r.gallery || [], desc: r.desc || '' });
             }
         }
         if (r.img) { if (r.why.startsWith('model')) stat.fromModel++; else stat.fromPage++; if (r.unchecked) stat.unchecked = (stat.unchecked || 0) + 1; } else { stat.none++; why(r.why); }
@@ -2207,6 +2228,7 @@ async function resolvePhotos(items, debug) {
     if (debug) debug.photos = stat;
     const imgs = res.map(r => r.img);
     imgs.galleries = res.map(r => r.gallery || []);
+    imgs.descs = res.map(r => r.desc || '');
     return imgs;
 }
 
@@ -2935,5 +2957,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
