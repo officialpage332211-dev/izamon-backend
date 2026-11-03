@@ -150,14 +150,26 @@ function normalizePrompt(raw) {
 // Разделы somon.tj, из которых берём мастеров: «Услуги» (biznes-i-uslugi) и автоуслуги.
 const SOMON_SERVICES = /\/biznes-i-uslugi\//;
 const SOMON_AUTO = /\/biznes-i-uslugi\/|\/transport\//;
+// Земли под посев и фермы: участки с приметами сельхозземли (из первых трёх страниц раздела «Земельные участки») и раздел «Фермы, сады».
+const SOMON_FARMLAND = {
+    sources: [
+        { path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/', words: /сельхоз|сельскохоз|посев|пашн|пахот|огород|орошаем|поливн|гектар|(?<![\p{L}])га(?![\p{L}])|кишт|зироат|теплиц|виноградн|плодов|(?<![\p{L}])сад(?![\p{L}])|ферм/iu },
+        { path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/', page: 2, words: /сельхоз|сельскохоз|посев|пашн|пахот|огород|орошаем|поливн|гектар|(?<![\p{L}])га(?![\p{L}])|кишт|зироат|теплиц|виноградн|плодов|(?<![\p{L}])сад(?![\p{L}])|ферм/iu },
+        { path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/', page: 3, words: /сельхоз|сельскохоз|посев|пашн|пахот|огород|орошаем|поливн|гектар|(?<![\p{L}])га(?![\p{L}])|кишт|зироат|теплиц|виноградн|плодов|(?<![\p{L}])сад(?![\p{L}])|ферм/iu },
+        { path: 'vsyo-dlya-biznesa/biznes/fermyi-sadyi/' }
+    ],
+    facts: 'land'
+};
 // Автомобили на продажу, запчасти, шины, мотоциклы и вакансии — не услуги автомеханика.
 const SOMON_NOT_AUTO = /legkovyie|gruzov|zapchast|shiny|shinyi|disk|moto|velo|vakansii|spetstehnik|tehnika|bitovoi/i;
 
 // Кнопки разделов: у каждой свой поисковый запрос, чтобы ответ сразу содержал данные, а не описание раздела.
 const PORTAL_RULES = [
     { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest', kind: 'services',
+      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/Kompyuter-i-internet/' }], facts: 'course' },
       query: 'Найди актуальные IT-курсы в Таджикистане (программирование, дизайн, 1С и др.): название школы, цена, длительность, сайт или контакт.' },
     { re: /^(?:забонҳо|языки|tillar)$/, mode: 'digest', kind: 'services',
+      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/inostrannye-yazyki/' }], facts: 'languages' },
       query: 'Найди актуальные курсы иностранных языков в Таджикистане: язык, цена, формат, сайт или контакт школы.' },
     { re: /^(?:ммт|mmt|мнт)$/, mode: 'digest',
       query: 'Найди актуальную информацию про вступительное тестирование ММТ (Маркази миллии тестӣ, Национальный центр тестирования Таджикистана): ближайшие сроки, регистрация, результаты. Если по источникам ММТ означает иное, опирайся на источники.' },
@@ -167,10 +179,12 @@ const PORTAL_RULES = [
       query: 'Найди 2–3 практичных совета для жителей Таджикистана по семейному бюджету, сбережениям, халяльной торговле и малому бизнесу. Без кредитов, процентов и займов.' },
     { re: /^(?:кишт|посев|ekin)$/, mode: 'digest',
       query: 'Что сеять и сажать в Таджикистане именно сейчас, по сегодняшней дате: 3–4 культуры, сроки посева и главный приём ухода, по данным агро-источников.' },
-    { re: /чорводорӣ|животноводств|^chorva$/, mode: 'digest', kind: 'services',
-      query: 'Найди актуальные цены и предложения по скоту и кормам в Таджикистане и свежие советы ветеринаров: суть, цена, контакт или сайт.' },
-    { re: /^(?:ҳосил|урожай|hosil)$/, mode: 'digest',
-      query: 'Найди актуальные цены на сельхозпродукцию и урожай на рынках Таджикистана сегодня.' },
+    { re: /чорводорӣ|животноводств|^chorva$/, mode: 'ads',
+      somon: { sources: [{ path: 'zhivotnyie-i-rasteniya/skot/' }, { path: 'zhivotnyie-i-rasteniya/ptitsyi/' }, { path: 'zhivotnyie-i-rasteniya/kroliki/' }], facts: 'livestock' },
+      query: 'Найди актуальные объявления о продаже скота и птицы в Таджикистане (коровы, быки, овцы, козы, лошади, птица), сначала на somon.tj: что за животное, возраст, вес, цена, место, контакт продавца. Домашних питомцев (кошки, собаки) не показывай.' },
+    { re: /^(?:ҳосил|урожай|hosil)$/, mode: 'ads',
+      somon: { sources: [{ path: 'vse-dlya-doma/pihevie-produkti/' }], facts: 'food' },
+      query: 'Найди актуальные объявления о продаже сельхозпродукции и продуктов (мёд, фрукты, овощи, сухофрукты, мясо, зерно) в Таджикистане, сначала на somon.tj: что продаётся, цена, количество, место, контакт продавца.' },
     { re: /^(?:сафарҳо|поездки|safar)$/, mode: 'digest', kind: 'tours',
       query: 'Найди актуальные предложения туров и поездок из Таджикистана: направление, цена, даты, контакт оператора.' },
     { re: /чиптаҳо|^билеты$|^chiptalar$/, mode: 'digest', kind: 'tickets',
@@ -198,9 +212,31 @@ const PORTAL_RULES = [
     { re: /^(?:усто|мастер|usta)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
       somon: { sources: [{ q: 'мастер на час' }, { q: 'ремонт квартир' }, { q: 'сборка мебели' }], cat: SOMON_SERVICES },
       query: 'Найди актуальные объявления мастеров на дом в Таджикистане (ремонт и отделка квартир, сборка мебели, мелкий бытовой ремонт, «мастер на час»), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Электриков, сантехников и автомехаников отдельно не выделяй: показывай мастеров общего профиля.' },
-    { re: /^(?:земли|заминҳои\s+кишт)$/, mode: 'ads',
+    // Остальные подразделы с объявлениями: тот же прямой список somon.tj, что и у недвижимости (фото, цена, место, контакт из текста объявления).
+    { re: /^(?:мошинҳо|машины|mashinalar)$/, mode: 'ads',
+      somon: { sources: [{ path: 'transport/legkovyie-avtomobili/' }], facts: 'car' },
+      query: 'Найди актуальные объявления о продаже легковых автомобилей в Таджикистане, сначала на somon.tj: марка и модель, год, пробег, цена, город, контакт продавца. Только продажа машин: запчасти и услуги не показывай.' },
+    { re: /^(?:қисмҳои\s+эҳтиётӣ|запчасти|qismlar)$/, mode: 'ads',
+      somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], facts: 'parts' },
+      query: 'Найди актуальные объявления о продаже автозапчастей, шин и дисков в Таджикистане, сначала на somon.tj: что за деталь, для какой машины, состояние, цена, город, контакт продавца.' },
+    { re: /^(?:мебел|мебель|mebel)$/, mode: 'ads',
+      somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], facts: 'furniture' },
+      query: 'Найди актуальные объявления о продаже мебели в Таджикистане, сначала на somon.tj: что за мебель, размер, материал, состояние, цена, город, контакт продавца.' },
+    { re: /^(?:либос|одежда|kiyim)$/, mode: 'ads',
+      somon: { sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], facts: 'clothes' },
+      query: 'Найди актуальные объявления о продаже одежды и обуви в Таджикистане, сначала на somon.tj: что за вещь, размер, состояние, цена, город, контакт продавца.' },
+    { re: /^(?:техника|texnika)$/, mode: 'ads',
+      somon: { sources: [{ path: 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/' }, { path: 'kompyuteryi-i-orgtehnika/noutbuki/' }, { path: 'elektronika-i-tehnika/tv-dvd-video/televizoryi/' }, { path: 'kompyuteryi-i-orgtehnika/personalnyie-kompyuteryi/' }], facts: 'tech' },
+      query: 'Найди актуальные объявления о продаже бытовой техники, ноутбуков, компьютеров и телевизоров в Таджикистане, сначала на somon.tj: что за техника, характеристики, состояние, цена, город, контакт продавца.' },
+    { re: /^(?:телефонҳо|телефоны|telefon)$/, mode: 'ads',
+      somon: { sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], facts: 'phone' },
+      query: 'Найди актуальные объявления о продаже мобильных телефонов в Таджикистане, сначала на somon.tj: модель, память, состояние, цена, город, контакт продавца.' },
+    { re: /^(?:кор\s+ва\s+шуғл|вакансии|ish)$/, mode: 'jobs',
+      somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], notCat: /Banki-strahovanie-lizing/i, facts: 'job' },
+      query: 'Найди актуальные вакансии в Таджикистане на сегодня, сначала на somon.tj: должность, зарплата, город, работодатель, график, контакт. Банки, кредитные и страховые организации, алкоголь и казино не показывай.' },
+    { re: /^(?:земли|заминҳои\s+кишт)$/, mode: 'ads', somon: SOMON_FARMLAND,
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане, сначала на somon.tj: площадь, цена, место, контакт владельца.' },
-    { re: /^yer$/, portal: /qishloq/, mode: 'ads',
+    { re: /^yer$/, portal: /qishloq/, mode: 'ads', somon: SOMON_FARMLAND,
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане: площадь, цена, место, контакт владельца.' }
 ];
 
@@ -358,7 +394,7 @@ function mixedLanguage(text, lang) {
 // ---------------------------------------------------------------------------
 const B = '(?<![а-яёӣӯқғҳҷa-z])';
 const HARAM_ASK = new RegExp(`${B}(?:кредит|ипотек|микрокредит|займ|заём|қарз(?:и|ӣ)?\\s+(?:бонк|бо\\s+фоиз)|фоиз|процент(?:ы|ная)?\\s+(?:по|ставк|вклад)|депозит|казино|ставк[иа]\\s+на\\s+спорт|букмекер|лотере|алкогол|пиво|водк|коньяк|шароб|вино(?![а-яё])|kredit|ipoteka|foiz|qarz|kazino)`, 'i');
-const HARAM_LINE = new RegExp(`${B}(?:кредит|ипотек|займ|заём|қарз(?:ӣ|и)?(?![а-яёӣӯқғҳҷ])|фоиз|процент|ставк[аи]\\s+рефинанс|депозит|казино|букмекер|лотере|алкогол|пиво|водк|шароб|kredit|ipoteka|foiz)`, 'i');
+const HARAM_LINE = new RegExp(`${B}(?:кредит|ипотек|займ|заём|қарз(?:ӣ|и)?(?![а-яёӣӯқғҳҷ])|фоиз|процент|ставк[аи]\\s+рефинанс|депозит|казино|букмекер|лотере|алкогол|пиво|водк|шароб|свинин|хамон|бекон|коньяк|виски|самогон|ликёр|ликер|шампанск|вино(?![а-яёӣӯқғҳҷ])|хук(?:и|ҳо)?(?![а-яёӣӯқғҳҷ])|kredit|ipoteka|foiz)`, 'i');
 const SHARIA_REPLY = {
     tg: '🤲 iZamoN дар бораи кредит, фоиз ва дигар чизҳои манъшуда маслиҳат намедиҳад.\n💡 Метавонам дар бораи пасандоз, тиҷорати ҳалол ва сарфакорӣ маълумот диҳам.',
     ru: '🤲 iZamoN не консультирует по кредитам, процентам и другим запретным вещам.\n💡 Могу рассказать о сбережениях, халяльной торговле и экономии.',
@@ -1034,14 +1070,17 @@ function parseSomonAdverts(html, max = 80) {
 
 function somonUrl(src) {
     if (src && src.q) return `https://somon.tj/search/?q=${encodeURIComponent(String(src.q).slice(0, 80))}`;
-    if (src && /^[a-z0-9_\-/]{3,120}$/i.test(src.path || '')) return `https://somon.tj/${src.path.replace(/^\/+/, '')}`;
+    if (src && /^[a-z0-9_\-/]{3,120}$/i.test(src.path || '')) {
+        const page = Math.floor(Number(src.page) || 1);
+        return `https://somon.tj/${src.path.replace(/^\/+/, '')}${page >= 2 && page <= 5 ? `?page=${page}` : ''}`;
+    }
     return null;
 }
 
 function somonGet(url) {
     const hit = SOMON_CACHE.get(url);
     if (hit && Date.now() - hit.at < SOMON_CACHE_MS) return hit.p;
-    const p = fetchPage(url, { cap: 700000, timeoutMs: 7000 }).then(r => {
+    const p = fetchPage(url, { cap: 1800000, timeoutMs: 9000 }).then(r => {
         const list = parseSomonAdverts(r.html);
         if (!list.length) throw new Error('в странице нет списка');
         return list;
@@ -1125,18 +1164,262 @@ function somonTitle(title, lang) {
     return out.join(', ');
 }
 
+// ---------- Характеристики для карточек разных разделов somon.tj ----------
+// Берём только то, что продавец сам написал в названии и тексте объявления, и только если слово или число читается однозначно.
+// Подписи и единицы сразу на языке сайта, поэтому модель их не переводит и не портит. Не нашли уверенно — плитку не показываем.
+const FL = {
+    ru: { year: 'Год', mileage: 'Пробег', engine: 'Двигатель', fuel: 'Топливо', gearbox: 'КПП', state: 'Состояние', ramrom: 'ОЗУ/Память', rom: 'Память', ram: 'ОЗУ', cpu: 'Процессор', disk: 'Диск', load: 'Загрузка', volume: 'Объём', diag: 'Диагональ', power: 'Мощность', size: 'Размер', material: 'Материал', exp: 'Опыт', sched: 'График', sphere: 'Сфера', age: 'Возраст', weight: 'Вес', count: 'Количество', per: 'Цена за', dur: 'Срок', format: 'Формат', lang: 'Язык', water: 'Полив', tire: 'Шина', battery: 'Ёмкость' },
+    tg: { year: 'Сол', mileage: 'Километраж', engine: 'Муҳаррик', fuel: 'Сӯзишворӣ', gearbox: 'Қуттии суръат', state: 'Ҳолат', ramrom: 'RAM/Хотира', rom: 'Хотира', ram: 'RAM', cpu: 'Протсессор', disk: 'Диск', load: 'Бор', volume: 'Ҳаҷм', diag: 'Диагонал', power: 'Иқтидор', size: 'Андоза', material: 'Мавод', exp: 'Таҷриба', sched: 'Реҷаи корӣ', sphere: 'Соҳа', age: 'Синну сол', weight: 'Вазн', count: 'Миқдор', per: 'Нарх барои', dur: 'Мӯҳлат', format: 'Шакл', lang: 'Забон', water: 'Обёрӣ', tire: 'Шина', battery: 'Ҳаҷми батарея' },
+    uz: { year: 'Yil', mileage: 'Yurgan masofa', engine: 'Dvigatel', fuel: "Yoqilg'i", gearbox: 'Uzatmalar qutisi', state: 'Holati', ramrom: 'RAM/Xotira', rom: 'Xotira', ram: 'RAM', cpu: 'Protsessor', disk: 'Disk', load: 'Yuklama', volume: 'Hajm', diag: 'Diagonal', power: 'Quvvat', size: "O'lcham", material: 'Material', exp: 'Tajriba', sched: 'Ish jadvali', sphere: 'Soha', age: 'Yoshi', weight: 'Vazni', count: 'Soni', per: 'Narxi', dur: 'Muddati', format: 'Format', lang: 'Til', water: "Sug'orish", tire: 'Shina', battery: 'Sigʻimi' }
+};
+const FV = {
+    ru: { km: 'км', l: 'л', kg: 'кг', g: 'г', w: 'Вт', pcs: 'шт.', head: 'гол.', cm: 'см', mm: 'мм', mo: 'мес.', wk: 'нед.', dy: 'дн.', has: 'Есть', noneed: 'Не нужен', fresh: 'Новое', used: 'Б/у', ah: 'Ач', ha: 'га' },
+    tg: { km: 'км', l: 'л', kg: 'кг', g: 'г', w: 'Вт', pcs: 'дона', head: 'сар', cm: 'см', mm: 'мм', mo: 'моҳ', wk: 'ҳафта', dy: 'рӯз', has: 'Ҳаст', noneed: 'Лозим нест', fresh: 'Нав', used: 'Истифодашуда', ah: 'Ач', ha: 'га' },
+    uz: { km: 'km', l: 'l', kg: 'kg', g: 'g', w: 'Vt', pcs: 'dona', head: 'bosh', cm: 'sm', mm: 'mm', mo: 'oy', wk: 'hafta', dy: 'kun', has: 'Bor', noneed: 'Shart emas', fresh: 'Yangi', used: 'Ishlatilgan', ah: 'Ah', ha: 'ga' }
+};
+const LI = { ru: 0, tg: 1, uz: 2 }; // порядок в таблицах [русский, таджикский, узбекский]
+// min — после «от» числительное стоит в родительном падеже: «от 1 года», «от 2 лет», «от 5 лет»
+const yearsWord = (lang, n, min = false) => lang === 'tg' ? 'сол' : lang === 'uz' ? 'yil' : min ? (n === 1 ? 'года' : 'лет') : (n === 1 ? 'год' : n >= 2 && n <= 4 ? 'года' : 'лет');
+const fmtNum = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' ');
+const factText = a => `${a.title} ${String(a.description || '').replace(/\s+/g, ' ').slice(0, 400)}`;
+const UNIT_CANON = u => /^(?:кг|килограмм|кило)/i.test(u) ? 'kg' : /^(?:г|гр)$/i.test(u) ? 'g' : /^(?:л|литр)/i.test(u) ? 'l' : /^(?:шт|штук|дона)/i.test(u) ? 'pcs' : '';
+
+const FUEL_WORDS = [[/(?<![\p{L}])бензин\S*/iu, ['Бензин', 'Бензин', 'Benzin']], [/(?<![\p{L}])дизел\S*/iu, ['Дизель', 'Дизел', 'Dizel']], [/(?<![\p{L}])гибрид\S*/iu, ['Гибрид', 'Гибрид', 'Gibrid']], [/(?<![\p{L}])электромобил\S*|(?<![\p{L}])электро(?:кар)?(?![\p{L}])/iu, ['Электро', 'Барқӣ', 'Elektr']]];
+const GEAR_WORDS = [[/(?<![\p{L}])автомат\S*/iu, ['Автомат', 'Автомат', 'Avtomat']], [/(?<![\p{L}])(?:механик\S*|мкпп)(?![\p{L}])/iu, ['Механика', 'Механика', 'Mexanika']], [/(?<![\p{L}])вариатор\S*/iu, ['Вариатор', 'Вариатор', 'Variator']]];
+const MATERIALS = [
+    [/(?<![\p{L}])(?:мдф|mdf)(?![\p{L}])/iu, ['МДФ', 'МДФ', 'MDF']],
+    [/(?<![\p{L}])(?:лдсп|дсп)(?![\p{L}])/iu, ['ДСП', 'ДСП', 'DSP']],
+    [/(?<![\p{L}])массив\S*|натуральн\S*\s+дерев\S*/iu, ['Массив', 'Чӯби табиӣ', "Tabiiy yog'och"]],
+    [/(?<![\p{L}])дерев\S*/iu, ['Дерево', 'Чӯб', "Yog'och"]],
+    [/(?<![\p{L}])(?:экокож\S*|кожан\S*|кожа(?![\p{L}]))/iu, ['Кожа', 'Чарм', 'Teri']],
+    [/(?<![\p{L}])(?:велюр|ткан\S*|текстил\S*)/iu, ['Ткань', 'Мато', 'Mato']],
+    [/(?<![\p{L}])металл\S*/iu, ['Металл', 'Металл', 'Metall']],
+    [/(?<![\p{L}])стекл\S*/iu, ['Стекло', 'Шиша', 'Oyna']],
+    [/(?<![\p{L}])хлопк\S*|(?<![\p{L}])хлопок/iu, ['Хлопок', 'Пахта', 'Paxta']],
+    [/(?<![\p{L}])шерст\S*/iu, ['Шерсть', 'Пашм', 'Jun']],
+    [/(?<![\p{L}])трикотаж\S*/iu, ['Трикотаж', 'Трикотаж', 'Trikotaj']],
+    [/(?<![\p{L}])(?:шёлк|шелк)\S*/iu, ['Шёлк', 'Абрешим', 'Ipak']]
+];
+const LANG_WORDS = [
+    [/английск|english|англисӣ/iu, ['Английский', 'Англисӣ', 'Ingliz tili']], [/русск|russian|русӣ/iu, ['Русский', 'Русӣ', 'Rus tili']],
+    [/немецк|german|олмонӣ/iu, ['Немецкий', 'Олмонӣ', 'Nemis tili']], [/китайск|chinese|хитоӣ/iu, ['Китайский', 'Хитоӣ', 'Xitoy tili']],
+    [/корейск|korean|кореягӣ/iu, ['Корейский', 'Кореягӣ', 'Koreys tili']], [/турецк|turkish|туркӣ/iu, ['Турецкий', 'Туркӣ', 'Turk tili']],
+    [/арабск|arabic|арабӣ/iu, ['Арабский', 'Арабӣ', 'Arab tili']], [/французск|french|фаронсавӣ/iu, ['Французский', 'Фаронсавӣ', 'Fransuz tili']],
+    [/японск|japanese|японӣ/iu, ['Японский', 'Японӣ', 'Yapon tili']], [/персидск|фарси|форсӣ/iu, ['Персидский', 'Форсӣ', 'Fors tili']],
+    [/испанск|spanish|испанӣ/iu, ['Испанский', 'Испанӣ', 'Ispan tili']], [/итальянск|italian|итолиёвӣ/iu, ['Итальянский', 'Итолиёвӣ', 'Italyan tili']],
+    [/таджикск|тоҷикӣ/iu, ['Таджикский', 'Тоҷикӣ', 'Tojik tili']], [/узбекск|ӯзбекӣ/iu, ['Узбекский', 'Ӯзбекӣ', "O'zbek tili"]]
+];
+const JOB_SPHERE = {
+    'buhgalteriya--yuristyi--finansyi': ['Бухгалтерия, юристы, финансы', 'Ҳисобдорӣ, ҳуқуқшиносӣ, молия', 'Buxgalteriya, yuristlar, moliya'],
+    'cekretariat--aho': ['Секретариат, АХО', 'Котибот, хоҷагидорӣ', "Kotibiyat, xo'jalik"],
+    'chastichnaya-zanyatost': ['Частичная занятость', 'Бандии қисмӣ', 'Qisman bandlik'],
+    'domashnij-personal--obsluzhivanie': ['Домашний персонал', 'Ходимони хона ва хизматрасонӣ', 'Uy xodimlari, xizmat'],
+    'drugie-sferyi-zanyatij': ['Другие сферы', 'Соҳаҳои дигар', 'Boshqa sohalar'],
+    'gosudarstvennie-slujbi': ['Госслужба', 'Хизмати давлатӣ', 'Davlat xizmati'],
+    'hr--kadryi': ['HR, кадры', 'HR, кадрҳо', 'HR, kadrlar'],
+    'it--telekom--kompyuteryi': ['IT, телеком, компьютеры', 'IT, телеком, компютерҳо', 'IT, telekom, kompyuterlar'],
+    'kadrovyie-agentstva': ['Кадровые агентства', 'Агентиҳои кадрӣ', 'Kadrlar agentliklari'],
+    'krasota--fitnes--sport': ['Красота, фитнес, спорт', 'Зебоӣ, фитнес, варзиш', "Go'zallik, fitnes, sport"],
+    'marketing--reklama--dizajn': ['Маркетинг, реклама, дизайн', 'Маркетинг, реклама, дизайн', 'Marketing, reklama, dizayn'],
+    'meditsina--farmatsiya': ['Медицина, фармацевтика', 'Тиб, дорусозӣ', 'Tibbiyot, farmatsevtika'],
+    'nachalo-kareryi--studentyi': ['Начало карьеры, студенты', 'Оғози фаъолият, донишҷӯён', 'Karyera boshi, talabalar'],
+    'obrazovanie--kultura--iskusstvo': ['Образование, культура', 'Маориф, фарҳанг, санъат', 'Taʼlim, madaniyat, sanʼat'],
+    'ohrana--bezopasnost': ['Охрана, безопасность', 'Посбонӣ, амният', "Qo'riqlash, xavfsizlik"],
+    'prodazhi--roznichnaya-torgovlya': ['Продажи, розница', 'Фурӯш, савдои чакана', 'Sotuv, chakana savdo'],
+    'proizvodstvo--energetika': ['Производство, энергетика', 'Истеҳсолот, энергетика', 'Ishlab chiqarish, energetika'],
+    'rabochi-personal-raznorabochii': ['Рабочие, разнорабочие', 'Коргарон', 'Ishchilar'],
+    'rabota-za-rubejom': ['Работа за рубежом', 'Кор дар хориҷа', 'Chet elda ish'],
+    'rukovoditeli': ['Руководители', 'Роҳбарон', 'Rahbarlar'],
+    'smi--izdatelstvo': ['СМИ, издательства', 'ВАО, нашриёт', 'OAV, nashriyot'],
+    'stroitelstvo': ['Строительство', 'Сохтмон', 'Qurilish'],
+    'transport--logistika': ['Транспорт, логистика', 'Нақлиёт, логистика', 'Transport, logistika'],
+    'turizm--gostinici--razvlecheniya': ['Туризм, гостиницы', 'Сайёҳӣ, меҳмонхонаҳо', 'Turizm, mehmonxonalar']
+};
+// Если слов из таблицы нашлось несколько разных, не угадываем: возвращаем null
+const onlyWord = (t, table) => { const hit = table.filter(([re]) => re.test(t)); return hit.length === 1 ? hit[0][1] : null; };
+const unitRu = (u, V, lang, n) => /^(?:лет|год|летн|сол)/i.test(u) ? yearsWord(lang, n) : /^(?:мес|моҳ)/i.test(u) ? V.mo : /^(?:недел|ҳафта)/i.test(u) ? V.wk : V.dy;
+
+// Каждая функция возвращает «Подпись: значение» или '' (если уверенности нет).
+const FX = {
+    year: (a, L) => { const m = a.title.match(/(?<![\d.,/-])((?:19[89]\d|20[0-3]\d))(?![\d.,/-]|\s*(?:км|km|кг|kg))/u); return m ? `${L.year}: ${m[1]}` : ''; },
+    mileage: (a, L, V) => {
+        const t = factText(a);
+        let m = t.match(/(?<![\d.,])(\d{1,3}(?:[ .]\d{3})+|\d{4,7})\s*(?:км|km)(?![\p{L}])/iu);
+        let n = m ? +m[1].replace(/\D/g, '') : 0;
+        if (!n) { m = t.match(/(?<![\d.,])(\d{2,3})\s*(?:тыс\.?|т\.)\s*км/iu); n = m ? +m[1] * 1000 : 0; }
+        return n >= 1000 && n <= 999999 ? `${L.mileage}: ${fmtNum(n)} ${V.km}` : '';
+    },
+    engine: (a, L, V) => { const m = factText(a).match(/(?<![\d.,])([1-9][.,]\d)\s*(?:л|l|литр\S*)(?![\p{L}\d.])/iu); return m ? `${L.engine}: ${m[1].replace(',', '.')} ${V.l}` : ''; },
+    fuel: (a, L, V, lang) => { const w = onlyWord(factText(a), FUEL_WORDS); return w ? `${L.fuel}: ${w[LI[lang]]}` : ''; },
+    gearbox: (a, L, V, lang) => { const w = onlyWord(factText(a), GEAR_WORDS); return w ? `${L.gearbox}: ${w[LI[lang]]}` : ''; },
+    state: (a, L, V) => {
+        const t = `${a.title} ${String(a.description || '').replace(/\s+/g, ' ').slice(0, 160)}`;
+        const used = /(?<![\p{L}])(?:б\s?\/\s?у|б\.\s?у\.?|бу|б-у|подержан\S*|истифодашуда)(?![\p{L}])/iu.test(t);
+        const fresh = /(?<![\p{L}])(?<!не\s)(?:нов(?:ый|ая|ое|ые|ье)|нав)(?![\p{L}])/iu.test(t) && !/нов(?:ый|ого)\s+год/iu.test(t);
+        return used === fresh ? '' : `${L.state}: ${used ? V.used : V.fresh}`;
+    },
+    mem: (a, L) => {
+        const t = factText(a);
+        let m = t.match(/(?<![\d.,])(\d{1,2}(?:\s*\+\s*\d{1,2})?)\s*\/\s*(\d{2,4})(?:\s*(?:gb|гб))?(?![\d/])/iu);
+        if (m) {
+            const ram = m[1].replace(/\s/g, ''), rom = +m[2], sum = ram.split('+').reduce((s, x) => s + +x, 0);
+            if (sum >= 1 && sum <= 64 && [16, 32, 64, 128, 256, 512, 1024, 2048].includes(rom)) return `${L.ramrom}: ${ram}/${rom} GB`;
+        }
+        m = t.match(/(?<![\d.,/])(\d{2,4})\s*(gb|гб|tb|тб)(?![\p{L}])/iu);
+        return m ? `${L.rom}: ${m[1]} ${/^т/i.test(m[2]) || /^t/i.test(m[2]) ? 'TB' : 'GB'}` : '';
+    },
+    cpu: (a, L) => {
+        const t = factText(a);
+        let m = t.match(/(?<![\p{L}\d])(?:core\s*)?(i[3579])(?:[-\s]?\d{4,5}[a-z]{0,2})?(?![\p{L}\d])/iu);
+        if (m) return `${L.cpu}: Core ${m[1].toLowerCase()}`;
+        m = t.match(/ryzen\s*([3579])/i);
+        if (m) return `${L.cpu}: Ryzen ${m[1]}`;
+        m = /macbook|apple/i.test(t) && t.match(/(?<![\p{L}\d])(m[1-4])(?:\s*(pro|max|ultra))?(?![\p{L}\d])/iu);
+        return m ? `${L.cpu}: Apple ${m[1].toUpperCase()}${m[2] ? ' ' + m[2][0].toUpperCase() + m[2].slice(1).toLowerCase() : ''}` : '';
+    },
+    ram: (a, L) => {
+        const t = factText(a);
+        const m = t.match(/(?<![\d.,])(\d{1,3})\s*(?:gb|гб)\s*(?:ram|озу|ddr\d?)(?![\p{L}])/iu) || t.match(/(?:ram|озу)\s*[:\-–]?\s*(\d{1,3})\s*(?:gb|гб)?(?![\p{L}\d])/iu);
+        return m && +m[1] >= 1 && +m[1] <= 256 ? `${L.ram}: ${m[1]} GB` : '';
+    },
+    disk: (a, L) => {
+        const t = factText(a);
+        let m = t.match(/(?<![\d.,])(\d(?:[.,]\d)?|\d{3,4})\s*(gb|гб|tb|тб)\s*(ssd|hdd|nvme)/iu), n, u, k;
+        if (m) { n = m[1]; u = m[2]; k = m[3]; } else if ((m = t.match(/(ssd|hdd|nvme)\s*[:\-–]?\s*(\d(?:[.,]\d)?|\d{3,4})\s*(gb|гб|tb|тб)?(?![\p{L}\d])/iu))) { k = m[1]; n = m[2]; u = m[3] || (+n.replace(',', '.') <= 16 ? 'tb' : 'gb'); }
+        if (!m) return '';
+        const tb = /^(?:t|т)/i.test(u), v = +String(n).replace(',', '.');
+        return (tb ? v > 0 && v <= 20 : v >= 32 && v <= 8000) ? `${L.disk}: ${String(k).toUpperCase()} ${String(n).replace(',', '.')} ${tb ? 'TB' : 'GB'}` : '';
+    },
+    diag: (a, L) => { const m = factText(a).match(/(?<![\d.,])(\d{2}(?:[.,]\d)?)\s*(?:"|”|″|''|дюйм\S*|inch(?:es)?)(?![\p{L}\d])/iu); const n = m ? +m[1].replace(',', '.') : 0; return n >= 10 && n <= 120 ? `${L.diag}: ${m[1].replace(',', '.')}"` : ''; },
+    load: (a, L, V) => { const m = factText(a).match(/(?<![\d.,])(\d{1,2}(?:[.,]\d)?)\s*(?:кг|kg)(?![\p{L}])/iu); const n = m ? +m[1].replace(',', '.') : 0; return n >= 3 && n <= 15 ? `${L.load}: ${m[1].replace(',', '.')} ${V.kg}` : ''; },
+    volume: (a, L, V) => { const m = factText(a).match(/(?<![\d.,])(\d{2,4})\s*(?:л|литр\S*|l)(?![\p{L}\d.])/iu); const n = m ? +m[1] : 0; return n >= 10 && n <= 1000 ? `${L.volume}: ${n} ${V.l}` : ''; },
+    power: (a, L, V) => {
+        const t = factText(a);
+        let m = t.match(/(?<![\d.,])(\d{3,5})\s*(?:вт|w|watt)(?![\p{L}])/iu);
+        if (m) return `${L.power}: ${m[1]} ${V.w}`;
+        m = t.match(/(?<![\d.,])(\d{4,6})\s*(?:btu|бту)(?![\p{L}])/iu);
+        return m ? `${L.power}: ${m[1]} BTU` : '';
+    },
+    dims: (a, L, V) => {
+        const m = factText(a).match(/(?<![\d.,])(\d{2,3})\s*[xх×*]\s*(\d{2,3})(?:\s*[xх×*]\s*(\d{2,3}))?\s*(см|cm|мм|mm)?(?![\p{L}\d])/iu);
+        if (!m) return '';
+        const unit = m[4] ? (/^(?:см|cm)/i.test(m[4]) ? V.cm : V.mm) : '';
+        return `${L.size}: ${[m[1], m[2], m[3]].filter(Boolean).join('×')}${unit ? ' ' + unit : ''}`;
+    },
+    csize: (a, L) => {
+        const t = factText(a);
+        let m = t.match(/(?:размер\S*|андоза\S*)\s*[:\-–]?\s*(\d{2}(?:\s*[-–/]\s*\d{2})?)(?![\d])/iu) || t.match(/(?<![\d.,])(\d{2})\s*(?:-?\s*(?:й|го)\s*)?размер/iu);
+        if (m) { const first = +m[1].slice(0, 2); if (first >= 20 && first <= 64) return `${L.size}: ${m[1].replace(/\s/g, '')}`; }
+        m = t.match(/(?<![\p{L}\d])([2-5]?xl|xs|xxl|xxxl)(?![\p{L}\d])/iu);
+        return m ? `${L.size}: ${m[1].toUpperCase()}` : '';
+    },
+    material: (a, L, V, lang) => { const w = onlyWord(factText(a), MATERIALS); return w ? `${L.material}: ${w[LI[lang]]}` : ''; },
+    tire: (a, L) => { const m = factText(a).match(/(?<![\d])(\d{3})\s*\/\s*(\d{2})\s*(?:z?r)\s*(\d{2})(?![\d])/iu); return m ? `${L.tire}: ${m[1]}/${m[2]} R${m[3]}` : ''; },
+    battery: (a, L, V) => { const m = factText(a).match(/(?<![\d.,])(\d{2,3})\s*(?:ач|ah|а\/ч)(?![\p{L}])/iu); return m ? `${L.battery}: ${m[1]} ${V.ah}` : ''; },
+    exp: (a, L, V, lang) => {
+        const t = factText(a);
+        if (/без\s+опыта|опыт\s+не\s+(?:обязателен|требуется|нужен|важен)|бе[зс]\s+таҷриба|таҷриба\s+шарт\s+нест/iu.test(t)) return `${L.exp}: ${V.noneed}`;
+        const m = t.match(/(?:опыт(?:\s+работы)?|таҷриба)\s*[:\-–]?\s*(от\s*|не\s+менее\s*|аз\s*)?(\d{1,2})(?:\s*[-–]\s*\d{1,2})?\s*(лет|года|год|мес\S*|сол|моҳ)(?![\p{L}])/iu);
+        if (!m) return '';
+        const min = !!m[1];
+        const n = +m[2], unit = /^(?:мес|моҳ)/i.test(m[3]) ? V.mo : yearsWord(lang, n, min);
+        return `${L.exp}: ${min ? (lang === 'tg' ? 'аз ' : lang === 'ru' ? 'от ' : '') : ''}${n} ${unit}${min && lang === 'uz' ? 'dan' : ''}`;
+    },
+    sched: (a, L) => {
+        const t = factText(a);
+        let m = t.match(/(?<![\d:.])(\d{1,2}):(\d{2})\s*(?:-|–|—|до|то|по|аз)\s*(\d{1,2}):(\d{2})(?![\d:])/u);
+        if (m && +m[1] <= 24 && +m[3] <= 24 && +m[2] < 60 && +m[4] < 60) return `${L.sched}: ${m[1]}:${m[2]}–${m[3]}:${m[4]}`;
+        m = t.match(/(?:график|реҷа\S*|ҷадвал\S*)[^\n]{0,20}?(?<![\d/])(\d)\s*\/\s*(\d)(?![\d/])/iu);
+        return m ? `${L.sched}: ${m[1]}/${m[2]}` : '';
+    },
+    sphere: (a, L, V, lang) => { const slug = (/"slug":"([^"]+)"/.exec(a.cats || '') || [])[1]; const n = JOB_SPHERE[slug]; return n ? `${L.sphere}: ${n[LI[lang]]}` : ''; },
+    age: (a, L, V, lang) => {
+        const t = factText(a);
+        const m = t.match(/возраст\S*\s*[:\-–]?\s*(?:около\s*|~)?(\d{1,2}(?:[.,]\d)?)\s*(лет|года|год|мес\S*|недел\S*|дн\S*)(?![\p{L}])/iu)
+            || t.match(/(?<![\d.,])(\d{1,2})\s*-?\s*(летн\S*|месячн\S*|недельн\S*|сола|солагӣ|моҳа)(?![\p{L}])/iu);
+        if (!m) return '';
+        const n = m[1].replace(',', '.');
+        return `${L.age}: ${n} ${unitRu(m[2], V, lang, +n)}`;
+    },
+    weight: (a, L, V) => { const m = factText(a).match(/(?:вес\S*|вазн\S*)\s*[:\-–]?\s*(?:около\s*|примерно\s*|~|≈|тақрибан\s*)?(\d{2,4})(?:\s*[-–]\s*\d{2,4})?\s*(?:кг|kg)(?![\p{L}])/iu); return m ? `${L.weight}: ${m[1]} ${V.kg}` : ''; },
+    count: (a, L, V) => {
+        const m = factText(a).match(/(?<![\d.,])(\d{1,4})\s*(голов\S*|гол\.|сар|шт\S*|штук\S*|дона)(?![\p{L}])/iu);
+        return m ? `${L.count}: ${m[1]} ${/^(?:шт|штук|дона)/i.test(m[2]) ? V.pcs : V.head}` : '';
+    },
+    per: (a, L, V) => {
+        const m = factText(a).match(/(?:за|барои|ҳар)\s*(\d{0,3})\s*(кг|килограмм\S*|кило\S*|л|литр\S*|шт\S*|штук\S*|дона|г|гр)(?![\p{L}])/iu);
+        const u = m ? UNIT_CANON(m[2]) : '';
+        return u ? `${L.per}: ${m[1] || 1} ${V[u]}` : '';
+    },
+    qty: (a, L, V) => {
+        const m = factText(a).match(/(?<![\d.,])(\d{1,4}(?:[.,]\d+)?)\s*(кг|килограмм\S*|кило\S*|л|литр\S*|шт\S*|штук\S*|г|гр)(?![\p{L}])/iu);
+        const u = m ? UNIT_CANON(m[2]) : '';
+        if (!u) return '';
+        return `${u === 'l' ? L.volume : u === 'pcs' ? L.count : L.weight}: ${m[1].replace(',', '.')} ${V[u]}`;
+    },
+    dur: (a, L, V) => {
+        const m = factText(a).match(/(?<![\d.,])(\d{1,2}(?:\s*[-–]\s*\d{1,2})?)\s*(месяц\S*|мес\S*|недел\S*|моҳ\S*|ҳафта\S*)(?![\p{L}])/iu);
+        return m ? `${L.dur}: ${m[1].replace(/\s/g, '').replace('-', '–')} ${/^(?:мес|моҳ)/i.test(m[2]) ? V.mo : V.wk}` : '';
+    },
+    format: (a, L, V, lang) => {
+        const t = factText(a), i = LI[lang];
+        const names = [[/(?<![\p{L}])(?:онлайн|online)(?![\p{L}])/iu, ['Онлайн', 'Онлайн', 'Onlayn']], [/индивидуальн\S*|инфиродӣ/iu, ['Индивидуально', 'Инфиродӣ', 'Yakka tartibda']], [/(?<![\p{L}])групп\S*|гурӯҳӣ/iu, ['Группа', 'Гурӯҳӣ', 'Guruh']], [/(?<![\p{L}])(?:очно|оффлайн|офлайн|ҳузурӣ)(?![\p{L}])/iu, ['Очно', 'Ҳузурӣ', 'Oflayn']]];
+        const hit = names.filter(([re]) => re.test(t)).map(([, w]) => w[i]).slice(0, 2);
+        return hit.length ? `${L.format}: ${hit.join(', ')}` : '';
+    },
+    lang: (a, L, V, lang) => {
+        const hit = LANG_WORDS.filter(([re]) => re.test(a.title)).map(([, w]) => w[LI[lang]]).slice(0, 2);
+        const found = hit.length ? hit : LANG_WORDS.filter(([re]) => re.test(factText(a))).map(([, w]) => w[LI[lang]]).slice(0, 1);
+        return found.length ? `${L.lang}: ${found.join(', ')}` : '';
+    },
+    water: (a, L, V) => (/(?<![\p{L}])(?<!без\s)(?:полив\S*|поливн\S*|орошаем\S*|обёрӣ|обёри)/iu.test(factText(a)) ? `${L.water}: ${V.has}` : '')
+};
+const FAMILIES = {
+    car: ['year', 'mileage', 'engine', 'fuel', 'gearbox'],
+    parts: ['tire', 'battery', 'state'],
+    furniture: ['dims', 'material', 'state'],
+    clothes: ['csize', 'material', 'state'],
+    tech: ['cpu', 'ram', 'disk', 'diag', 'load', 'volume', 'power', 'state'],
+    phone: ['mem', 'state'],
+    job: ['exp', 'sched', 'sphere'],
+    livestock: ['age', 'weight', 'count'],
+    food: ['per', 'qty'],
+    course: ['dur', 'format'],
+    languages: ['lang', 'dur', 'format'],
+    land: ['water']
+};
+
 // Характеристики квартиры и дома — только числа, которые написаны в самом названии объявления.
 // Подписи сразу на языке сайта. Текст из описания продавца (note) отдаём на перевод отдельно.
-function somonPoints(a, kind, lang = 'ru') {
+// facts — семейство характеристик раздела (car, phone, job…); без него: жильё (estate), у мастеров характеристик нет.
+function somonPoints(a, kind, lang = 'ru', facts = null) {
+    const fam = facts || (kind === 'masters' ? null : 'estate');
+    if (!fam) return [];
     const L = SOMON_L[lang] || SOMON_L.ru;
     const pts = [];
     const t = a.title;
-    if (kind !== 'masters') {
+    if (fam === 'estate' || fam === 'land') {
         let m;
-        if ((m = t.match(/(\d{1,2})\s*-\s*х?\s*-?\s*комн/i))) pts.push(`${L.rooms}: ${m[1]}`);
-        if ((m = t.match(/(\d{1,2})\s*этаж(?!н)/i))) pts.push(`${L.floor}: ${m[1]}`);
-        if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*(?:м²|м2|кв\.?\s*м)/i))) pts.push(`${L.area}: ${m[1]} ${L.m2}`);
-        if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*сот/i))) pts.push(`${L.plot}: ${m[1]} ${L.sot}`);
+        if (fam === 'estate') {
+            if ((m = t.match(/(\d{1,2})\s*-\s*х?\s*-?\s*комн/i))) pts.push(`${L.rooms}: ${m[1]}`);
+            if ((m = t.match(/(\d{1,2})\s*этаж(?!н)/i))) pts.push(`${L.floor}: ${m[1]}`);
+            if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*(?:м²|м2|кв\.?\s*м)/i))) pts.push(`${L.area}: ${m[1]} ${L.m2}`);
+            if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*сот/i))) pts.push(`${L.plot}: ${m[1]} ${L.sot}`);
+        } else {
+            // Земля под посев: размер участка — сотки или гектары, из названия и текста объявления
+            const tx = factText(a);
+            if ((m = tx.match(/(?<![\d.,])(\d{1,4}(?:[.,]\d+)?)\s*(?:сот|сотих)/i))) pts.push(`${L.plot}: ${m[1].replace(',', '.')} ${L.sot}`);
+            else if ((m = tx.match(/(?<![\d.,])(\d{1,4}(?:[.,]\d+)?)\s*(?:га(?![\p{L}])|гектар)/iu))) pts.push(`${L.plot}: ${m[1].replace(',', '.')} ${(FV[lang] || FV.ru).ha}`);
+        }
+    }
+    if (FAMILIES[fam]) {
+        const LL = FL[lang] || FL.ru, V = FV[lang] || FV.ru;
+        for (const key of FAMILIES[fam]) {
+            if (pts.length >= 3) break;
+            let p = '';
+            try { p = FX[key](a, LL, V, lang) || ''; } catch { p = ''; }
+            if (p && !blankValue(p)) pts.push(p);
+        }
     }
     return pts.slice(0, 3);
 }
@@ -1242,11 +1525,12 @@ const PRICE_WORDS = {
 };
 const PRICE_PLAIN = /^[\d\s.,]+\s*(?:сом\.?|c\.|TJS|USD|\$|€|EUR|₽|руб\.?)?$/i;
 
-function somonItem(a, kind, lang = 'ru') {
-    const pts = somonPoints(a, kind, lang);
+function somonItem(a, kind, lang = 'ru', facts = null) {
+    const pts = somonPoints(a, kind, lang, facts);
     const detTitle = somonTitle(a.title, lang);
     const tajik = /[ӣӯқғҳҷ]/.test(a.title);
-    const titleOk = lang === 'ru' ? !tajik : lang === 'tg' ? !!detTitle || tajik : !!detTitle;
+    const noCyr = !/[\u0400-\u04FF]/.test(a.title); // марка и модель латиницей («Honor X9e Pro 8+8/256»): переводить нечего
+    const titleOk = lang === 'ru' ? !tajik : lang === 'tg' ? !!detTitle || tajik || noCyr : !!detTitle || noCyr;
     const rawPrice = (a.price || a.priceNote || '').trim().replace(/\s+c\.$/, ' сом.');
     const word = (PRICE_WORDS[lang] || {})[rawPrice.toLowerCase().replace(/[.!]+$/, '')];
     const priceOk = lang === 'ru' ? true : lang === 'tg' ? !!word || PRICE_PLAIN.test(rawPrice) || !rawPrice : false;
@@ -1278,10 +1562,11 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
     const seenId = new Set(), seenPhoto = new Set(), seenText = new Set(), perWho = Object.create(null);
     // Все источники вместе, самые свежие впереди; без понятной даты — в конец.
     const flat = [];
-    for (const list of lists) {
+    for (const [li, list] of lists.entries()) {
         stat.parsed += list.length;
+        const words = ((spec.sources || [])[li] || {}).words || spec.words;
         for (const a of list) {
-            if ((spec.cat && !spec.cat.test(a.cats)) || (spec.notCat && spec.notCat.test(a.cats)) || (spec.words && !spec.words.test(`${a.title} ${a.description}`)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
+            if ((spec.cat && !spec.cat.test(a.cats)) || (spec.notCat && spec.notCat.test(a.cats)) || (words && !words.test(`${a.title} ${a.description}`)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
             const p = parsePublished(a.published);
             flat.push({ a, age: p ? p.ageMin : Infinity, n: flat.length });
         }
@@ -1300,7 +1585,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
         if (seenId.has(a.id) || (photo && seenPhoto.has(photo)) || seenText.has(textKey) || (whoKey && (perWho[whoKey] || 0) >= 2)) continue;
         seenId.add(a.id); seenText.add(textKey); if (photo) seenPhoto.add(photo);
         perWho[whoKey] = (perWho[whoKey] || 0) + 1;
-        const it = somonItem(a, kind, lang);
+        const it = somonItem(a, kind, lang, spec.facts || null);
         if (it.title && it.url) out.push(it);
     }
     stat.kept = out.length;
@@ -2971,7 +3256,16 @@ const DIAG_TOPICS = {
     electric: '7. Хизматрасонӣ - Барқчӣ',
     plumber: '7. Хизматрасонӣ - Сантехник',
     mechanic: '7. Хизматрасонӣ - Автомеханик',
-    master: '7. Хизматрасонӣ - Усто'
+    master: '7. Хизматрасонӣ - Усто',
+    cars: '2. Нақлиёт ва сафар - Мошинҳо',
+    parts: '2. Нақлиёт ва сафар - Қисмҳои эҳтиётӣ',
+    furniture: '3. Бозор ва молу ашё - Мебел',
+    clothes: '3. Бозор ва молу ашё - Либос',
+    tech: '3. Бозор ва молу ашё - Техника',
+    phones: '3. Бозор ва молу ашё - Телефонҳо',
+    langs: '5. Маориф ва илм - Забонҳо',
+    itcourses: '5. Маориф ва илм - Курсҳои IT',
+    harvest: '6. Кишоварзӣ - Ҳосил'
 };
 
 async function handleDiag(req, res) {
