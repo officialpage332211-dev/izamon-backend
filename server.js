@@ -848,6 +848,83 @@ function ownCards(rows, lang) {
 // Ссылки на поиск билетов — всегда под карточками билетов.
 const TICKET_LINKS = '<div class="iz-lq"><a href="https://www.aviasales.ru/" target="_blank" rel="noopener noreferrer">✈️ aviasales.ru</a><a href="https://somonair.com/" target="_blank" rel="noopener noreferrer">✈️ somonair.com</a></div>';
 
+// ---------- Билеты: «Кушодан» ведёт на страницу именно этого маршрута ----------
+// Модель часто присылает общую страницу сайта, а не нужный перелёт. Маршрут читаем из заголовка карточки («Душанбе → Москва»),
+// находим коды аэропортов и ведём на страницу маршрута Aviasales: https://www.aviasales.ru/routes/dyu/mow.
+// Адреса проверены вручную: каждая страница открывается и показывает этот маршрут с ценой «от …». Конкретный рейс по ссылке
+// Aviasales открыть не даёт (у него нет постоянного адреса), поэтому открывается страница маршрута с живыми ценами.
+// Город не узнан — остаётся ссылка модели, как было.
+const AIRPORTS = [
+    ['dyu', ['душанбе', 'dushanbe', 'dyu']],
+    ['lbd', ['худжанд', 'хуҷанд', 'ходжент', 'xojand', "xo'jand", 'khujand', 'khudjand', 'lbd']],
+    ['mow', ['москва', 'маскав', 'moskva', 'moscow', 'mow', 'svo', 'dme', 'vko']],
+    ['led', ['санкт-петербург', 'петербург', 'спб', 'питер', 'sankt-peterburg', 'saint petersburg', 'st petersburg', 'petersburg', 'led']],
+    ['ist', ['стамбул', 'истанбул', 'istanbul', 'ist', 'saw']],
+    ['dxb', ['дубай', 'дубаи', 'dubay', 'dubai', 'dxb']],
+    ['tas', ['ташкент', 'тошканд', 'тошкент', 'toshkent', 'tashkent', 'tas']],
+    ['ala', ['алматы', 'алмаато', 'алмата', 'алмаата', 'алма-ата', 'almaty', 'ala']],
+    // у Бишкека код сменился: старый FRU сайт перенаправляет на BSZ, поэтому ведём сразу на BSZ
+    ['bsz', ['бишкек', 'bishkek', 'fru', 'bsz']],
+    ['kzn', ['казань', 'қазон', 'казон', 'kazan', 'qozon', 'kzn']],
+    ['ovb', ['новосибирск', 'novosibirsk', 'ovb']],
+    ['svx', ['екатеринбург', 'yekaterinburg', 'ekaterinburg', 'svx']],
+    ['del', ['дели', 'деҳлӣ', 'dehli', 'delhi', 'del']],
+    ['bjs', ['пекин', 'pekin', 'beijing', 'bjs', 'pek', 'pkx']],
+    ['bak', ['баку', 'боку', 'baku', 'bak', 'gyd']],
+    // в Мекке нет аэропорта: летят в Джидду (на странице маршрута так и написано)
+    ['jed', ['джидда', 'ҷидда', 'jidda', 'jeddah', 'мекка', 'макка', 'makka', 'mecca', 'jed']],
+    ['med', ['медина', 'мадина', 'madina', 'medina', 'madinah', 'med']],
+    ['aer', ['сочи', 'sochi', 'aer']],
+    ['kja', ['красноярск', 'krasnoyarsk', 'kja']],
+    ['oms', ['омск', 'omsk', 'oms']],
+    ['tjm', ['тюмень', 'tyumen', 'tjm']],
+    ['kuf', ['самара', 'samara', 'kuf']],
+    ['ufa', ['уфа', 'ufa']],
+    ['cek', ['челябинск', 'chelyabinsk', 'cek']],
+    ['goj', ['нижний новгород', 'nizhniy novgorod', 'nizhny novgorod', 'goj']],
+    ['krr', ['краснодар', 'krasnodar', 'krr']],
+    ['ayt', ['анталья', 'анталия', 'antalya', 'ayt']],
+    ['skd', ['самарканд', 'самарқанд', 'samarqand', 'samarkand', 'skd']]
+];
+const airKey = s => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/\([^)]*\)/g, ' ').replace(/^(?:г\.|город|шаҳри|shahri)\s*/i, '').replace(/[\s\-–—.,'’`ʼ]+/g, '');
+const AIRPORT_INDEX = new Map();
+AIRPORTS.forEach(([code, names]) => names.forEach(n => AIRPORT_INDEX.set(airKey(n), code)));
+function airCode(raw) {
+    const k = airKey(raw);
+    if (!k) return null;
+    if (AIRPORT_INDEX.has(k)) return AIRPORT_INDEX.get(k);
+    // «Москва (Шереметьево)», «Москва 17 ноября» — слово в начале; «Рейс Душанбе», «Билет: Москва» — слово в конце
+    const words = String(raw).toLowerCase().replace(/ё/g, 'е').replace(/\([^)]*\)/g, ' ').trim().split(/[\s,/:]+/).filter(Boolean);
+    return AIRPORT_INDEX.get(airKey(words[0])) || AIRPORT_INDEX.get(airKey(words[words.length - 1])) || null;
+}
+// «Душанбе → Москва», «Душанбе – Москва», «Душанбе - Москва, прямой», «Худжанд → Санкт-Петербург (Пулково)»
+function ticketRoute(title) {
+    const t = String(title || '').replace(/\s+/g, ' ').trim();
+    const m = t.match(/^(.+?)\s*(?:→|➔|➜|➝|⟶|⇒|->|—|–|\s-\s|>)\s*(.+)$/);
+    if (!m) return null;
+    const a = m[1].replace(/\s*\([^)]*\)\s*/g, ' ').trim();
+    const b = m[2].replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s*(?:,|·|\||:).*$/, '').trim();
+    return a && b && a.length <= 40 && b.length <= 40 ? [a, b] : null;
+}
+function ticketLink(it) {
+    const r = ticketRoute(it && it.title);
+    if (!r) return null;
+    const a = airCode(r[0]), b = airCode(r[1]);
+    return a && b && a !== b ? `https://www.aviasales.ru/routes/${a}/${b}` : null;
+}
+// Ссылку меняем уже после проверки карточек: цена, авиакомпания и контакты проверены по странице, которую дала модель.
+function withTicketLinks(items, debug) {
+    let fixed = 0, kept = 0;
+    const out = items.map(it => {
+        const u = ticketLink(it);
+        if (!u) { kept++; return it; }
+        fixed++;
+        return { ...it, srcUrl: it.url, url: u };
+    });
+    if (debug) debug.ticketLinks = { fixed, kept };
+    return out;
+}
+
 // Модель иногда ломает JSON (лишняя кавычка, пропущенная запятая). Режим json_object гарантирует корректный JSON.
 async function repairJson(text) {
     const client = openai || openrouter;
@@ -1298,7 +1375,8 @@ url — обычная ссылка https://… (без Markdown и скобок
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
     if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
-    return finishItems(items.slice(0, 10), kind, lang, debug);
+    const done = await finishItems(items.slice(0, 10), kind, lang, debug);
+    return kind === 'tickets' ? withTicketLinks(done, debug) : done;
 }
 
 // Поиск отдаёт текст на языке сайта-источника (чаще русском). Карточку переводим на язык сайта одним
@@ -2912,7 +2990,7 @@ async function handleDiag(req, res) {
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
             const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon });
             const f = items[0];
-            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, ...dbgL };
+            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, ...dbgL };
         });
         if (!out.cards_test.ok) out.cards_test.debug = dbgL;
         if (!diagTopic) {
@@ -2957,5 +3035,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
