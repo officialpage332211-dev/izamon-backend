@@ -2917,6 +2917,81 @@ function formatOwnAds(rows) {
     return lines.join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// Telegram-канал iZamoN. Объявление, которое продавец сам отметил галочкой, бот публикует в канале.
+// Включается двумя настройками на Render: TG_CHANNEL_BOT_TOKEN (токен бота из @BotFather)
+// и TG_CHANNEL (@имя_канала или -100…). Пока их нет, галочки на сайте нет и ничего не отправляется.
+// ---------------------------------------------------------------------------
+const TG_API = 'https://api.telegram.org';
+const tgToken = () => String(process.env.TG_CHANNEL_BOT_TOKEN || '').trim();
+const tgChannel = () => String(process.env.TG_CHANNEL || '').trim();
+const tgOn = () => /^\d{6,}:[\w-]{30,}$/.test(tgToken()) && /^(?:@[A-Za-z]\w{3,31}|-100\d{5,})$/.test(tgChannel());
+const SITE_URL = 'https://izamon.vercel.app/';
+const CH_OPEN = { tg: 'Дар iZamoN кушодан', ru: 'Открыть на iZamoN', uz: "iZamoN'da ochish" };
+const CAPTION_MAX = 1000; // у Telegram подпись к фото — до 1024 знаков; берём с запасом
+
+// Режем по целому слову и ставим «…»: не посреди слова и не посреди числа.
+function cutAtWord(text, n) {
+    const s = String(text || '').trim();
+    if (s.length <= n) return s;
+    const cut = s.slice(0, Math.max(0, n - 1));
+    const sp = cut.lastIndexOf(' ');
+    return (sp >= n * 0.5 ? cut.slice(0, sp) : cut).replace(/[\s,;:.\-–—]+$/, '') + '…';
+}
+
+// Текст поста: название, цена, место, состояние, описание, контакт из формы и ссылка на сайт. Подписи — на языке объявления.
+function adChannelText(ad, limit = CAPTION_MAX) {
+    const open = CH_OPEN[ad.lang] || CH_OPEN.tg;
+    const price = ad.price ? `${Number(ad.price).toLocaleString('en-US').replace(/,/g, ' ')}${ad.currency ? ' ' + ad.currency : ''}` : '';
+    const head = [`🏷️ ${cutAtWord(ad.title, 120)}`];
+    if (price) head.push(`💰 ${price}`);
+    if (ad.location) head.push(`📍 ${ad.location}`);
+    if (ad.condition) head.push(`✨ ${ad.condition}`);
+    const tail = [];
+    if (ad.contact) tail.push(`📞 ${ad.contact}`);
+    tail.push(`🔗 ${open}: ${SITE_URL}`);
+    const headText = head.join('\n'), tailText = tail.join('\n');
+    const room = limit - headText.length - tailText.length - 4;
+    const desc = ad.description && room >= 30 ? cutAtWord(ad.description, room) : '';
+    return [headText, desc, tailText].filter(Boolean).join('\n\n');
+}
+
+async function tgCall(method, payload) {
+    const r = await fetch(`${TG_API}/bot${tgToken()}/${method}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(9000)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok || !data.ok) { const e = new Error(data.description || `telegram ${r.status}`); e.code = r.status; throw e; }
+    return data.result;
+}
+
+// Итог: 'posted' — опубликовано, 'skipped' — не подходит для канала, 'failed' — Telegram не принял, 'off' — канал не настроен.
+// Сбой Telegram никогда не мешает объявлению остаться на сайте.
+async function postAdToChannel(ad) {
+    if (!tgOn()) return 'off';
+    if (HARAM_LINE.test(`${ad.title} ${ad.description || ''} ${ad.condition || ''}`)) return 'skipped';
+    const chat_id = tgChannel();
+    try {
+        if (ad.image_url) {
+            try {
+                await tgCall('sendPhoto', { chat_id, photo: ad.image_url, caption: adChannelText(ad) });
+                return 'posted';
+            } catch (err) {
+                // Фото Telegram не смог скачать или принять — публикуем текстом; про права и канал ошибка идёт дальше.
+                if (err.code !== 400 || /chat|member|rights|forbidden|administrator/i.test(err.message)) throw err;
+            }
+        }
+        await tgCall('sendMessage', { chat_id, text: adChannelText(ad, 4000), disable_web_page_preview: true });
+        return 'posted';
+    } catch (err) {
+        console.warn(`[telegram канал Сбой]: ${scrub(err.message)}`);
+        return 'failed';
+    }
+}
+
 const adsLimited = makeLimiter(5);
 
 // ---------------------------------------------------------------------------
@@ -2953,7 +3028,8 @@ async function getSeller(userId) {
 function handleConfig(req, res) {
     res.json({
         supabaseUrl: SB_URL() || null,
-        anonKey: process.env.SUPABASE_ANON_KEY || null
+        anonKey: process.env.SUPABASE_ANON_KEY || null,
+        channel: tgOn() ? (tgChannel().startsWith('@') ? tgChannel() : 'on') : null
     });
 }
 
@@ -3006,7 +3082,12 @@ async function handleAdsCreate(req, res) {
     ad.seller_name = seller.name;
     try {
         const id = await createAd(ad);
-        return res.json({ ok: true, stored: true, id, ad: { ...ad, id, owner: undefined } });
+        // В канал — только если продавец сам поставил галочку (строго true).
+        let channel = null;
+        if (req.body && req.body.post_tg === true) {
+            channel = await Promise.race([postAdToChannel(ad), new Promise(r => setTimeout(() => r('failed'), 15000))]);
+        }
+        return res.json({ ok: true, stored: true, id, channel, ad: { ...ad, id, owner: undefined } });
     } catch (err) {
         console.warn(`[ads create Сбой]: ${err.message}`);
         return res.status(503).json({ ok: false, error: 'store_failed' });
@@ -3243,7 +3324,7 @@ app.get('/api/ads/mine', handleAdsMine);
 // Диагностика: откройте /diag в браузере — страница покажет, что именно не работает (ключи не показываются).
 // ---------------------------------------------------------------------------
 const diagLimited = makeLimiter(3);
-const scrub = str => String(str || '').replace(/AIza[\w-]+/g, '***').replace(/sk-[\w-]+/g, '***').slice(0, 240);
+const scrub = str => String(str || '').replace(/AIza[\w-]+/g, '***').replace(/sk-[\w-]+/g, '***').replace(/\d{6,}:[\w-]{30,}/g, '***').slice(0, 240);
 async function timed(fn) {
     const t = Date.now();
     try { const v = await fn(); return { ok: true, ms: Date.now() - t, ...v }; }
@@ -3366,5 +3447,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
