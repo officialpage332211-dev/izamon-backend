@@ -177,13 +177,13 @@ const PORTAL_RULES = [
     { re: /^(?:замин\s+ва\s+тиҷоратӣ|земля\s+и\s+коммерческая|yer\s+va\s+tijorat)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
       query: 'Найди актуальные объявления о земельных участках под строительство и о коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: что это, площадь, цена, продажа или аренда, место, контакт. Жилые квартиры и дома не показывай.' },
     // Услуги: мастера и специалисты. Объявления берём с somon.tj (раздел «Услуги») и других сайтов.
-    { re: /^(?:барқчӣ|электрик|elektrik)$/, portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
+    { re: /^(?:барқчӣ|электрик|elektrik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
       query: 'Найди актуальные объявления электриков в Таджикистане (электромонтаж, ремонт проводки, установка розеток, светильников и счётчиков), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Только электрики: другие услуги и товары не показывай.' },
-    { re: /^(?:сантехник|santexnik)$/, portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
+    { re: /^(?:сантехник|santexnik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
       query: 'Найди актуальные объявления сантехников в Таджикистане (установка и ремонт труб, смесителей, унитазов, отопления, водонагревателей), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Только сантехники: другие услуги и товары не показывай.' },
-    { re: /^(?:автомеханик|avtomexanik)$/, portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
+    { re: /^(?:автомеханик|avtomexanik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
       query: 'Найди актуальные объявления автомехаников и автосервисов в Таджикистане (ремонт и диагностика легковых машин, выезд мастера), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера или название сервиса, контакт. Только ремонт машин: продажу машин и запчастей не показывай.' },
-    { re: /^(?:усто|мастер|usta)$/, portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
+    { re: /^(?:усто|мастер|usta)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
       query: 'Найди актуальные объявления мастеров на дом в Таджикистане (ремонт и отделка квартир, сборка мебели, мелкий бытовой ремонт, «мастер на час»), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Электриков, сантехников и автомехаников отдельно не выделяй: показывай мастеров общего профиля.' },
     { re: /^(?:земли|заминҳои\s+кишт)$/, mode: 'ads',
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане, сначала на somon.tj: площадь, цена, место, контакт владельца.' },
@@ -666,16 +666,18 @@ const FOUND_LABEL = {
     jobs: { tg: 'ҷои кори нав', ru: 'свежих вакансий', uz: 'yangi vakansiya' },
     tickets: { tg: 'чиптаи ҳавопаймо', ru: 'авиабилетов', uz: 'aviachipta' },
     tours: { tg: 'сафар', ru: 'туров', uz: 'sayohat' },
-    services: { tg: 'пешниҳод', ru: 'предложений', uz: 'taklif' }
+    services: { tg: 'пешниҳод', ru: 'предложений', uz: 'taklif' },
+    masters: { tg: 'эълони хизматрасонӣ', ru: 'объявлений мастеров', uz: "xizmat e'loni" }
 };
 const KIND_TASK = {
     ads: 'Найди до 10 самых свежих объявлений. Ищи сначала на somon.tj, затем на других сайтах объявлений Таджикистана (ola.tj, arzon.tj и др.) и в Telegram-каналах.',
     jobs: 'Найди до 10 самых свежих вакансий в Таджикистане: somon.tj, сайты вакансий, Telegram-каналы с вакансиями, сайты компаний. Пропускай вакансии в банках по кредитам, микрокредитах, алкоголе, казино.',
     tickets: 'Найди до 10 актуальных авиабилетов из Душанбе и Худжанда по популярным направлениям (Москва, Санкт-Петербург, Стамбул, Дубай, Ташкент, Алматы и др.): aviasales, somonair.com, сайты авиакомпаний и турагентств.',
     tours: 'Найди до 10 актуальных туров и поездок (по Таджикистану и из Таджикистана) у турагентств: цена, даты, оператор.',
-    services: 'Найди до 10 актуальных предложений в Таджикистане (школы, курсы, учебные центры, услуги, магазины): название, цена, город, контакт, сайт.'
+    services: 'Найди до 10 актуальных предложений в Таджикистане (школы, курсы, учебные центры, услуги, магазины): название, цена, город, контакт, сайт.',
+    masters: 'Найди до 10 самых свежих объявлений мастеров и специалистов по услугам (то, что просит запрос). Ищи сначала на somon.tj в разделе «Услуги», затем на других сайтах объявлений Таджикистана и в Telegram-каналах. Это услуги, а не недвижимость: площадь, этаж и год постройки в характеристики не пиши.'
 };
-const KIND_EMOJI = { ads: '🏷️', jobs: '💼', tickets: '✈️', tours: '🧳', services: '🏫' };
+const KIND_EMOJI = { ads: '🏷️', jobs: '💼', tickets: '✈️', tours: '🧳', services: '🏫', masters: '🛠️' };
 
 // «Н/Д», «Цены уточняются», «не указано» — это не данные, такие значения в карточке не показываем.
 const BLANK_VALUE = new RegExp('^(?:н/?д|n/?a|na|нет|нет\\s+данных|данных\\s+нет|не\\s+указан[а-яё]*|не\\s+известн[а-яё]*|неизвестн[а-яё]*|уточня[а-яё]*|уточните|цен[а-яё]*\\s+уточня[а-яё]*|цена\\s+не\\s+указана|информации\\s+нет|' +
@@ -775,7 +777,8 @@ const KIND_BADGE = {
     jobs: { tg: 'Ҷои кор', ru: 'Вакансия', uz: 'Vakansiya' },
     tickets: { tg: 'Чипта', ru: 'Билет', uz: 'Chipta' },
     tours: { tg: 'Сафар', ru: 'Тур', uz: 'Sayohat' },
-    services: { tg: 'Хизмат', ru: 'Услуга', uz: 'Xizmat' }
+    services: { tg: 'Хизмат', ru: 'Услуга', uz: 'Xizmat' },
+    masters: { tg: 'Хизмат', ru: 'Услуга', uz: 'Xizmat' }
 };
 
 const MESSENGER_WORD = /whats\s*-?\s*app|wa\.me|ват[сц]\s?[аa]п+|вацап+|воцап+|вотсап+|telegram|t\.me|телеграм+|viber|вайбер|вибер|instagram|инстаграм+|(?<![\p{L}\p{N}])(?:imo|имо|тг|tg)(?![\p{L}\p{N}])/iu;
@@ -856,8 +859,8 @@ async function searchListings({ kind, lang, date, query, debug }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
-price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — ВСЕ способы связи, которые написаны в источнике, через «; »: телефоны (+992…), «WhatsApp: номер», «Telegram: @имя», «Instagram: @имя», электронная почта. Имя продавца сюда не пиши (оно в who). Нет в источнике — пустая строка, номера не придумывай. who — продавец/компания/авиакомпания.
-url — обычная ссылка https://… (без Markdown и скобок) на страницу этого пункта; если отдельной страницы нет — на страницу из результатов поиска, где он найден (например, страница списка). Не пропускай пункт только из-за отсутствия отдельной страницы. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 главных характеристик в виде «Название: значение» (например «Площадь: 60 м²», «Этаж: 5/9», «Год: 2017», «Пробег: 120 000 км», «График: 5/2»). Ничего не выдумывай: нет данных — пустая строка (кроме url). Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
+price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — только то, что дословно написано в источнике (на странице объявления или в его описании): телефон, «WhatsApp: номер», «Telegram: @имя», «Instagram: @имя», электронная почта; через «; ». Каналы, которых в источнике нет, не добавляй. Номера, @имена и почту не придумывай и не достраивай (не делай @имя или почту из имени продавца). Нет контактов в источнике — пустая строка. Имя продавца сюда не пиши (оно в who). who — продавец/компания/авиакомпания.
+url — обычная ссылка https://… (без Markdown и скобок) на страницу этого пункта; если отдельной страницы нет — на страницу из результатов поиска, где он найден (например, страница списка). Не пропускай пункт только из-за отсутствия отдельной страницы. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 характеристик именно этого пункта в виде «Название: значение», только из источника. Название выбирай по смыслу пункта: у недвижимости — площадь, этаж, год; у машин — пробег, год; у вакансий — график, опыт; у услуг — вид услуги, опыт, выезд на дом, график. Значения не придумывай и не переноси с других пунктов; нет данных — такую характеристику пропусти. Ничего не выдумывай: нет данных — пустая строка (кроме url). Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
     const resp = await openaiSearchRaw(system, query, 2500);
     const { text, cites, consulted } = readSearch(resp);
     // Сайт считается «открытым поиском», если на него есть цитата или он в списке просмотренных страниц.
@@ -909,7 +912,8 @@ url — обычная ссылка https://… (без Markdown и скобок
     const top = items.slice(0, 10);
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
     const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug)]);
-    return localized.map((it, i) => ({ ...it, image: photos[i] || null }));
+    const verified = await verifyItems(top, localized, kind, debug);
+    return verified.map((it, i) => ({ ...it, image: photos[i] || null }));
 }
 
 // Поиск отдаёт текст на языке сайта-источника (чаще русском). Карточку переводим на язык сайта одним
@@ -1558,6 +1562,105 @@ const sameSite = (a, b) => {
     return !!a && !!b && tail(a) === tail(b);
 };
 
+// Страницы объявлений одним запросом: фото и проверка контактов берут одну и ту же страницу.
+const PAGE_CACHE = new Map(); // адрес → { at, p }
+const PAGE_CACHE_MS = 5 * 60 * 1000, PAGE_CACHE_MAX = 60;
+function getPage(url) {
+    const hit = PAGE_CACHE.get(url);
+    if (hit && Date.now() - hit.at < PAGE_CACHE_MS) return hit.p;
+    const p = fetchPage(url, { cap: 400000, timeoutMs: 4500 });
+    p.catch(() => PAGE_CACHE.delete(url)); // сбой не запоминаем
+    if (PAGE_CACHE.size >= PAGE_CACHE_MAX) PAGE_CACHE.delete(PAGE_CACHE.keys().next().value);
+    PAGE_CACHE.set(url, { at: Date.now(), p });
+    return p;
+}
+
+// Что есть на странице: телефоны, почта и имена, числа. По этому сверяем всё, что прислала модель.
+function pageFacts(html) {
+    const text = decodeEntities(String(html || ''));
+    const lower = text.toLowerCase();
+    const blobs = [];
+    for (const m of text.matchAll(/\+?\d[\d\s().\-–]{6,}\d/g)) {
+        const d = m[0].replace(/\D/g, '');
+        if (d.length >= 9 && blobs.length < 3000) blobs.push(d);
+    }
+    const flat = text.replace(/(?<=\d)[\s ,.](?=\d{3}(?!\d))/g, '');
+    const nums = new Set();
+    for (const m of flat.matchAll(/\d{2,}/g)) { if (nums.size < 20000) nums.add(m[0]); }
+    const visible = visibleText(html);
+    return { lower, blobs, nums, substantial: visible.length >= 800 };
+}
+
+// Контакт оставляем, только если он написан на странице объявления. Разбираем «телефон; WhatsApp: номер; Telegram: @имя; почта».
+function verifyContact(contact, facts) {
+    if (!contact) return { kept: '', dropped: 0 };
+    const keep = [];
+    let dropped = 0;
+    for (const seg of String(contact).split(/[;\n|]+|\s·\s|,\s+/)) {
+        const s = seg.trim();
+        if (!s) continue;
+        const emails = s.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) || [];
+        const handles = [...s.matchAll(/(?<![\w.])@([\w.]{3,})/g)].map(m => m[1]);
+        const phones = (s.replace(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g, ' ').match(/\+?\d[\d\s().\-–]{7,}\d/g) || []).map(x => x.replace(/\D/g, '')).filter(d => d.length >= 9 && d.length <= 13);
+        const ids = emails.length + handles.length + phones.length;
+        if (!ids) continue; // слова без номера и адреса — не контакт
+        // @имя должно стоять на странице рядом с названием той же сети: Telegram-имя не выдаём за Instagram
+        const net = /instagram|инстаграм/i.test(s) ? 'ig' : /telegram|телеграм|t\.me|(?<![\p{L}])(?:tg|тг)(?![\p{L}])/iu.test(s) ? 'tg' : '';
+        const handleOk = h => {
+            const x = h.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            if (!facts.lower.includes(h.toLowerCase())) return false;
+            if (net === 'ig') return new RegExp(`instagram\\.com/@?${x}|(?:instagram|инстаграм)[^<>]{0,80}${x}`).test(facts.lower);
+            if (net === 'tg') return new RegExp(`(?:t|telegram)\\.me/@?${x}|(?:telegram|телеграм|тг|tg)[^<>]{0,80}${x}`).test(facts.lower);
+            return true;
+        };
+        const ok = emails.every(e => facts.lower.includes(e.toLowerCase()))
+            && handles.every(handleOk)
+            && phones.every(d => facts.blobs.some(b => b.includes(d.slice(-9))));
+        if (ok) keep.push(s); else dropped++;
+    }
+    return { kept: keep.join('; '), dropped };
+}
+
+const ESTATE_POINT = /площад|этаж|масоҳат|ошёна|қабат|год\s+постр|сол(?:и)?\s+сохт|комнат|ҳуҷра|maydon|qavat|xona/i;
+// Характеристика остаётся, если числа в ней есть на странице (или в заголовке и цене); для услуг убираем «недвижимые» поля.
+function verifyPoints(it, facts, kind) {
+    const known = new Set();
+    for (const m of String([it.title, it.price, it.place, it.date].join(' ').replace(/(?<=\d)[\s ,.](?=\d{3}(?!\d))/g, '')).matchAll(/\d{2,}/g)) known.add(m[0]);
+    const keep = [];
+    let dropped = 0;
+    for (const p of it.points || []) {
+        if (kind === 'masters' && ESTATE_POINT.test(String(p).split(':')[0])) { dropped++; continue; }
+        if (facts && facts.substantial) {
+            const value = String(p).includes(':') ? String(p).slice(String(p).indexOf(':') + 1) : String(p);
+            const nums = [...value.replace(/(?<=\d)[\s ,.](?=\d{3}(?!\d))/g, '').matchAll(/\d{2,}/g)].map(m => m[0]);
+            if (nums.some(n => !facts.nums.has(n) && !known.has(n))) { dropped++; continue; }
+        }
+        keep.push(p);
+    }
+    return { kept: keep, dropped };
+}
+
+// Сверка карточек со страницами: чужие и выдуманные контакты и характеристики убираются. Страницу открыть не удалось — контакт не показываем.
+async function verifyItems(original, current, kind, debug) {
+    if (process.env.PHOTO_CHECK === 'off') return current;
+    const stat = { pagesOk: 0, pagesFailed: 0, contactsKept: 0, contactsDropped: 0, pointsDropped: 0 };
+    const facts = await Promise.all(original.map(async it => {
+        try { return pageFacts((await withTimeout(getPage(it.url), 9000)).html); } catch { return null; }
+    }));
+    const out = current.map((it, i) => {
+        const f = facts[i];
+        if (f) stat.pagesOk++; else stat.pagesFailed++;
+        const c = f ? verifyContact(original[i].contact, f) : { kept: '', dropped: original[i].contact ? 1 : 0 };
+        stat.contactsDropped += c.dropped;
+        if (c.kept) stat.contactsKept++;
+        const pts = verifyPoints(it, f, kind);
+        stat.pointsDropped += pts.dropped;
+        return { ...it, contact: c.kept, points: pts.kept };
+    });
+    if (debug) debug.verify = stat;
+    return out;
+}
+
 // Фото для каждой карточки: со страницы объявления; фото от модели — только если оно с того же сайта и прошло проверку.
 // Ссылка на общую страницу списка (без номера объявления) не говорит, чьё это фото, — такие карточки остаются без фото.
 async function resolvePhotos(items, debug) {
@@ -1571,7 +1674,7 @@ async function resolvePhotos(items, debug) {
         const cands = [];
         let how = '', page = null;
         try {
-            page = await fetchPage(it.url, { cap: 400000, timeoutMs: 4500 });
+            page = await getPage(it.url);
             for (const c of pageImages(page.html, page.url)) cands.push({ url: c, from: 'page' });
             if (!cands.length) how = 'на странице нет фото в тегах';
         } catch (err) { how = `страница: ${String(err && err.message || err).slice(0, 40)}`; }
@@ -2344,5 +2447,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, pageImages, galleryImages, isListingUrl, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
