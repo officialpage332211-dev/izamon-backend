@@ -1424,7 +1424,14 @@ function somonPoints(a, kind, lang = 'ru', facts = null) {
     return pts.slice(0, 3);
 }
 function somonNote(a, nPts) {
-    const d = clip(a.description, 80);
+    // Текст продавца режем по целому слову и ставим «…» — не посреди слова и не посреди числа.
+    const full = clip(a.description, 2000);
+    let d = full;
+    if (full.length > 80) {
+        const cut = full.slice(0, 80);
+        const sp = cut.lastIndexOf(' ');
+        d = (sp >= 40 ? cut.slice(0, sp) : cut).replace(/[\s,;:.\-–—]+$/, '') + '…';
+    }
     return nPts < 3 && d.length >= 12 && !blankValue(d) ? d : '';
 }
 
