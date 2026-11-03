@@ -919,26 +919,29 @@ function cardHtml(it, kind, lang) {
     return `<div class="iz-lc"${sortAttrs}>${parts.join('')}</div>`;
 }
 
-function ownItems(rows) {
+function ownItems(rows, lang) {
     return (rows || []).map(a => {
         const cur = String(a.currency || '').toUpperCase();
+        const made = a.created_at ? Date.parse(a.created_at) : NaN;
+        const age = Number.isFinite(made) ? Math.max(0, Math.floor((Date.now() - made) / 60000)) : null;
+        const iso = Number.isFinite(made) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dushanbe' }).format(new Date(made)) : '';
         return {
             title: a.title,
             price: a.price ? `${Number(a.price).toLocaleString('en-US').replace(/,/g, ' ')}${a.currency ? ' ' + a.currency : ''}` : '',
             place: a.location || '',
-            date: '',
+            date: age === null ? '' : dateLabel(pubFromAge(age, iso), lang || 'ru', iso),
             contact: a.contact || '',
             who: a.seller_name ? `${a.seller_name} · iZamoN` : 'iZamoN',
             url: a.source_url && /^https:\/\//i.test(a.source_url) ? a.source_url : 'https://izamon.vercel.app/',
             pn: Number(a.price) > 0 ? Number(a.price) : 0,
             pc: /^[A-Z]{3}$/.test(cur) ? cur : '',
-            age: a.created_at && Number.isFinite(Date.parse(a.created_at)) ? Math.max(0, Math.floor((Date.now() - Date.parse(a.created_at)) / 60000)) : null
+            age
         };
     });
 }
 
 function ownCards(rows, lang) {
-    return ownItems(rows).map(it => cardHtml(it, 'ads', lang)).join('');
+    return ownItems(rows, lang).map(it => cardHtml(it, 'ads', lang)).join('');
 }
 
 // Ссылки на поиск билетов — всегда под карточками билетов.
@@ -1573,6 +1576,31 @@ function dateLabel(pub, lang, iso) {
     return typeof f === 'function' ? f(pub.n) : (f || pub.raw);
 }
 
+// «Когда опубликовано» для объявлений, у которых известна только дата (2026-11-01 или 01.11.2026) или точное время создания.
+// Собираем тот же вид, что у somon.tj (pub), и подпись делает dateLabel: свежее — словами («Вчера», «3 дн. назад»), старше недели — ДД.ММ.ГГГГ.
+function pubFromAge(ageMin, iso) {
+    if (!Number.isFinite(ageMin) || ageMin < 0) return null;
+    const days = Math.floor(ageMin / 1440);
+    const raw = iso ? iso.split('-').reverse().join('.') : '';
+    if (days >= 7) return iso ? { raw, unit: 'date', n: 0, ageMin, iso } : null;
+    if (days >= 2) return { raw, unit: 'day', n: days, ageMin };
+    if (days === 1) return { raw, unit: 'yesterday', n: 1, ageMin };
+    if (ageMin >= 60) return { raw, unit: 'hour', n: Math.floor(ageMin / 60), ageMin };
+    return ageMin >= 1 ? { raw, unit: 'min', n: Math.floor(ageMin), ageMin } : { raw, unit: 'now', n: 0, ageMin };
+}
+function pubFromDate(str) {
+    const age = ageFromDate(str);
+    if (age === null) return null;
+    const t = String(str).trim();
+    let m, iso;
+    if ((m = t.match(/^(\d{4})-(\d{2})-(\d{2})/))) iso = `${m[1]}-${m[2]}-${m[3]}`;
+    else if ((m = t.match(/^(\d{1,2})\.(\d{1,2})\.(\d{4})$/))) iso = `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
+    else return null;
+    // у даты без времени «сегодня» — это просто «Сегодня», а не «5 минут назад»
+    if (age < 1440) return { raw: t, unit: 'today', n: 0, ageMin: 0, iso };
+    return pubFromAge(age, iso);
+}
+
 // Контакты, которые продавец сам написал в тексте объявления. Номер в окошке «Показать» somon.tj на страницу не выдаёт и мы его
 // не достаём: он скрыт на сайте нарочно. Нет контактов в тексте — карточка ведёт на объявление, где номер открывается одним нажатием.
 function somonContacts(text) {
@@ -1687,7 +1715,9 @@ async function finishItems(top, kind, lang, debug) {
     const verified = await verifyItems(top, localized, kind, debug);
     // Время публикации (у карточек с somon.tj): до недели — «5 дней назад», старше — календарная дата цифрами
     const dates = await Promise.all(top.map(async it => {
-        if (!it.pub) return null;
+        // Нет разбора времени со страницы somon.tj — пробуем обычную дату от модели («2026-11-01»): словами или ДД.ММ.ГГГГ.
+        // У билетов и туров дата — день вылета или поездки, её не трогаем.
+        if (!it.pub) return kind === 'tickets' || kind === 'tours' ? null : dateLabel(pubFromDate(it.date), lang, '') || null;
         let iso = '';
         if (it.pub.ageMin >= WEEK_MIN && process.env.PHOTO_CHECK !== 'off') {
             try { iso = pageDate((await withTimeout(getPage(it.url), 6000)).html); } catch { iso = ''; }
@@ -1910,7 +1940,7 @@ ${CARD_GLOSSARY[lang] || ''}
 function listingsAnswer(items, kind, lang, own) {
     const count = items.length + (own ? own.length : 0);
     const head = `<div class="iz-lh">🔎 ${count} ${FOUND_LABEL[kind] ? FOUND_LABEL[kind][lang] : ''}</div>`;
-    const ownList = own && own.length ? ownItems(own) : [];
+    const ownList = own && own.length ? ownItems(own, lang) : [];
     // Метку «цена ниже, чем у большинства найденных» считаем по всем карточкам выдачи вместе (свои и с других сайтов), только для объявлений
     const flags = kind === 'ads' ? cheapFlags([...ownList, ...items]) : [];
     const mark = (it, i) => (flags[i] ? { ...it, cheap: true } : it);
@@ -3542,7 +3572,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    priceParts, cheapFlags, ownItems, ageFromDate,
+    priceParts, cheapFlags, ownItems, ageFromDate, pubFromAge, pubFromDate,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
