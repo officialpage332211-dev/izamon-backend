@@ -2860,6 +2860,22 @@ category — одно из: estate, transport, goods, finance, other.
 
 const importCache = new TTLCache(200);
 
+// Фото объявления со страницы для альбома: somon.tj — полный набор из данных страницы, остальные сайты — то, что страница сама заявляет
+// (og:image, JSON-LD). Первым идёт то фото, что уже стоит в форме. Только https, без повторов, не больше 10.
+function importPhotos(html, base, first) {
+    let host = '';
+    try { host = new URL(base).hostname; } catch { host = ''; }
+    const found = /(^|\.)somon\.tj$/i.test(host) ? pageGallery(html, 10) : pageImages(html, base);
+    const key = u => { try { return new URL(u).pathname.split('/').pop(); } catch { return u; } };
+    const out = [];
+    for (const u of [first, ...found]) {
+        if (typeof u !== 'string' || !/^https:\/\/[^\s"'<>]+$/i.test(u) || u.length > 500) continue;
+        if (out.some(x => x === u || key(x) === key(u))) continue;
+        out.push(u);
+    }
+    return out.length >= 2 ? out.slice(0, 10) : [];
+}
+
 async function handleImport(req, res) {
     const url = typeof req.body?.url === 'string' ? req.body.url.trim() : '';
     if (!url || url.length > 500) return res.status(400).json({ error: 'bad_url' });
@@ -2897,6 +2913,8 @@ async function handleImport(req, res) {
     if (!ad.title && !ad.description && !ad.price) {
         return res.status(422).json({ error: 'no_data' });
     }
+    // Все фото объявления (до 10) — для альбома в Telegram-канале. В форме остаётся первое фото, как раньше.
+    try { ad.images = importPhotos(page.html, page.url, ad.image); } catch { ad.images = []; }
     const result = { ok: true, ad, source: page.url, method };
     importCache.set(url, result, 60 * MIN);
     return res.json(result);
@@ -3124,6 +3142,15 @@ async function postAdToChannel(ad) {
     if (HARAM_LINE.test(`${ad.title} ${ad.description || ''} ${ad.condition || ''}`)) return 'skipped';
     const chat_id = tgChannel();
     try {
+        // Несколько фото — альбомом (подпись у первого). Telegram не смог скачать какое-то фото — пробуем одно фото, затем текст.
+        if (Array.isArray(ad.images) && ad.images.length >= 2) {
+            try {
+                await tgCall('sendMediaGroup', { chat_id, media: ad.images.slice(0, 10).map((u, i) => (i === 0 ? { type: 'photo', media: u, caption: adChannelText(ad) } : { type: 'photo', media: u })) });
+                return 'posted';
+            } catch (err) {
+                if (err.code !== 400 || /chat|member|rights|forbidden|administrator/i.test(err.message)) throw err;
+            }
+        }
         if (ad.image_url) {
             try {
                 await tgCall('sendPhoto', { chat_id, photo: ad.image_url, caption: adChannelText(ad) });
@@ -3235,6 +3262,17 @@ async function handleSeller(req, res) {
     }
 }
 
+// Фото для альбома в канале: присланный список проверяем (https, без повторов, до 10); первое должно совпадать с фото объявления.
+// В базу эти фото не пишутся — там по-прежнему одно фото.
+function channelImages(list, first) {
+    if (!first || !Array.isArray(list) || list[0] !== first) return [];
+    const out = [];
+    for (const u of list) {
+        if (typeof u !== 'string' || !/^https:\/\/[^\s"'<>]+$/i.test(u) || u.length > 500 || out.includes(u)) continue;
+        out.push(u);
+    }
+    return out.length >= 2 ? out.slice(0, 10) : [];
+}
 async function handleAdsCreate(req, res) {
     if (adsLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
     if (!adsOn()) return res.status(503).json({ ok: false, error: 'store_off' });
@@ -3253,7 +3291,7 @@ async function handleAdsCreate(req, res) {
         // В канал — только если продавец сам поставил галочку (строго true).
         let channel = null;
         if (req.body && req.body.post_tg === true) {
-            channel = await Promise.race([postAdToChannel(ad), new Promise(r => setTimeout(() => r('failed'), 15000))]);
+            channel = await Promise.race([postAdToChannel({ ...ad, images: channelImages(req.body && req.body.images, ad.image_url) }), new Promise(r => setTimeout(() => r('failed'), 15000))]);
         }
         return res.json({ ok: true, stored: true, id, channel, ad: { ...ad, id, owner: undefined } });
     } catch (err) {
@@ -3624,7 +3662,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    priceParts, cheapFlags, ownItems, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
+    priceParts, cheapFlags, ownItems, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
