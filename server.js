@@ -851,8 +851,8 @@ const TICKET_LINKS = '<div class="iz-lq"><a href="https://www.aviasales.ru/" tar
 // ---------- Билеты: «Кушодан» ведёт на страницу именно этого маршрута ----------
 // Модель часто присылает общую страницу сайта, а не нужный перелёт. Маршрут читаем из заголовка карточки («Душанбе → Москва»),
 // находим коды аэропортов и ведём на страницу маршрута Aviasales: https://www.aviasales.ru/routes/dyu/mow.
-// Адреса проверены вручную: каждая страница открывается и показывает этот маршрут с ценой «от …». Конкретный рейс по ссылке
-// Aviasales открыть не даёт (у него нет постоянного адреса), поэтому открывается страница маршрута с живыми ценами.
+// Адреса проверены вручную: страница маршрута открывается с ценой «от …», страница поиска на дату — по короткому адресу Aviasales.
+// Конкретный рейс по ссылке Aviasales открыть не даёт (у него нет постоянного адреса): открывается поиск этого маршрута на эту дату.
 // Город не узнан — остаётся ссылка модели, как было.
 const AIRPORTS = [
     ['dyu', ['душанбе', 'dushanbe', 'dyu']],
@@ -906,22 +906,52 @@ function ticketRoute(title) {
     const b = m[2].replace(/\s*\([^)]*\)\s*/g, ' ').replace(/\s*(?:,|·|\||:).*$/, '').trim();
     return a && b && a.length <= 40 && b.length <= 40 ? [a, b] : null;
 }
-function ticketLink(it) {
+// Дата вылета из карточки: «2026-11-22», «22.11.2026», «22.11», «22 ноября», «22 ноябр 2026», «22 noyabr». Возвращает «ДДММ» для ссылки.
+// Берём только дату в будущем (завтра и позже, не дальше чем через год): дата публикации или прошедшая дата — это не вылет.
+const MONTHS = [['янв', 'yan'], ['фев', 'fev'], ['мар', 'mar'], ['апр', 'apr'], ['мая', 'май', 'may'], ['июн', 'iyun'], ['июл', 'iyul'], ['авг', 'avg'], ['сен', 'sen'], ['окт', 'okt'], ['ноя', 'noy'], ['дек', 'dek']];
+function ticketDate(raw, todayIso) {
+    const t = String(raw || '').toLowerCase().replace(/ё/g, 'е').trim();
+    let y = 0, mo = 0, d = 0, m;
+    if ((m = t.match(/(\d{4})-(\d{2})-(\d{2})/))) { y = +m[1]; mo = +m[2]; d = +m[3]; }
+    else if ((m = t.match(/(?<!\d)(\d{1,2})[./](\d{1,2})(?:[./](\d{4}|\d{2}))?(?!\d)/))) { d = +m[1]; mo = +m[2]; y = m[3] ? (m[3].length === 2 ? 2000 + +m[3] : +m[3]) : 0; }
+    else if ((m = t.match(/(?<!\d)(\d{1,2})\s+([a-zа-яӣӯқғҳҷ]+)\.?(?:\s+(\d{4}))?/))) {
+        const idx = MONTHS.findIndex(names => names.some(n => m[2].startsWith(n)));
+        if (idx < 0) return null;
+        d = +m[1]; mo = idx + 1; y = m[3] ? +m[3] : 0;
+    } else return null;
+    const today = Date.parse(todayIso + 'T00:00:00Z');
+    if (!(mo >= 1 && mo <= 12 && d >= 1 && d <= 31) || isNaN(today)) return null;
+    const make = yy => { const dt = new Date(Date.UTC(yy, mo - 1, d)); return dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d ? dt : null; };
+    const thisYear = new Date(today).getUTCFullYear();
+    let dt = make(y || thisYear);
+    // года нет, а день в этом году уже прошёл: считаем вылетом в следующем году только если это совсем скоро (конец года → январь)
+    if (!y && dt && dt.getTime() <= today) { const next = make(thisYear + 1); dt = next && next.getTime() - today <= 120 * 86400000 ? next : null; }
+    if (!dt) return null;
+    const days = (dt.getTime() - today) / 86400000;
+    if (!(days >= 1 && days <= 365)) return null;
+    return String(d).padStart(2, '0') + String(mo).padStart(2, '0');
+}
+// Есть дата вылета — страница поиска на эту дату (1 пассажир): https://www.aviasales.ru/search/DYU2211MOW1. Даты нет — страница маршрута.
+function ticketLink(it, todayIso) {
     const r = ticketRoute(it && it.title);
     if (!r) return null;
     const a = airCode(r[0]), b = airCode(r[1]);
-    return a && b && a !== b ? `https://www.aviasales.ru/routes/${a}/${b}` : null;
+    if (!a || !b || a === b) return null;
+    const dd = ticketDate(it && it.date, todayIso || todayTJ().iso);
+    return dd ? `https://www.aviasales.ru/search/${a.toUpperCase()}${dd}${b.toUpperCase()}1` : `https://www.aviasales.ru/routes/${a}/${b}`;
 }
 // Ссылку меняем уже после проверки карточек: цена, авиакомпания и контакты проверены по странице, которую дала модель.
 function withTicketLinks(items, debug) {
-    let fixed = 0, kept = 0;
+    let fixed = 0, kept = 0, dated = 0;
+    const today = todayTJ().iso;
     const out = items.map(it => {
-        const u = ticketLink(it);
+        const u = ticketLink(it, today);
         if (!u) { kept++; return it; }
         fixed++;
+        if (/\/search\//.test(u)) dated++;
         return { ...it, srcUrl: it.url, url: u };
     });
-    if (debug) debug.ticketLinks = { fixed, kept };
+    if (debug) debug.ticketLinks = { fixed, dated, kept };
     return out;
 }
 
@@ -3035,5 +3065,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
