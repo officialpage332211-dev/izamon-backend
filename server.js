@@ -820,7 +820,7 @@ function cardHtml(it, kind, lang) {
     }).join('');
     const parts = [
         it.image
-            ? `<div class="iz-lc-img"><img src="${escapeAttr(it.imageProxy || it.image)}"${it.imageProxy ? ` data-d="${escapeAttr(it.image)}"` : ''} alt="" referrerpolicy="no-referrer" onerror="var d=this.getAttribute('data-d');if(d){this.removeAttribute('data-d');this.src=d}else{this.parentNode.classList.add('iz-noimg');this.remove()}"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[kind] || '🏷️'}</i></div>`
+            ? `<div class="iz-lc-img"${it.photoCount ? ` data-n="${Number(it.photoCount) || 0}"` : ''}${it.gallery && it.gallery.length > 1 ? ` data-g="${escapeAttr(it.gallery.join(' '))}" data-gd="${escapeAttr((it.galleryDirect || []).join(' '))}"` : ''}><img src="${escapeAttr(it.imageProxy || it.image)}"${it.imageProxy ? ` data-d="${escapeAttr(it.image)}"` : ''} alt="" referrerpolicy="no-referrer" onerror="var d=this.getAttribute('data-d');if(d){this.removeAttribute('data-d');this.src=d}else{this.parentNode.classList.add('iz-noimg');this.remove()}"><span class="iz-src">${escapeHtml(host)}</span>${it.photoCount ? `<span class="iz-cnt">📷 ${Number(it.photoCount) || 0}</span>` : ''}<i>${KIND_EMOJI[kind] || '🏷️'}</i></div>`
             : `<div class="iz-lc-img iz-noimg"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[kind] || '🏷️'}</i></div>`,
         badges,
         `<div class="iz-lc-t">${escapeHtml(it.title)}</div>`,
@@ -909,7 +909,8 @@ function parseSomonAdverts(html, max = 80) {
             price: g('price', 'start_price'),
             priceNote: g('price_description', 'currency'),
             thumb: g('first_thumb', 'img_count'),
-            images: imgs ? imgs.split('","').filter(x => /^https:\/\//.test(x)).slice(0, 4) : [],
+            imgCount: +((c.match(/"img_count":(\d+)/) || [])[1] || 0),
+            images: imgs ? imgs.split('","').filter(x => /^https:\/\//.test(x)).slice(0, 20) : [],
             published: g('published', 'url'),
             path,
             location: g('location', 'rubric'),
@@ -944,20 +945,97 @@ function somonGet(url) {
     return p;
 }
 
+// ---------------------------------------------------------------------------
+// Слова и названия для карточек somon.tj на таджикском и узбекском. Модель в таджикском ошибалась
+// («3-xONA хона», «сотка», «Хонаҳо» вместо «Ҳуҷраҳо»), поэтому то, что можно собрать по правилам, собираем сами.
+// Не узнали название — оно уходит на перевод модели, как раньше.
+// ---------------------------------------------------------------------------
+const SOMON_L = {
+    ru: { rooms: 'Комнаты', floor: 'Этаж', area: 'Площадь', plot: 'Участок', sot: 'сот.', m2: 'м²' },
+    tg: { rooms: 'Ҳуҷраҳо', floor: 'Ошёна', area: 'Масоҳат', plot: 'Қитъаи замин', sot: 'сотих', m2: 'м²' },
+    uz: { rooms: 'Xonalar', floor: 'Qavat', area: 'Maydon', plot: 'Yer uchastkasi', sot: 'sotix', m2: 'm²' }
+};
+
+const wordRe = (w, flags = 'giu') => new RegExp(`(?<![\\p{L}\\d])${w}(?![\\p{L}\\d])`, flags);
+// Русское написание названий мест → таджикское (в карточке на таджикском)
+const TG_NAMES = [
+    ['Курган-?Тюбе', 'Қӯрғонтеппа'], ['Худжанд', 'Хуҷанд'], ['Куляб', 'Кӯлоб'], ['Вахдат', 'Ваҳдат'], ['Рудаки', 'Рӯдакӣ'],
+    ['Гиссар', 'Ҳисор'], ['Хисор', 'Ҳисор'], ['Пенджикент', 'Панҷакент'], ['Канибадам', 'Конибодом'], ['Хорог', 'Хоруғ'],
+    ['Нурек', 'Норак'], ['Шахринав', 'Шаҳринав'], ['Шахритус', 'Шаҳритус'], ['Турсунзаде', 'Турсунзода'], ['Дангара', 'Данғара'],
+    ['Бустон', 'Бӯстон'], ['Яван', 'Ёвон'], ['Фирдавси', 'Фирдавсӣ'], ['Шохмансур', 'Шоҳмансур'], ['Исмоили Сомони', 'Исмоили Сомонӣ'],
+    ['Райони', 'Ноҳияи'], ['Махалаи', 'Маҳаллаи']
+].map(([ru, tg]) => [wordRe(ru), tg]);
+function tgNames(text) {
+    let t = String(text || '');
+    for (const [re, tg] of TG_NAMES) t = t.replace(re, tg);
+    return t;
+}
+// «3 сотки», «7 соток», «сот.» → «сотих»; цифры не трогаем
+const tgSot = t => String(t || '').replace(/(\d)\s*сот(?:ка|ки|ок|ых|ку|\.)?(?![\p{L}])/giu, '$1 сотих');
+const polishTg = t => tgSot(tgNames(t));
+
+// Кириллица → латиница для названий мест в узбекской карточке
+const UZ_LAT = { а: 'a', б: 'b', в: 'v', г: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'j', з: 'z', и: 'i', й: 'y', к: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ф: 'f', х: 'x', ц: 'ts', ч: 'ch', ш: 'sh', щ: 'sh', ъ: '’', ы: 'i', ь: '', э: 'e', ю: 'yu', я: 'ya', қ: 'q', ғ: "g'", ҳ: 'h', ў: "o'", ҷ: 'j', ӣ: 'i', ӯ: 'u' };
+function uzLatin(t) {
+    return String(t || '').replace(/[\u0400-\u04FF]/g, ch => {
+        const low = ch.toLowerCase(), l = UZ_LAT[low];
+        if (l === undefined) return ch;
+        return low === ch ? l : l.charAt(0).toUpperCase() + l.slice(1);
+    });
+}
+
+const TYPE_WORD = { 'дом': 'house', 'квартира': 'flat', 'участок': 'plot', 'комната': 'room' };
+const TITLE_TYPE = {
+    tg: { house: (f, r) => (f ? `Хонаи ${f}-ошёна` : 'Хона') + (r ? ` бо ${r} ҳуҷра` : ''), flat: (f, r) => (r ? `Манзили ${r}-ҳуҷрагӣ` : 'Манзил'), plot: () => 'Қитъаи замин', room: () => 'Ҳуҷра' },
+    uz: { house: (f, r) => `${f ? f + ' qavatli ' : ''}${r ? r + ' xonali ' : ''}uy`, flat: (f, r) => `${r ? r + ' xonali ' : ''}kvartira`, plot: () => 'Yer uchastkasi', room: () => 'Xona' }
+};
+const PLACE_STOP = /(?:срочн|торг|продаю|продаё?тся|сдаю|сдаё?тся|ремонт|нов(?:ый|ая|ое|ые)|хорош|цена|договор|обмен|документ|без |полн|евро|мебел|вс[её]\b)/iu;
+
+// «1-этажный 3-комнатный дом, 3 сотки, Вахдат-2» → «Хонаи 1-ошёна бо 3 ҳуҷра, 3 сотих, Ваҳдат-2». Не узнали — null.
+function somonTitle(title, lang) {
+    if (lang !== 'tg' && lang !== 'uz') return null;
+    const L = SOMON_L[lang];
+    const segs = String(title || '').trim().split(/\s*,\s*/).filter(Boolean);
+    if (!segs.length || segs.length > 6 || String(title).length > 110) return null;
+    const first = segs[0].match(/^(?:(\d{1,2})\s*-?\s*этаж\S*\s+)?(?:(\d{1,2})\s*-?\s*х?\s*-?\s*комн\S*\s+)?(дом|квартира|участок|комната)$/iu);
+    if (!first) return null;
+    const type = TYPE_WORD[first[3].toLowerCase()];
+    const out = [TITLE_TYPE[lang][type](first[1], first[2])];
+    for (let i = 1; i < segs.length; i++) {
+        const sg = segs[i];
+        let m;
+        if ((m = sg.match(/^(\d{1,2})(?:\s*\/\s*(\d{1,2}))?\s*этаж(?:\s*из\s*(\d{1,2}))?$/iu))) {
+            const total = m[2] || m[3];
+            out.push(lang === 'tg' ? `ошёнаи ${m[1]}${total ? ' аз ' + total : ''}` : `${m[1]}${total ? '/' + total : ''}-qavat`);
+        } else if ((m = sg.match(/^(\d{1,4}(?:[.,]\d+)?)\s*(?:м²|м2|кв\.?\s*м\.?)$/iu))) {
+            out.push(`${m[1]} ${L.m2}`);
+        } else if ((m = sg.match(/^(\d{1,4}(?:[.,]\d+)?)\s*сот(?:ка|ки|ок|ых|ку)?\.?$/iu))) {
+            out.push(`${m[1]} ${L.sot}`);
+        } else if (i === segs.length - 1 && sg.length <= 40 && sg.split(/\s+/).length <= 4 && /^[\p{L}\d\s\-./()№'’]+$/u.test(sg) && /^[\p{Lu}\d]/u.test(sg) && !PLACE_STOP.test(sg)) {
+            out.push(lang === 'tg' ? polishTg(sg) : uzLatin(sg));
+        } else return null;
+    }
+    return out.join(', ');
+}
+
 // Характеристики квартиры и дома — только числа, которые написаны в самом названии объявления.
-function somonPoints(a, kind) {
+// Подписи сразу на языке сайта. Текст из описания продавца (note) отдаём на перевод отдельно.
+function somonPoints(a, kind, lang = 'ru') {
+    const L = SOMON_L[lang] || SOMON_L.ru;
     const pts = [];
     const t = a.title;
     if (kind !== 'masters') {
         let m;
-        if ((m = t.match(/(\d{1,2})\s*-\s*комн/i))) pts.push(`Комнаты: ${m[1]}`);
-        if ((m = t.match(/(\d{1,2})\s*этаж(?!н)/i))) pts.push(`Этаж: ${m[1]}`);
-        if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*(?:м²|м2|кв\.?\s*м)/i))) pts.push(`Площадь: ${m[1]} м²`);
-        if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*сот/i))) pts.push(`Участок: ${m[1]} сот.`);
+        if ((m = t.match(/(\d{1,2})\s*-\s*х?\s*-?\s*комн/i))) pts.push(`${L.rooms}: ${m[1]}`);
+        if ((m = t.match(/(\d{1,2})\s*этаж(?!н)/i))) pts.push(`${L.floor}: ${m[1]}`);
+        if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*(?:м²|м2|кв\.?\s*м)/i))) pts.push(`${L.area}: ${m[1]} ${L.m2}`);
+        if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*сот/i))) pts.push(`${L.plot}: ${m[1]} ${L.sot}`);
     }
-    const d = clip(a.description, 80);
-    if (pts.length < 3 && d.length >= 12 && !blankValue(d)) pts.push(d);
     return pts.slice(0, 3);
+}
+function somonNote(a, nPts) {
+    const d = clip(a.description, 80);
+    return nPts < 3 && d.length >= 12 && !blankValue(d) ? d : '';
 }
 
 // Время публикации: сайт пишет «19 минут назад», «Вчера», «2 недели назад». Разбираем в возраст (минуты) — по нему сортируем,
@@ -1051,21 +1129,36 @@ function somonContacts(text) {
     return out.join('; ');
 }
 
-function somonItem(a, kind) {
+const PRICE_WORDS = {
+    tg: { 'договорная': 'Тавофуқӣ', 'обмен': 'Мубодила', 'бесплатно': 'Ройгон', 'даром': 'Ройгон' },
+    uz: { 'договорная': 'Kelishilgan', 'обмен': 'Ayirboshlash', 'бесплатно': 'Bepul', 'даром': 'Bepul' }
+};
+const PRICE_PLAIN = /^[\d\s.,]+\s*(?:сом\.?|c\.|TJS|USD|\$|€|EUR|₽|руб\.?)?$/i;
+
+function somonItem(a, kind, lang = 'ru') {
+    const pts = somonPoints(a, kind, lang);
+    const detTitle = somonTitle(a.title, lang);
+    const tajik = /[ӣӯқғҳҷ]/.test(a.title);
+    const titleOk = lang === 'ru' ? !tajik : lang === 'tg' ? !!detTitle || tajik : !!detTitle;
+    const rawPrice = (a.price || a.priceNote || '').trim().replace(/\s+c\.$/, ' сом.');
+    const word = (PRICE_WORDS[lang] || {})[rawPrice.toLowerCase().replace(/[.!]+$/, '')];
+    const priceOk = lang === 'ru' ? true : lang === 'tg' ? !!word || PRICE_PLAIN.test(rawPrice) || !rawPrice : false;
+    const note = somonNote(a, pts.length);
     return { ...cleanItem({
-        title: a.title,
-        price: (a.price || a.priceNote || '').replace(/\s+c\.$/, ' сом.'),
-        place: a.location,
+        title: detTitle || (lang === 'tg' ? polishTg(a.title) : a.title),
+        price: word || rawPrice,
+        place: lang === 'tg' ? polishTg(a.location) : a.location,
         date: a.published,
         who: a.who,
         url: `https://somon.tj${a.path}`,
         image: a.images[0] || a.thumb || null,
-        points: somonPoints(a, kind)
-    }), contact: somonContacts(a.description), trusted: true, pub: parsePublished(a.published) };
+        points: pts
+    }), contact: somonContacts(a.description), trusted: true, pub: parsePublished(a.published),
+    det: { title: titleOk, price: priceOk }, note, gallery0: a.images.slice(0, 16), photoCount: Math.min(a.imgCount || a.images.length || 0, 16) };
 }
 
 // Список объявлений для карточек: spec.sources — страницы (поиск q= или раздел path=), spec.cat/spec.words — что считать подходящим.
-async function somonListings(spec, kind, debug) {
+async function somonListings(spec, kind, debug, lang = 'ru') {
     const stat = { urls: 0, ok: 0, failed: [], parsed: 0, kept: 0, withPhoto: 0 };
     if (debug) debug.somon = stat;
     const lists = await Promise.all((spec.sources || []).map(async src => {
@@ -1100,7 +1193,7 @@ async function somonListings(spec, kind, debug) {
         if (seenId.has(a.id) || (photo && seenPhoto.has(photo)) || seenText.has(textKey) || (whoKey && (perWho[whoKey] || 0) >= 2)) continue;
         seenId.add(a.id); seenText.add(textKey); if (photo) seenPhoto.add(photo);
         perWho[whoKey] = (perWho[whoKey] || 0) + 1;
-        const it = somonItem(a, kind);
+        const it = somonItem(a, kind, lang);
         if (it.title && it.url) out.push(it);
     }
     stat.kept = out.length;
@@ -1122,14 +1215,25 @@ async function finishItems(top, kind, lang, debug) {
         }
         return dateLabel(it.pub, lang, iso);
     }));
-    return verified.map((it, i) => ({ ...it, date: dates[i] || it.date, image: photos[i] || null, imageProxy: photos[i] ? proxyImageUrl(photos[i]) : null }));
+    return verified.map((it, i) => {
+        const t = top[i];
+        // Фото: со страницы объявления; нет — для somon.tj берём фото из его списка (адрес настоящий, он оттуда же)
+        const img = photos[i] || (t.trusted ? t.image : null) || null;
+        let gal = (photos.galleries && photos.galleries[i]) || [];
+        if (t.trusted && !gal.length) gal = t.gallery0 || [];
+        const count = t.trusted && img ? (t.photoCount || gal.length || 1) : 0;
+        if (img && gal.length && gal[0] !== img) gal = [img, ...gal.filter(x => x !== img)];
+        if (count) gal = gal.slice(0, count);
+        return { ...it, date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
+            photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
+    });
 }
 
 async function searchListings({ kind, lang, date, query, debug, somon }) {
     // Сначала готовый список somon.tj: точные ссылки и фото. Мало найдено или сайт не ответил — ищем через модель, как раньше.
     if (somon) {
         try {
-            const direct = await somonListings(somon, kind, debug);
+            const direct = await somonListings(somon, kind, debug, lang);
             if (direct.length >= 3) return finishItems(direct, kind, lang, debug);
         } catch (err) { if (debug) debug.somonError = scrub(err && err.message || err); }
     }
@@ -1202,7 +1306,22 @@ const NEEDS_TRANSLATE_RU = /[ӣӯқғҳҷ]/;
 
 function itemTexts(it) { return [it.title, it.price, it.place, it.date, it.who, ...(it.points || [])].join(' | '); }
 
+// У карточек somon.tj название и подписи характеристик уже собраны нами (somonItem). Модель их не трогает:
+// она переводит только то, что мы сами не умеем (описание продавца, узбекские место и цена).
 async function localizeItems(items, lang, debug) {
+    if (!items.some(it => it.det)) return localizeItemsModel(items, lang, debug);
+    const ready = it => it.det && it.det.title && it.det.price && !it.note && lang !== 'uz';
+    if (items.every(ready)) { if (debug) debug.localized = 'rules'; return items; }
+    const work = items.map(it => it.det ? { ...it, title: it.det.title ? '' : it.title, points: it.note ? [it.note] : [] } : it);
+    const out = await localizeItemsModel(work, lang, debug);
+    return out.map((o, i) => {
+        const it = items[i];
+        if (!it.det) return o;
+        return { ...o, title: it.det.title ? it.title : o.title, price: it.det.price ? it.price : o.price, place: lang === 'uz' ? o.place : it.place, points: it.points.concat(o.points || []).slice(0, 3) };
+    });
+}
+
+async function localizeItemsModel(items, lang, debug) {
     const note = extra => { if (debug) Object.assign(debug, extra); };
     if (!items.length) return items;
     // Русский сайт: переводим, только если в карточках таджикские буквы.
@@ -1243,7 +1362,10 @@ ${CARD_GLOSSARY[lang] || ''}
         if (!Array.isArray(arr) || arr.length !== items.length) throw new Error('bad shape');
         const digits = s => String(s || '').replace(/\D/g, '');
         // Перевод принимаем, только если цифры (цена, год, площадь) не изменились; иначе остаётся исходное значение.
-        const pick = (orig, tr) => { const t = typeof tr === 'string' ? tr.trim() : ''; return t && digits(t) === digits(orig) ? t : orig; };
+        // Латинские слова, которых не было в исходном тексте («3-xONA»), — выдумка модели: такой перевод не берём.
+        const latin = s => (String(s || '').match(/[A-Za-z]{2,}/g) || []).map(x => x.toLowerCase());
+        const invented = (orig, t) => { if (lang === 'uz') return false; const o = latin(orig); return latin(t).some(x => !o.includes(x)); };
+        const pick = (orig, tr) => { const t = typeof tr === 'string' ? tr.trim() : ''; return t && digits(t) === digits(orig) && !invented(orig, t) ? t : orig; };
         const out = items.map((it, i) => {
             const t = arr[i] && typeof arr[i] === 'object' ? arr[i] : {};
             const tp = Array.isArray(t.points) ? t.points.filter(p => typeof p === 'string') : [];
@@ -1252,9 +1374,10 @@ ${CARD_GLOSSARY[lang] || ''}
                 ...it,
                 title: pick(it.title, t.title), price: pick(it.price, t.price), place: pick(it.place, t.place),
                 date: pick(it.date, t.date), who: pick(it.who, t.who),
-                points: tp.length && digits(tp.join(' ')) === digits(it.points.join(' ')) ? tp : it.points
+                points: tp.length && digits(tp.join(' ')) === digits(it.points.join(' ')) && !invented(it.points.join(' '), tp.join(' ')) ? tp : it.points
             });
         });
+        if (lang === 'tg') out.forEach(o => { o.title = polishTg(o.title); o.place = polishTg(o.place); o.points = o.points.map(polishTg); });
         // Для таджикского и узбекского модель не должна оставлять русские цену, график и т.п. как есть.
         return { out, share: lang === 'ru' ? 0 : untranslated(out) };
     };
@@ -1696,6 +1819,23 @@ function pageImages(html, base) {
     return out.slice(0, 4);
 }
 
+// Крупные фото галереи somon.tj: страница подгружает их заранее тегами <link rel="preload" as="image">.
+// Первыми идут сами фото объявления по порядку (дальше может быть служебная картинка — её отрезаем по числу фото из списка).
+function pageGallery(html, max) {
+    const out = [];
+    for (const m of String(html || '').matchAll(/<link\b[^>]*>/gi)) {
+        const tag = m[0];
+        if (!/\sas=["']image["']/i.test(tag) || !/\srel=["']preload["']/i.test(tag)) continue;
+        const raw = (/\shref=["']([^"']+)["']/i.exec(tag) || [])[1];
+        const u = absImageUrl(raw, 'https://somon.tj/');
+        if (!u) continue;
+        let q; try { q = new URL(u); } catch { continue; }
+        if (q.hostname !== 'cdntj.somon.tj' || !q.pathname.startsWith('/media/') || out.includes(u)) continue;
+        out.push(u);
+    }
+    return out.slice(0, max || 16);
+}
+
 // Ссылка ведёт на конкретное объявление, а не на общий список: в пути есть номер (3+ цифр) или в запросе есть id.
 function isListingUrl(raw) {
     let x;
@@ -2014,30 +2154,31 @@ async function resolvePhotos(items, debug) {
     const one = async (it) => {
         if (!isListingUrl(it.url)) return { img: null, why: 'общая страница списка' };
         const hit = PHOTO_CACHE.get(it.url);
-        if (hit && Date.now() - hit.at < PHOTO_CACHE_MS) return { img: hit.img, why: hit.why, cached: true };
+        if (hit && Date.now() - hit.at < PHOTO_CACHE_MS) return { img: hit.img, why: hit.why, cached: true, gallery: hit.gallery || [] };
         const cands = [];
-        let how = '', page = null;
+        let how = '', page = null, gallery = [];
         try {
             page = await getPage(it.url);
             for (const c of pageImages(page.html, page.url)) cands.push({ url: c, from: 'page' });
+            if (it.trusted) gallery = pageGallery(page.html, it.photoCount || 16);
             if (!cands.length) how = 'на странице нет фото в тегах';
         } catch (err) { how = `страница: ${String(err && err.message || err).slice(0, 40)}`; }
         if (it.image && sameSite(hostOf(it.image), hostOf(it.url))) cands.push({ url: it.image, from: 'model' });
         let last = how, soft = null;
         for (const c of cands.slice(0, 4)) {
             const bad = await checkImage(c.url);
-            if (!bad) return { img: c.url, why: c.from };
+            if (!bad) return { img: c.url, why: c.from, gallery };
             if (bad[0] === '?') { if (!soft) soft = { c, bad }; last = `${c.from}: ${bad.slice(1)}`; continue; }
             last = `${c.from}: ${bad}`;
         }
         // Проверить не удалось (сайт не отвечает боту), но фото не признано плохим: браузер покупателя откроет его сам,
         // а битая ссылка просто покажет карточку без фото.
-        if (soft) return { img: soft.c.url, why: soft.c.from + '?', unchecked: true };
+        if (soft) return { img: soft.c.url, why: soft.c.from + '?', unchecked: true, gallery };
         // В служебных тегах фото не было вовсе: пробуем крупные картинки из самой страницы (строгая проверка размера).
         if (page && !cands.some(c => c.from === 'page')) {
             for (const g of galleryImages(page.html, page.url).slice(0, 4)) {
                 const bad = await checkImage(g, { minW: 400, minH: 250, needSize: true });
-                if (!bad) return { img: g, why: 'gallery' };
+                if (!bad) return { img: g, why: 'gallery', gallery };
             }
             last = (last ? last + '; ' : '') + 'в галерее страницы нет подходящих';
         }
@@ -2048,12 +2189,12 @@ async function resolvePhotos(items, debug) {
     const count = {};
     res.forEach(r => { if (r.img) count[r.img] = (count[r.img] || 0) + 1; });
     res.forEach((r, i) => {
-        if (r.img && count[r.img] > 1) { r.img = null; r.why = 'одно фото у нескольких'; }
+        if (r.img && count[r.img] > 1) { r.img = null; r.gallery = []; r.why = 'одно фото у нескольких'; }
         if (!r.cached && items[i].url) {
             // запоминаем только удачу: сбой сети или таймаут не должен надолго лишать объявление фото
             if (r.img) {
                 if (PHOTO_CACHE.size >= PHOTO_CACHE_MAX) PHOTO_CACHE.delete(PHOTO_CACHE.keys().next().value);
-                PHOTO_CACHE.set(items[i].url, { at: Date.now(), img: r.img, why: r.why });
+                PHOTO_CACHE.set(items[i].url, { at: Date.now(), img: r.img, why: r.why, gallery: r.gallery || [] });
             }
         }
         if (r.img) { if (r.why.startsWith('model')) stat.fromModel++; else stat.fromPage++; if (r.unchecked) stat.unchecked = (stat.unchecked || 0) + 1; } else { stat.none++; why(r.why); }
@@ -2064,7 +2205,9 @@ async function resolvePhotos(items, debug) {
         }
     });
     if (debug) debug.photos = stat;
-    return res.map(r => r.img);
+    const imgs = res.map(r => r.img);
+    imgs.galleries = res.map(r => r.gallery || []);
+    return imgs;
 }
 
 function visibleText(html) {
@@ -2792,5 +2935,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, somonContacts, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
