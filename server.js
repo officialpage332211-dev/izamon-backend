@@ -820,7 +820,7 @@ function cardHtml(it, kind, lang) {
     }).join('');
     const parts = [
         it.image
-            ? `<div class="iz-lc-img"><img src="${escapeAttr(it.image)}" alt="" loading="lazy" referrerpolicy="no-referrer" onerror="this.parentNode.classList.add('iz-noimg');this.remove()"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[kind] || '🏷️'}</i></div>`
+            ? `<div class="iz-lc-img"><img src="${escapeAttr(it.imageProxy || it.image)}"${it.imageProxy ? ` data-d="${escapeAttr(it.image)}"` : ''} alt="" referrerpolicy="no-referrer" onerror="var d=this.getAttribute('data-d');if(d){this.removeAttribute('data-d');this.src=d}else{this.parentNode.classList.add('iz-noimg');this.remove()}"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[kind] || '🏷️'}</i></div>`
             : `<div class="iz-lc-img iz-noimg"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[kind] || '🏷️'}</i></div>`,
         badges,
         `<div class="iz-lc-t">${escapeHtml(it.title)}</div>`,
@@ -1027,7 +1027,7 @@ async function finishItems(top, kind, lang, debug) {
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
     const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug)]);
     const verified = await verifyItems(top, localized, kind, debug);
-    return verified.map((it, i) => ({ ...it, image: photos[i] || null }));
+    return verified.map((it, i) => ({ ...it, image: photos[i] || null, imageProxy: photos[i] ? proxyImageUrl(photos[i]) : null }));
 }
 
 async function searchListings({ kind, lang, date, query, debug, somon }) {
@@ -1839,6 +1839,77 @@ async function verifyItems(original, current, kind, debug) {
     return out;
 }
 
+// ---------- Картинки объявлений через наш сервер ----------
+// Телефон человека должен достать картинку с сайта-источника сам; если его сеть или браузер не пускает на чужой сервер
+// картинок, блок остаётся пустым (так и было на телефоне, хотя наш сервер фото находил). Поэтому в карточке адрес картинки
+// ведёт на наш сервер (/img), а он берёт файл с сайта-источника. Адрес подписан: через /img нельзя открыть чужую ссылку.
+// Не открылось через нас — карточка сама пробует прямой адрес (атрибут data-d), и только потом показывает «без фото».
+const IMG_CACHE = new Map(); // адрес → { at, buf, type }
+const IMG_CACHE_MS = 60 * 60 * 1000, IMG_CACHE_MAX = 80, IMG_MAX_BYTES = 3 * 1024 * 1024, IMG_CACHE_BYTES = 16 * 1024 * 1024;
+let imgCacheBytes = 0, imgActive = 0;
+const imgLimited = makeLimiter(300);
+const imgSecret = () => process.env.IMG_SECRET || process.env.OPENAI_API_KEY || 'izamon-img';
+const imgSig = u => crypto.createHmac('sha256', imgSecret()).update(String(u)).digest('hex').slice(0, 24);
+const publicBase = () => String(process.env.PUBLIC_URL || process.env.RENDER_EXTERNAL_URL || 'https://izamon-backend.onrender.com').replace(/\/+$/, '');
+function proxyImageUrl(u) {
+    return u && /^https:\/\//.test(u) && u.length <= 2000 ? `${publicBase()}/img?u=${encodeURIComponent(u)}&s=${imgSig(u)}` : null;
+}
+
+async function fetchImageBytes(startUrl) {
+    const fail = (msg, code) => Object.assign(new Error(msg), { code });
+    let url = startUrl;
+    for (let hop = 0; hop < 3; hop++) {
+        const u = await assertPublicUrl(url);
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 6000);
+        let r;
+        try {
+            r = await fetch(u.href, { redirect: 'manual', signal: ctrl.signal, headers: { 'User-Agent': PHOTO_UA, 'Accept': 'image/avif,image/webp,image/*,*/*;q=0.5' } });
+        } finally { clearTimeout(timer); }
+        const loc = r.headers.get('location');
+        if (r.status >= 300 && r.status < 400 && loc) { url = new URL(loc, u).href; continue; }
+        if (r.status !== 200) throw fail(`статус ${r.status}`, 502);
+        const type = String(r.headers.get('content-type') || '').toLowerCase().split(';')[0].trim();
+        if (!/^image\//.test(type) || /svg|icon/.test(type)) throw fail('не картинка', 415);
+        if (Number(r.headers.get('content-length') || 0) > IMG_MAX_BYTES) throw fail('слишком большой файл', 413);
+        const buf = await withTimeout(readBytes(r, IMG_MAX_BYTES + 1), 8000);
+        if (buf.length > IMG_MAX_BYTES) throw fail('слишком большой файл', 413);
+        if (buf.length < 64 || buf[0] === 0x3c) throw fail('не картинка', 415); // «<» — это страница, а не файл
+        return { buf, type };
+    }
+    throw fail('много перенаправлений', 502);
+}
+
+async function handleImg(req, res) {
+    const u = String(req.query.u || ''), sig = String(req.query.s || '');
+    const want = imgSig(u);
+    if (!/^https:\/\//.test(u) || u.length > 2000 || sig.length !== want.length || !crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(want))) return res.status(403).end();
+    if (imgLimited(req.ip)) return res.status(429).end();
+    const send = ({ buf, type }) => {
+        res.set({ 'Content-Type': type, 'Cache-Control': 'public, max-age=86400', 'Cross-Origin-Resource-Policy': 'cross-origin', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'" });
+        return res.status(200).send(buf);
+    };
+    const hit = IMG_CACHE.get(u);
+    if (hit && Date.now() - hit.at < IMG_CACHE_MS) return send(hit);
+    if (imgActive >= 8) { res.set('Retry-After', '2'); return res.status(503).end(); }
+    imgActive++;
+    try {
+        const got = await fetchImageBytes(u);
+        while (IMG_CACHE.size && (IMG_CACHE.size >= IMG_CACHE_MAX || imgCacheBytes + got.buf.length > IMG_CACHE_BYTES)) {
+            const k = IMG_CACHE.keys().next().value;
+            imgCacheBytes -= IMG_CACHE.get(k).buf.length;
+            IMG_CACHE.delete(k);
+        }
+        IMG_CACHE.set(u, { at: Date.now(), ...got });
+        imgCacheBytes += got.buf.length;
+        return send(got);
+    } catch (err) {
+        console.warn(`[img Сбой]: ${scrub(err && err.message)}`);
+        return res.status(err && err.code || 502).end();
+    } finally { imgActive--; }
+}
+app.get('/img', handleImg);
+
 // Фото для каждой карточки: со страницы объявления; фото от модели — только если оно с того же сайта и прошло проверку.
 // Ссылка на общую страницу списка (без номера объявления) не говорит, чьё это фото, — такие карточки остаются без фото.
 async function resolvePhotos(items, debug) {
@@ -2626,5 +2697,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
