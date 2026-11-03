@@ -926,6 +926,19 @@ function cardHtml(it, kind, lang) {
     return `<div class="iz-lc"${sortAttrs}>${parts.join('')}</div>`;
 }
 
+// Характеристики своего объявления: строки «• Подпись: значение» из описания (форма «Гузоштани эълон» кладёт их в начало). Максимум 4 плитки.
+function adPoints(desc) {
+    const out = [];
+    for (const raw of String(desc || '').split(/\n/)) {
+        const line = raw.trim();
+        if (!/^[•·\-*]\s*[^:\n]{2,25}:\s*\S/.test(line)) continue;
+        const p = clip(stripLinks(line.replace(/^[•·\-*]\s*/, '')), 80);
+        if (p && !blankValue(p.replace(/^[^:]*:\s*/, ''))) out.push(p);
+        if (out.length >= 4) break;
+    }
+    return out;
+}
+
 function ownItems(rows, lang) {
     return (rows || []).map(a => {
         const cur = String(a.currency || '').toUpperCase();
@@ -944,7 +957,8 @@ function ownItems(rows, lang) {
             pc: /^[A-Z]{3}$/.test(cur) ? cur : '',
             age,
             sellerSince: a.seller_since && Number.isFinite(Date.parse(a.seller_since)) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dushanbe' }).format(new Date(a.seller_since)).split('-').reverse().join('.') : '',
-            sellerCount: Number(a.seller_count) || 0
+            sellerCount: Number(a.seller_count) || 0,
+            points: adPoints(a.description)
         };
     });
 }
@@ -3671,7 +3685,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    priceParts, cheapFlags, ownItems, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
+    priceParts, cheapFlags, ownItems, adPoints, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
