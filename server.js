@@ -1027,6 +1027,30 @@ function dateLabel(pub, lang, iso) {
     return typeof f === 'function' ? f(pub.n) : (f || pub.raw);
 }
 
+// Контакты, которые продавец сам написал в тексте объявления. Номер в окошке «Показать» somon.tj на страницу не выдаёт и мы его
+// не достаём: он скрыт на сайте нарочно. Нет контактов в тексте — карточка ведёт на объявление, где номер открывается одним нажатием.
+function somonContacts(text) {
+    const t = String(text || '').replace(/ /g, ' ');
+    const phones = [];
+    for (const m of t.matchAll(/(?<![\d+])\+?\d[\d\s().\-]{7,17}\d(?![\d])/g)) {
+        let d = m[0].replace(/\D/g, '');
+        if (d.length === 12 && d.startsWith('992')) d = d.slice(3);
+        if (d.length !== 9 || !/^[2-9]/.test(d)) continue;
+        const f = `+992 ${d.slice(0, 3)} ${d.slice(3, 5)} ${d.slice(5, 7)} ${d.slice(7, 9)}`;
+        if (!phones.includes(f)) phones.push(f);
+    }
+    const out = phones.slice(0, 3);
+    const near = (re, word) => new RegExp(`(?:${word})[^@\\n]{0,30}@([\\w.]{3,32})|@([\\w.]{3,32})[^@\\n]{0,15}(?:${word})`, 'iu').exec(t);
+    const wa = /whats\s*-?\s*app|wa\.me|ват[сц]\s?[аa]п+|вацап+|воцап+|вотсап+/i.test(t);
+    if (wa && phones.length === 1) out.push(`WhatsApp: ${phones[0]}`);
+    const tg = t.match(/t\.me\/([A-Za-z0-9_]{4,32})/i) || near(null, 'telegram|телеграм+|(?<![\\p{L}])(?:тг|tg)(?![\\p{L}])');
+    if (tg) out.push(`Telegram: @${(tg[1] || tg[2]).replace(/\.+$/, '')}`);
+    const ig = t.match(/instagram\.com\/([A-Za-z0-9_.]{2,30})/i) || near(null, 'instagram|инстаграм+|инста');
+    if (ig) out.push(`Instagram: @${(ig[1] || ig[2]).replace(/\.+$/, '')}`);
+    for (const e of (t.match(/[\w.+-]+@[\w-]+(?:\.[\w-]+)+/g) || []).slice(0, 1)) out.push(e);
+    return out.join('; ');
+}
+
 function somonItem(a, kind) {
     return { ...cleanItem({
         title: a.title,
@@ -1037,7 +1061,7 @@ function somonItem(a, kind) {
         url: `https://somon.tj${a.path}`,
         image: a.images[0] || a.thumb || null,
         points: somonPoints(a, kind)
-    }), pub: parsePublished(a.published) };
+    }), contact: somonContacts(a.description), trusted: true, pub: parsePublished(a.published) };
 }
 
 // Список объявлений для карточек: spec.sources — страницы (поиск q= или раздел path=), spec.cat/spec.words — что считать подходящим.
@@ -1899,7 +1923,7 @@ async function verifyItems(original, current, kind, debug) {
     const out = current.map((it, i) => {
         const f = facts[i];
         if (f) stat.pagesOk++; else stat.pagesFailed++;
-        const c = f ? verifyContact(original[i].contact, f) : { kept: '', dropped: original[i].contact ? 1 : 0 };
+        const c = original[i].trusted ? { kept: clipContact(original[i].contact), dropped: 0 } : f ? verifyContact(original[i].contact, f) : { kept: '', dropped: original[i].contact ? 1 : 0 };
         stat.contactsDropped += c.dropped;
         if (c.kept) stat.contactsKept++;
         const pts = verifyPoints(it, f, kind);
@@ -2768,5 +2792,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, somonContacts, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
