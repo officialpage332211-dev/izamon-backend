@@ -2992,6 +2992,25 @@ async function postAdToChannel(ad) {
     }
 }
 
+// Проверка канала без публикации (/diag?channel=1): токен принят, канал найден, у бота есть право писать в канал.
+async function diagChannel() {
+    const fmt = /^(?:@[A-Za-z]\w{3,31}|-100\d{5,})$/.test(tgChannel());
+    if (!tgOn()) return { ok: false, configured: false, token: !!tgToken(), channelSet: !!tgChannel(), channelFormatOk: fmt };
+    const out = { ok: false, configured: true, channel: tgChannel().startsWith('@') ? tgChannel() : 'private' };
+    try {
+        const me = await tgCall('getMe', {});
+        out.bot = me.username ? '@' + me.username : null;
+        const chat = await tgCall('getChat', { chat_id: tgChannel() });
+        out.chatType = chat.type;
+        out.chatTitle = chat.title ? String(chat.title).slice(0, 60) : null;
+        const m = await tgCall('getChatMember', { chat_id: tgChannel(), user_id: me.id });
+        out.botStatus = m.status;
+        out.canPost = m.status === 'creator' || (m.status === 'administrator' && m.can_post_messages !== false);
+        out.ok = out.chatType === 'channel' && out.canPost;
+    } catch (err) { out.error = scrub(err.message); }
+    return out;
+}
+
 const adsLimited = makeLimiter(5);
 
 // ---------------------------------------------------------------------------
@@ -3359,6 +3378,7 @@ const DIAG_TOPICS = {
 async function handleDiag(req, res) {
     if (process.env.DIAG_KEY && req.query?.k !== process.env.DIAG_KEY) return res.status(403).json({ error: 'forbidden' });
     if (diagLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
+    if (req.query?.channel === '1') return res.json({ date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), channel_test: await diagChannel() });
     const question = 'Какой сегодня курс доллара к сомони в Таджикистане?';
     const out = { date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), geminiModels: GEMINI_MODELS, geminiPauseSec: Math.max(0, Math.round((geminiDownUntil - Date.now()) / 1000)) };
     const diagTopic = DIAG_TOPICS[req.query?.item] || null;
@@ -3447,5 +3467,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
