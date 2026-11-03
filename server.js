@@ -147,6 +147,12 @@ function normalizePrompt(raw) {
     return { text: withoutModule, topic: (quoted ? quoted[1] : withoutModule).trim() };
 }
 
+// Разделы somon.tj, из которых берём мастеров: «Услуги» (biznes-i-uslugi) и автоуслуги.
+const SOMON_SERVICES = /\/biznes-i-uslugi\//;
+const SOMON_AUTO = /\/biznes-i-uslugi\/|\/transport\//;
+// Автомобили на продажу, запчасти, шины, мотоциклы и вакансии — не услуги автомеханика.
+const SOMON_NOT_AUTO = /legkovyie|gruzov|zapchast|shiny|shinyi|disk|moto|velo|vakansii|spetstehnik|tehnika|bitovoi/i;
+
 // Кнопки разделов: у каждой свой поисковый запрос, чтобы ответ сразу содержал данные, а не описание раздела.
 const PORTAL_RULES = [
     { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest', kind: 'services',
@@ -171,19 +177,26 @@ const PORTAL_RULES = [
       query: 'Найди актуальные авиабилеты из Душанбе по популярным направлениям: цена, дата, авиакомпания, ссылка.' },
     // Недвижимость: у каждого подраздела свой запрос, иначе поиск смешивает продажу, аренду и участки.
     { re: /^(?:фурӯши\s+хона|продажа\s+жилья|uy\s+sotish)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-kvartir/' }, { path: 'nedvizhimost/prodazha-domov-havli-i-dach/' }] },
       query: 'Найди актуальные объявления о продаже квартир и домов в Таджикистане, сначала на somon.tj: что продаётся (квартира или дом, число комнат, площадь), цена, район или город, контакт продавца. Только жильё на продажу: аренду, участки и коммерческие помещения не показывай.' },
     { re: /^(?:иҷора|аренда|ijara)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
+      somon: { sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }] },
       query: 'Найди актуальные объявления об аренде жилья в Таджикистане (квартиры, дома, комнаты), сначала на somon.tj: что сдаётся, число комнат, цена в месяц, район или город, контакт хозяина. Только аренда жилья: продажу, участки и коммерческие помещения не показывай.' },
     { re: /^(?:замин\s+ва\s+тиҷоратӣ|земля\s+и\s+коммерческая|yer\s+va\s+tijorat)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }] },
       query: 'Найди актуальные объявления о земельных участках под строительство и о коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: что это, площадь, цена, продажа или аренда, место, контакт. Жилые квартиры и дома не показывай.' },
     // Услуги: мастера и специалисты. Объявления берём с somon.tj (раздел «Услуги») и других сайтов.
     { re: /^(?:барқчӣ|электрик|elektrik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
+      somon: { sources: [{ q: 'электрик' }, { q: 'электромонтаж' }], cat: SOMON_SERVICES, words: /электр|барқ|розетк|проводк|светильник|люстр|освещени|elektr/i },
       query: 'Найди актуальные объявления электриков в Таджикистане (электромонтаж, ремонт проводки, установка розеток, светильников и счётчиков), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Только электрики: другие услуги и товары не показывай.' },
     { re: /^(?:сантехник|santexnik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
+      somon: { sources: [{ q: 'сантехник' }, { q: 'сантехника услуги' }], cat: SOMON_SERVICES, words: /сантех|водопровод|труб|смесител|канализац|унитаз|отоплен|бойлер|водонагрев|насос|радиатор|santex/i },
       query: 'Найди актуальные объявления сантехников в Таджикистане (установка и ремонт труб, смесителей, унитазов, отопления, водонагревателей), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Только сантехники: другие услуги и товары не показывай.' },
     { re: /^(?:автомеханик|avtomexanik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
+      somon: { sources: [{ q: 'ремонт авто' }, { q: 'автосервис' }, { q: 'автомеханик' }], cat: SOMON_AUTO, notCat: SOMON_NOT_AUTO, words: /авто|машин|двигател|ходов|электромобил|кузов|шиномонтаж|вулканизац|моторист|эвакуатор/i },
       query: 'Найди актуальные объявления автомехаников и автосервисов в Таджикистане (ремонт и диагностика легковых машин, выезд мастера), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера или название сервиса, контакт. Только ремонт машин: продажу машин и запчастей не показывай.' },
     { re: /^(?:усто|мастер|usta)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
+      somon: { sources: [{ q: 'мастер на час' }, { q: 'ремонт квартир' }, { q: 'сборка мебели' }], cat: SOMON_SERVICES },
       query: 'Найди актуальные объявления мастеров на дом в Таджикистане (ремонт и отделка квартир, сборка мебели, мелкий бытовой ремонт, «мастер на час»), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Электриков, сантехников и автомехаников отдельно не выделяй: показывай мастеров общего профиля.' },
     { re: /^(?:земли|заминҳои\s+кишт)$/, mode: 'ads',
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане, сначала на somon.tj: площадь, цена, место, контакт владельца.' },
@@ -223,6 +236,7 @@ function routeRequest({ cleaned, topic, category = '' }) {
             mode: rule.mode,
             kind: rule.kind || KIND_OF_MODE[rule.mode] || null,
             factual: true,
+            somon: rule.somon || null,
             userText: topic ? rule.query : `${rule.query} Запрос пользователя: «${cleaned}».`
         };
     }
@@ -701,7 +715,7 @@ function pickUrl(v) {
     try {
         const u = new URL(m[0].replace(/[.,;]+$/, ''));
         u.searchParams.delete('utm_source');
-        return u.href.length <= 500 ? u.href : null;
+        return u.href.length <= 2000 ? u.href : null;
     } catch { return null; }
 }
 
@@ -855,7 +869,175 @@ async function repairJson(text) {
     }
 }
 
-async function searchListings({ kind, lang, date, query, debug }) {
+// ---------------------------------------------------------------------------
+// somon.tj: готовый список объявлений со страницы поиска или раздела.
+// В странице лежит список данными: номер, название, цена, город, продавец, фото и точная ссылка на объявление.
+// Берём его напрямую: ссылки и фото настоящие, а не придуманные моделью. Не получилось — работает прежний поиск через модель.
+// Телефоны somon.tj на страницу не выдаёт (они скрыты за кнопкой «Показать»), поэтому контакт в такой карточке пустой,
+// а кнопка «Открыть» ведёт на само объявление.
+// ---------------------------------------------------------------------------
+const SOMON_CACHE = new Map(); // адрес → { at, p }
+const SOMON_CACHE_MS = 3 * 60 * 1000, SOMON_CACHE_MAX = 40;
+
+function somonText(s) {
+    return String(s || '')
+        .replace(/\\+u([0-9a-fA-F]{4})/g, (_, h) => String.fromCharCode(parseInt(h, 16)))
+        .replace(/\\+\//g, '/')
+        .replace(/\\+"/g, '"')
+        .replace(/\\+[nrt]/g, ' ');
+}
+
+// Список "adverts" из страницы: [{ id, title, description, price, priceNote, thumb, images, published, path, location, who, cats }]
+function parseSomonAdverts(html, max = 80) {
+    const raw = String(html || '');
+    const m = /\\*"adverts\\*"\s*:\s*\[/.exec(raw);
+    if (!m) return [];
+    const text = somonText(raw.slice(m.index + m[0].length, m.index + m[0].length + 300000));
+    const starts = [...text.matchAll(/\{"id":(\d+),"title":"/g)].map(x => x.index);
+    const out = [];
+    for (let i = 0; i < starts.length && out.length < max; i++) {
+        const c = text.slice(starts[i], i + 1 < starts.length ? starts[i + 1] : text.length);
+        const g = (key, next) => { const x = c.match(new RegExp(`"${key}":"(.*?)","${next}":`, 's')); return x ? x[1] : ''; };
+        const path = g('url', 'labels');
+        const imgs = (c.match(/"images":\["(.*?)"\]/s) || [])[1];
+        const who = (c.match(/"user":\{"id":\d+,"name":"(.*?)","verified"/s) || [])[1] || '';
+        const cats = (c.match(/"rubric":\{(.*?)\},"user":\{/s) || [])[1] || '';
+        const ad = {
+            id: (c.match(/^\{"id":(\d+)/) || [])[1],
+            title: g('title', 'description'),
+            description: g('description', 'price'),
+            price: g('price', 'start_price'),
+            priceNote: g('price_description', 'currency'),
+            thumb: g('first_thumb', 'img_count'),
+            images: imgs ? imgs.split('","').filter(x => /^https:\/\//.test(x)).slice(0, 4) : [],
+            published: g('published', 'url'),
+            path,
+            location: g('location', 'rubric'),
+            who,
+            cats
+        };
+        if (!ad.id || !ad.title || !/^\/adv\/\d+/.test(ad.path)) continue;
+        if (ad.title.length > 300 || ad.path.length > 300) continue; // разбор сбился — такую запись не берём
+        out.push(ad);
+        if (!/\},\s*$/.test(c)) break; // это был последний элемент списка, дальше идут другие блоки страницы
+    }
+    return out;
+}
+
+function somonUrl(src) {
+    if (src && src.q) return `https://somon.tj/search/?q=${encodeURIComponent(String(src.q).slice(0, 80))}`;
+    if (src && /^[a-z0-9_\-/]{3,120}$/i.test(src.path || '')) return `https://somon.tj/${src.path.replace(/^\/+/, '')}`;
+    return null;
+}
+
+function somonGet(url) {
+    const hit = SOMON_CACHE.get(url);
+    if (hit && Date.now() - hit.at < SOMON_CACHE_MS) return hit.p;
+    const p = fetchPage(url, { cap: 700000, timeoutMs: 7000 }).then(r => {
+        const list = parseSomonAdverts(r.html);
+        if (!list.length) throw new Error('в странице нет списка');
+        return list;
+    });
+    p.catch(() => SOMON_CACHE.delete(url)); // сбой не запоминаем
+    if (SOMON_CACHE.size >= SOMON_CACHE_MAX) SOMON_CACHE.delete(SOMON_CACHE.keys().next().value);
+    SOMON_CACHE.set(url, { at: Date.now(), p });
+    return p;
+}
+
+// Характеристики квартиры и дома — только числа, которые написаны в самом названии объявления.
+function somonPoints(a, kind) {
+    const pts = [];
+    const t = a.title;
+    if (kind !== 'masters') {
+        let m;
+        if ((m = t.match(/(\d{1,2})\s*-\s*комн/i))) pts.push(`Комнаты: ${m[1]}`);
+        if ((m = t.match(/(\d{1,2})\s*этаж(?!н)/i))) pts.push(`Этаж: ${m[1]}`);
+        if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*(?:м²|м2|кв\.?\s*м)/i))) pts.push(`Площадь: ${m[1]} м²`);
+        if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*сот/i))) pts.push(`Участок: ${m[1]} сот.`);
+    }
+    const d = clip(a.description, 80);
+    if (pts.length < 3 && d.length >= 12 && !blankValue(d)) pts.push(d);
+    return pts.slice(0, 3);
+}
+
+function somonItem(a, kind) {
+    return cleanItem({
+        title: a.title,
+        price: (a.price || a.priceNote || '').replace(/\s+c\.$/, ' сом.'),
+        place: a.location,
+        date: a.published,
+        who: a.who,
+        url: `https://somon.tj${a.path}`,
+        image: a.images[0] || a.thumb || null,
+        points: somonPoints(a, kind)
+    });
+}
+
+// Список объявлений для карточек: spec.sources — страницы (поиск q= или раздел path=), spec.cat/spec.words — что считать подходящим.
+async function somonListings(spec, kind, debug) {
+    const stat = { urls: 0, ok: 0, failed: [], parsed: 0, kept: 0, withPhoto: 0 };
+    if (debug) debug.somon = stat;
+    const lists = await Promise.all((spec.sources || []).map(async src => {
+        const url = somonUrl(src);
+        if (!url) return [];
+        stat.urls++;
+        try { const l = await somonGet(url); stat.ok++; return l; }
+        catch (err) { if (stat.failed.length < 4) stat.failed.push(scrub(err && err.message || err).slice(0, 60)); return []; }
+    }));
+    const seenId = new Set(), seenPhoto = new Set(), seenText = new Set(), perWho = Object.create(null);
+    const per = lists.map(list => {
+        stat.parsed += list.length;
+        return list
+            .filter(a => (!spec.cat || spec.cat.test(a.cats)) && !(spec.notCat && spec.notCat.test(a.cats)) && (!spec.words || spec.words.test(`${a.title} ${a.description}`)) && !HARAM_LINE.test(`${a.title} ${a.who}`));
+        // порядок сайта оставляем: он уже по времени публикации (самые свежие первыми)
+    });
+    // Объявления с фото — вперёд; без фото берём, только если с фото слишком мало.
+    const flat = per.flat();
+    const photoCount = flat.filter(a => a.images[0] || a.thumb).length;
+    const need = photoCount >= 3;
+    const out = [];
+    for (let round = 0; out.length < 10 && round < 12; round++) {
+        let any = false;
+        for (const list of per) {
+            const a = list[round];
+            if (!a) continue;
+            any = true;
+            if (out.length >= 10) break;
+            const photo = a.images[0] || a.thumb || '';
+            if (need && !photo) continue;
+            const textKey = `${a.title.toLowerCase()}|${a.who.toLowerCase()}`;
+            // повтор одного и того же объявления или одной и той же фотографии не показываем
+            // и больше двух объявлений одного продавца подряд: иначе вся выдача — один автор
+            const whoKey = a.who.toLowerCase();
+            if (seenId.has(a.id) || (photo && seenPhoto.has(photo)) || seenText.has(textKey) || (whoKey && (perWho[whoKey] || 0) >= 2)) continue;
+            seenId.add(a.id); seenText.add(textKey); if (photo) seenPhoto.add(photo);
+            perWho[whoKey] = (perWho[whoKey] || 0) + 1;
+            const it = somonItem(a, kind);
+            if (it.title && it.url) out.push(it);
+        }
+        if (!any) break;
+    }
+    stat.kept = out.length;
+    stat.withPhoto = out.filter(x => x.image).length;
+    return out;
+}
+
+// Перевод, фото и сверка со страницами — общий хвост для обоих источников.
+async function finishItems(top, kind, lang, debug) {
+    // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
+    const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug)]);
+    const verified = await verifyItems(top, localized, kind, debug);
+    return verified.map((it, i) => ({ ...it, image: photos[i] || null }));
+}
+
+async function searchListings({ kind, lang, date, query, debug, somon }) {
+    // Сначала готовый список somon.tj: точные ссылки и фото. Мало найдено или сайт не ответил — ищем через модель, как раньше.
+    if (somon) {
+        try {
+            const direct = await somonListings(somon, kind, debug);
+            if (direct.length >= 3) return finishItems(direct, kind, lang, debug);
+        } catch (err) { if (debug) debug.somonError = scrub(err && err.message || err); }
+    }
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
@@ -909,11 +1091,7 @@ url — обычная ссылка https://… (без Markdown и скобок
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
     if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
-    const top = items.slice(0, 10);
-    // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
-    const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug)]);
-    const verified = await verifyItems(top, localized, kind, debug);
-    return verified.map((it, i) => ({ ...it, image: photos[i] || null }));
+    return finishItems(items.slice(0, 10), kind, lang, debug);
 }
 
 // Поиск отдаёт текст на языке сайта-источника (чаще русском). Карточку переводим на язык сайта одним
@@ -1116,7 +1294,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return fallback || text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind, somon }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -1138,7 +1316,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind 
             }
             if (openai && KIND_TASK[kind]) {
                 try {
-                    const items = await searchListings({ kind, lang, date, query: fullMessage });
+                    const items = await searchListings({ kind, lang, date, query: fullMessage, somon });
                     if (items.length) {
                         return { body: { answer: listingsAnswer(items, kind, lang, ownRows), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: ttlFor(mode) };
                     }
@@ -1252,7 +1430,7 @@ async function handleChat(req, res) {
     const followUp = !topic && lastUser && cleaned.length <= 60;
     const routeOn = followUp ? `${lastUser.content} ${cleaned}` : cleaned;
     const routed = routeRequest({ cleaned: routeOn, topic, category });
-    const { mode, factual, kind } = routed;
+    const { mode, factual, kind, somon } = routed;
     const userText = withHistory(followUp ? cleaned : routed.userText, history);
     const detectOn = topic || cleaned;
     const fullMessage = category ? `[Подраздел: ${category}] ${userText}` : userText;
@@ -1267,7 +1445,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, adsQuery: topic ? topic.split(' - ').pop() : routeOn }));
+        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : routeOn }));
         return res.json(r.body);
     } catch (err) {
         console.error('chat failed:', err);
@@ -1394,7 +1572,7 @@ function absImageUrl(raw, base) {
         const u = new URL(v, base);
         if (u.protocol === 'http:') u.protocol = 'https:';
         if (u.protocol !== 'https:') return null;
-        return u.href.length <= 500 ? u.href : null;
+        return u.href.length <= 2000 ? u.href : null;
     } catch { return null; }
 }
 
@@ -2391,16 +2569,17 @@ async function handleDiag(req, res) {
         out.cards_test = await timed(async () => {
             let kind = 'ads';
             let query = 'Найди актуальные объявления на сегодня: сначала на somon.tj. Раздел: «Хона».';
-            let routed = null;
+            let routed = null, somon = null;
             if (diagTopic) {
                 // тот же путь, что и у настоящей кнопки раздела
                 const r = routeRequest({ cleaned: diagTopic, topic: diagTopic });
-                routed = { mode: r.mode, kind: r.kind };
+                routed = { mode: r.mode, kind: r.kind, somon: !!r.somon };
                 kind = r.kind;
+                somon = r.somon;
                 query = withDictionary(r.userText, diagTopic);
             }
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
-            const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL });
+            const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon });
             const f = items[0];
             return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, ...dbgL };
         });
@@ -2447,5 +2626,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
