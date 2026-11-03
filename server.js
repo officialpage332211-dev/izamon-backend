@@ -3584,6 +3584,17 @@ async function handleDiag(req, res) {
         }
         out.search_include_sources = wantSources;
     }
+    // Проверка строки «Продавец на iZamoN» на настоящей базе: /diag?sellers=1 (только чтение, коды владельцев в ответ не попадают)
+    if (req.query?.sellers === '1' && adsOn()) {
+        out.seller_stats = await timed(async () => {
+            const rows = await sb(`ads?select=${AD_FIELDS}&status=eq.active&order=created_at.desc&limit=3`);
+            await sb('ads?select=id,owner&limit=1');
+            await sb('ads?select=owner,created_at,status&order=created_at.asc&limit=1');
+            const withS = await withSellerStats(rows);
+            const f = withS.find(r => r.seller_since);
+            return { ads: (rows || []).length, withStats: withS.filter(r => r.seller_since && r.seller_count > 0).length, sample: f ? { since: String(f.seller_since).slice(0, 10), count: f.seller_count } : null };
+        });
+    }
     try {
         const payload = JSON.parse(Buffer.from(String(SB_KEY()).split('.')[1] || '', 'base64url').toString('utf8') || '{}');
         out.service_key_role = payload.role || (String(SB_KEY()).startsWith('sb_secret_') ? 'secret' : 'unknown');
