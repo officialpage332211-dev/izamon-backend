@@ -890,7 +890,10 @@ url — обычная ссылка https://… (без Markdown и скобок
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
     if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
-    return localizeItems(items.slice(0, 10), lang, debug);
+    const top = items.slice(0, 10);
+    // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
+    const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug)]);
+    return localized.map((it, i) => ({ ...it, image: photos[i] || null }));
 }
 
 // Поиск отдаёт текст на языке сайта-источника (чаще русском). Карточку переводим на язык сайта одним
@@ -1301,12 +1304,13 @@ async function readCapped(res, cap) {
     return Buffer.from(await res.arrayBuffer()).subarray(0, cap).toString('utf8');
 }
 
-async function fetchPage(startUrl) {
+async function fetchPage(startUrl, opts = {}) {
+    const cap = opts.cap || 1500000, ms = opts.timeoutMs || 8000;
     let url = startUrl;
     for (let hop = 0; hop < 4; hop++) {
         const u = await assertPublicUrl(url);
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 8000);
+        const timer = setTimeout(() => ctrl.abort(), ms);
         let r;
         try {
             r = await fetch(u.href, {
@@ -1325,7 +1329,7 @@ async function fetchPage(startUrl) {
         if (r.status >= 300 && r.status < 400 && loc) { url = new URL(loc, u).href; continue; }
         if (!r.ok) throw new Error(`Сайт ответил ${r.status}`);
         if (!/html|text/i.test(r.headers.get('content-type') || '')) throw new Error('Это не страница');
-        return { html: await withTimeout(readCapped(r, 1500000), 8000), url: u.href };
+        return { html: await withTimeout(readCapped(r, cap), ms), url: u.href };
     }
     throw new Error('Слишком много перенаправлений');
 }
@@ -1352,6 +1356,193 @@ function jsonLdItems(html) {
         } catch { /* ignore broken JSON-LD */ }
     }
     return out;
+}
+
+// ---------- Фото объявления ----------
+// Фото берём со страницы самого объявления (og:image и т.п.), а не из ответа модели: модель часто присылает
+// выдуманную или битую ссылку. Каждое фото проверяем: это настоящая картинка, не заглушка и не логотип.
+const PHOTO_UA = 'iZamoNBot/1.0 (+https://izamon.vercel.app)';
+const PHOTO_BAD_NAME = /(?:^|[\/_.=-])(?:logo|favicon|sprite|placeholder|no[-_]?image|no[-_]?photo|nophoto|noimage|default|blank|avatar|watermark)(?:[\/_.=-]|$)/i;
+const PHOTO_MIN_BYTES = 4096, PHOTO_MIN_W = 120, PHOTO_MIN_H = 80;
+const PHOTO_CACHE = new Map(); // адрес объявления → { at, img, why }
+const PHOTO_CACHE_MS = 6 * 3600 * 1000, PHOTO_CACHE_MAX = 500;
+
+function absImageUrl(raw, base) {
+    const v = decodeEntities(String(raw || '')).trim();
+    if (!v || /^data:/i.test(v)) return null;
+    try {
+        const u = new URL(v, base);
+        if (u.protocol === 'http:') u.protocol = 'https:';
+        if (u.protocol !== 'https:') return null;
+        return u.href.length <= 500 ? u.href : null;
+    } catch { return null; }
+}
+
+// Возможные фото на странице, от самых надёжных: og:image, twitter:image, image_src, JSON-LD.
+function pageImages(html, base) {
+    const raw = [];
+    for (const key of ['og:image:secure_url', 'og:image', 'twitter:image', 'twitter:image:src']) {
+        const v = metaContent(html, key);
+        if (v) raw.push(v);
+    }
+    const link = html.match(/<link[^>]+rel=["']image_src["'][^>]*href=["']([^"']+)["']/i) || html.match(/<link[^>]+href=["']([^"']+)["'][^>]*rel=["']image_src["']/i);
+    if (link) raw.push(link[1]);
+    for (const ld of jsonLdItems(html)) {
+        const im = ld.image;
+        for (const x of Array.isArray(im) ? im : (im ? [im] : [])) raw.push(typeof x === 'string' ? x : (x && x.url));
+    }
+    const out = [];
+    for (const r of raw) {
+        const u = absImageUrl(r, base);
+        if (!u || out.includes(u)) continue;
+        let path = '';
+        try { path = new URL(u).pathname; } catch { continue; }
+        if (PHOTO_BAD_NAME.test(path)) continue;
+        out.push(u);
+    }
+    return out.slice(0, 4);
+}
+
+// Размер картинки по первым байтам файла (PNG, GIF, WebP, JPEG). null — это не картинка.
+function imageSize(b) {
+    if (!b || b.length < 12) return null;
+    if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b.length >= 24) return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+    if (b.toString('latin1', 0, 3) === 'GIF' && b.length >= 10) return { w: b.readUInt16LE(6), h: b.readUInt16LE(8) };
+    if (b.toString('latin1', 0, 4) === 'RIFF' && b.toString('latin1', 8, 12) === 'WEBP') {
+        const k = b.toString('latin1', 12, 16);
+        if (k === 'VP8X' && b.length >= 30) return { w: 1 + b.readUIntLE(24, 3), h: 1 + b.readUIntLE(27, 3) };
+        if (k === 'VP8 ' && b.length >= 30) return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff };
+        if (k === 'VP8L' && b.length >= 25) { const v = b.readUInt32LE(21); return { w: (v & 0x3fff) + 1, h: ((v >> 14) & 0x3fff) + 1 }; }
+        return { w: 0, h: 0 };
+    }
+    if (b[0] === 0xff && b[1] === 0xd8) {
+        let i = 2;
+        while (i + 9 < b.length) {
+            if (b[i] !== 0xff) { i++; continue; }
+            const m = b[i + 1];
+            if (m === 0xff) { i++; continue; }
+            if (m === 0xd8 || m === 0x01 || (m >= 0xd0 && m <= 0xd7)) { i += 2; continue; }
+            if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { h: b.readUInt16BE(i + 5), w: b.readUInt16BE(i + 7) };
+            i += 2 + b.readUInt16BE(i + 2);
+        }
+        return { w: 0, h: 0 }; // JPEG, но размер в начале файла не нашли
+    }
+    return null;
+}
+
+// '' — картинка подходит, иначе причина отказа. total — размер файла в байтах (0 — неизвестен).
+function judgeImage(head, total) {
+    const s = imageSize(head);
+    if (!s) return 'не картинка';
+    if (total && total < PHOTO_MIN_BYTES) return 'слишком маленький файл';
+    if (s.w && s.h && (s.w < PHOTO_MIN_W || s.h < PHOTO_MIN_H)) return `слишком маленькая ${s.w}x${s.h}`;
+    return '';
+}
+
+async function readBytes(res, cap) {
+    if (res.body && typeof res.body.getReader === 'function') {
+        const reader = res.body.getReader();
+        const chunks = [];
+        let size = 0;
+        while (size < cap) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            chunks.push(Buffer.from(value));
+            size += value.length;
+        }
+        try { await reader.cancel(); } catch { /* ignore */ }
+        return Buffer.concat(chunks).subarray(0, cap);
+    }
+    return Buffer.from(await res.arrayBuffer()).subarray(0, cap);
+}
+
+// Открывает начало файла и решает, настоящее ли это фото. '' — да; иначе причина.
+// Причина с «?» в начале — мягкая: проверить не удалось (сайт не пускает бота, тайм-аут), но фото не признано плохим.
+async function checkImage(startUrl) {
+    try {
+        let url = startUrl;
+        for (let hop = 0; hop < 3; hop++) {
+            const u = await assertPublicUrl(url);
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 4000);
+            let r;
+            try {
+                r = await fetch(u.href, { redirect: 'manual', signal: ctrl.signal, headers: { 'User-Agent': PHOTO_UA, 'Accept': 'image/*', 'Range': 'bytes=0-16383' } });
+            } finally { clearTimeout(timer); }
+            const loc = r.headers.get('location');
+            if (r.status >= 300 && r.status < 400 && loc) { url = new URL(loc, u).href; continue; }
+            if (r.status !== 200 && r.status !== 206) return (r.status === 404 || r.status === 410 ? '' : '?') + `статус ${r.status}`;
+            const type = String(r.headers.get('content-type') || '');
+            if (!/^image\//i.test(type) || /svg/i.test(type)) return 'не картинка';
+            const head = await withTimeout(readBytes(r, 16384), 4000);
+            let total = 0;
+            const cr = /\/(\d+)\s*$/.exec(r.headers.get('content-range') || '');
+            if (cr) total = Number(cr[1]);
+            else if (r.status === 200 && r.headers.get('content-length')) total = Number(r.headers.get('content-length')) || 0;
+            else if (head.length < 16384) total = head.length;
+            return judgeImage(head, total);
+        }
+        return 'много перенаправлений';
+    } catch (err) {
+        const msg = String(err && err.message || err).slice(0, 40);
+        return (/Адрес не разрешён|Порт не разрешён|Только http/.test(msg) ? '' : '?') + `ошибка: ${msg}`;
+    }
+}
+
+const sameSite = (a, b) => {
+    const tail = h => String(h || '').split('.').slice(-2).join('.');
+    return !!a && !!b && tail(a) === tail(b);
+};
+
+// Фото для каждой карточки: со страницы объявления; фото от модели — только если оно с того же сайта и прошло проверку.
+// Ссылка на общую страницу списка (без номера объявления) не говорит, чьё это фото, — такие карточки остаются без фото.
+async function resolvePhotos(items, debug) {
+    if (process.env.PHOTO_CHECK === 'off') return items.map(it => it.image || null);
+    const stat = { items: items.length, fromPage: 0, fromModel: 0, none: 0, why: {} };
+    const why = (r) => { stat.why[r] = (stat.why[r] || 0) + 1; };
+    const one = async (it) => {
+        let specific = false;
+        try { specific = /\d{3,}/.test(new URL(it.url).pathname); } catch { specific = false; }
+        if (!specific) return { img: null, why: 'общая страница списка' };
+        const hit = PHOTO_CACHE.get(it.url);
+        if (hit && Date.now() - hit.at < PHOTO_CACHE_MS) return { img: hit.img, why: hit.why, cached: true };
+        const cands = [];
+        let how = '';
+        try {
+            const page = await fetchPage(it.url, { cap: 400000, timeoutMs: 4500 });
+            for (const c of pageImages(page.html, page.url)) cands.push({ url: c, from: 'page' });
+            if (!cands.length) how = 'на странице нет фото';
+        } catch (err) { how = `страница: ${String(err && err.message || err).slice(0, 40)}`; }
+        if (it.image && sameSite(hostOf(it.image), hostOf(it.url))) cands.push({ url: it.image, from: 'model' });
+        let last = how, soft = null;
+        for (const c of cands.slice(0, 4)) {
+            const bad = await checkImage(c.url);
+            if (!bad) return { img: c.url, why: c.from };
+            if (bad[0] === '?') { if (!soft) soft = { c, bad }; last = `${c.from}: ${bad.slice(1)}`; continue; }
+            last = `${c.from}: ${bad}`;
+        }
+        // Проверить не удалось (сайт не отвечает боту), но фото не признано плохим: браузер покупателя откроет его сам,
+        // а битая ссылка просто покажет карточку без фото.
+        if (soft) return { img: soft.c.url, why: soft.c.from + '?', unchecked: true };
+        return { img: null, why: last || 'нет кандидатов' };
+    };
+    const res = await Promise.all(items.map(it => withTimeout(one(it), 9500).catch(() => ({ img: null, why: 'время вышло' }))));
+    // Одно и то же фото у разных объявлений — это картинка сайта, а не фото товара.
+    const count = {};
+    res.forEach(r => { if (r.img) count[r.img] = (count[r.img] || 0) + 1; });
+    res.forEach((r, i) => {
+        if (r.img && count[r.img] > 1) { r.img = null; r.why = 'одно фото у нескольких'; }
+        if (!r.cached && items[i].url) {
+            // запоминаем только удачу: сбой сети или таймаут не должен надолго лишать объявление фото
+            if (r.img) {
+                if (PHOTO_CACHE.size >= PHOTO_CACHE_MAX) PHOTO_CACHE.delete(PHOTO_CACHE.keys().next().value);
+                PHOTO_CACHE.set(items[i].url, { at: Date.now(), img: r.img, why: r.why });
+            }
+        }
+        if (r.img) { if (r.why.startsWith('model')) stat.fromModel++; else stat.fromPage++; if (r.unchecked) stat.unchecked = (stat.unchecked || 0) + 1; } else { stat.none++; why(r.why); }
+    });
+    if (debug) debug.photos = stat;
+    return res.map(r => r.img);
 }
 
 function visibleText(html) {
@@ -2026,7 +2217,7 @@ async function handleDiag(req, res) {
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
             const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL });
             const f = items[0];
-            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, ...dbgL };
+            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, ...dbgL };
         });
         if (!out.cards_test.ok) out.cards_test.debug = dbgL;
         if (!diagTopic) {
@@ -2071,5 +2262,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, pageImages, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
