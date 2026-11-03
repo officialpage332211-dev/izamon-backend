@@ -960,8 +960,75 @@ function somonPoints(a, kind) {
     return pts.slice(0, 3);
 }
 
+// Время публикации: сайт пишет «19 минут назад», «Вчера», «2 недели назад». Разбираем в возраст (минуты) — по нему сортируем,
+// а подпись собираем сами на языке сайта (модель перевод времени иногда портила).
+function parsePublished(str) {
+    const raw = String(str || '').trim();
+    const t = raw.toLowerCase().replace(/ё/g, 'е');
+    if (!t) return null;
+    const out = (unit, n, ageMin) => ({ raw, unit, n, ageMin });
+    const dushanbe = new Date(Date.now() + 5 * 3600 * 1000);
+    const nowMin = dushanbe.getUTCHours() * 60 + dushanbe.getUTCMinutes();
+    let m;
+    if (/только\s+что|сейчас/.test(t)) return out('now', 0, 0);
+    if ((m = t.match(/(\d+)\s*мин/))) return +m[1] ? out('min', +m[1], +m[1]) : out('now', 0, 0);
+    if (/минуту?\s+назад/.test(t)) return out('min', 1, 1);
+    if ((m = t.match(/(\d+)\s*час/))) return out('hour', +m[1], +m[1] * 60);
+    if (/час\s+назад/.test(t)) return out('hour', 1, 60);
+    if ((m = t.match(/(сегодня|вчера)[,\s]+(\d{1,2}):(\d{2})/))) {
+        const back = nowMin - (+m[2] * 60 + +m[3]);
+        return m[1] === 'сегодня' ? out('today', 0, Math.max(0, back)) : out('yesterday', 1, Math.max(0, back) + 1440);
+    }
+    if (/сегодня/.test(t)) return out('today', 0, 720);
+    if (/вчера/.test(t)) return out('yesterday', 1, 2160);
+    if ((m = t.match(/(\d+)\s*(?:дн|день|дня|дней)/))) return out('day', +m[1], +m[1] * 1440);
+    if ((m = t.match(/(\d+)\s*нед/))) return out('week', +m[1], +m[1] * 7 * 1440);
+    if (/недел[юи]?\s+назад/.test(t)) return out('week', 1, 7 * 1440);
+    if ((m = t.match(/(\d+)\s*мес/))) return out('month', +m[1], +m[1] * 30 * 1440);
+    if (/месяц\s+назад/.test(t)) return out('month', 1, 30 * 1440);
+    if ((m = t.match(/(\d+)\s*(?:год|лет)/))) return out('year', +m[1], +m[1] * 365 * 1440);
+    if ((m = t.match(/(\d{1,2})\.(\d{1,2})\.(\d{4})/))) {
+        const days = Math.round((Date.parse(todayTJ().iso) - Date.UTC(+m[3], +m[2] - 1, +m[1])) / 86400000);
+        return { raw, unit: 'date', n: 0, ageMin: Math.max(0, days) * 1440, iso: `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` };
+    }
+    return null;
+}
+
+const AGO = {
+    ru: { now: 'Только что', min: n => `${n} мин. назад`, hour: n => n === 1 ? 'Час назад' : `${n} ч. назад`, today: 'Сегодня', yesterday: 'Вчера', day: n => `${n} дн. назад`, week: n => `${n} нед. назад`, month: n => `${n} мес. назад`, year: n => `${n} г. назад` },
+    tg: { now: 'Ҳозир', min: n => `${n} дақиқа пеш`, hour: n => `${n} соат пеш`, today: 'Имрӯз', yesterday: 'Дирӯз', day: n => `${n} рӯз пеш`, week: n => `${n} ҳафта пеш`, month: n => `${n} моҳ пеш`, year: n => `${n} сол пеш` },
+    uz: { now: 'Hozir', min: n => `${n} daqiqa oldin`, hour: n => `${n} soat oldin`, today: 'Bugun', yesterday: 'Kecha', day: n => `${n} kun oldin`, week: n => `${n} hafta oldin`, month: n => `${n} oy oldin`, year: n => `${n} yil oldin` }
+};
+const WEEK_MIN = 7 * 1440;
+
+// Дата публикации из страницы объявления («datePublished»: 2026-11-03). Ничего не нашли — ''.
+function pageDate(html) {
+    const m = String(html || '').match(/datePublished\\*"\s*:\s*\\*"(\d{4})-(\d{2})-(\d{2})/);
+    return m ? `${m[1]}-${m[2]}-${m[3]}` : '';
+}
+
+// Подпись времени: до недели — «5 дней назад», старше недели — календарная дата цифрами (ДД.ММ.ГГГГ).
+// Дату берём со страницы объявления; если её нет или она не сходится с тем, что пишет сайт в списке, остаётся «2 недели назад».
+function dateLabel(pub, lang, iso) {
+    if (!pub) return '';
+    const L = AGO[lang] || AGO.ru;
+    if (pub.ageMin >= WEEK_MIN) {
+        let d = pub.iso || iso || '';
+        if (d && !pub.iso) {
+            const days = (Date.parse(todayTJ().iso) - Date.parse(d)) / 86400000;
+            const listDays = pub.ageMin / 1440, slack = Math.max(8, listDays * 0.3);
+            if (!(days >= 0 && Math.abs(days - listDays) <= slack)) d = ''; // страница и список спорят — календарную дату не выдумываем
+        }
+        const m = d.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if (m) return `${m[3]}.${m[2]}.${m[1]}`;
+    }
+    if (pub.unit === 'date') return pub.raw;
+    const f = L[pub.unit];
+    return typeof f === 'function' ? f(pub.n) : (f || pub.raw);
+}
+
 function somonItem(a, kind) {
-    return cleanItem({
+    return { ...cleanItem({
         title: a.title,
         price: (a.price || a.priceNote || '').replace(/\s+c\.$/, ' сом.'),
         place: a.location,
@@ -970,7 +1037,7 @@ function somonItem(a, kind) {
         url: `https://somon.tj${a.path}`,
         image: a.images[0] || a.thumb || null,
         points: somonPoints(a, kind)
-    });
+    }), pub: parsePublished(a.published) };
 }
 
 // Список объявлений для карточек: spec.sources — страницы (поиск q= или раздел path=), spec.cat/spec.words — что считать подходящим.
@@ -985,37 +1052,32 @@ async function somonListings(spec, kind, debug) {
         catch (err) { if (stat.failed.length < 4) stat.failed.push(scrub(err && err.message || err).slice(0, 60)); return []; }
     }));
     const seenId = new Set(), seenPhoto = new Set(), seenText = new Set(), perWho = Object.create(null);
-    const per = lists.map(list => {
+    // Все источники вместе, самые свежие впереди; без понятной даты — в конец.
+    const flat = [];
+    for (const list of lists) {
         stat.parsed += list.length;
-        return list
-            .filter(a => (!spec.cat || spec.cat.test(a.cats)) && !(spec.notCat && spec.notCat.test(a.cats)) && (!spec.words || spec.words.test(`${a.title} ${a.description}`)) && !HARAM_LINE.test(`${a.title} ${a.who}`));
-        // порядок сайта оставляем: он уже по времени публикации (самые свежие первыми)
-    });
-    // Объявления с фото — вперёд; без фото берём, только если с фото слишком мало.
-    const flat = per.flat();
-    const photoCount = flat.filter(a => a.images[0] || a.thumb).length;
-    const need = photoCount >= 3;
-    const out = [];
-    for (let round = 0; out.length < 10 && round < 12; round++) {
-        let any = false;
-        for (const list of per) {
-            const a = list[round];
-            if (!a) continue;
-            any = true;
-            if (out.length >= 10) break;
-            const photo = a.images[0] || a.thumb || '';
-            if (need && !photo) continue;
-            const textKey = `${a.title.toLowerCase()}|${a.who.toLowerCase()}`;
-            // повтор одного и того же объявления или одной и той же фотографии не показываем
-            // и больше двух объявлений одного продавца подряд: иначе вся выдача — один автор
-            const whoKey = a.who.toLowerCase();
-            if (seenId.has(a.id) || (photo && seenPhoto.has(photo)) || seenText.has(textKey) || (whoKey && (perWho[whoKey] || 0) >= 2)) continue;
-            seenId.add(a.id); seenText.add(textKey); if (photo) seenPhoto.add(photo);
-            perWho[whoKey] = (perWho[whoKey] || 0) + 1;
-            const it = somonItem(a, kind);
-            if (it.title && it.url) out.push(it);
+        for (const a of list) {
+            if ((spec.cat && !spec.cat.test(a.cats)) || (spec.notCat && spec.notCat.test(a.cats)) || (spec.words && !spec.words.test(`${a.title} ${a.description}`)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
+            const p = parsePublished(a.published);
+            flat.push({ a, age: p ? p.ageMin : Infinity, n: flat.length });
         }
-        if (!any) break;
+    }
+    flat.sort((x, y) => (x.age - y.age) || (x.n - y.n));
+    // Объявления с фото — вперёд; без фото берём, только если с фото слишком мало.
+    const need = flat.filter(x => x.a.images[0] || x.a.thumb).length >= 3;
+    const out = [];
+    for (const { a } of flat) {
+        if (out.length >= 10) break;
+        const photo = a.images[0] || a.thumb || '';
+        if (need && !photo) continue;
+        const textKey = `${a.title.toLowerCase()}|${a.who.toLowerCase()}`;
+        // повтор одного и того же объявления или одной и той же фотографии не показываем; больше двух объявлений одного продавца тоже
+        const whoKey = a.who.toLowerCase();
+        if (seenId.has(a.id) || (photo && seenPhoto.has(photo)) || seenText.has(textKey) || (whoKey && (perWho[whoKey] || 0) >= 2)) continue;
+        seenId.add(a.id); seenText.add(textKey); if (photo) seenPhoto.add(photo);
+        perWho[whoKey] = (perWho[whoKey] || 0) + 1;
+        const it = somonItem(a, kind);
+        if (it.title && it.url) out.push(it);
     }
     stat.kept = out.length;
     stat.withPhoto = out.filter(x => x.image).length;
@@ -1027,7 +1089,16 @@ async function finishItems(top, kind, lang, debug) {
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
     const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug)]);
     const verified = await verifyItems(top, localized, kind, debug);
-    return verified.map((it, i) => ({ ...it, image: photos[i] || null, imageProxy: photos[i] ? proxyImageUrl(photos[i]) : null }));
+    // Время публикации (у карточек с somon.tj): до недели — «5 дней назад», старше — календарная дата цифрами
+    const dates = await Promise.all(top.map(async it => {
+        if (!it.pub) return null;
+        let iso = '';
+        if (it.pub.ageMin >= WEEK_MIN && process.env.PHOTO_CHECK !== 'off') {
+            try { iso = pageDate((await withTimeout(getPage(it.url), 6000)).html); } catch { iso = ''; }
+        }
+        return dateLabel(it.pub, lang, iso);
+    }));
+    return verified.map((it, i) => ({ ...it, date: dates[i] || it.date, image: photos[i] || null, imageProxy: photos[i] ? proxyImageUrl(photos[i]) : null }));
 }
 
 async function searchListings({ kind, lang, date, query, debug, somon }) {
@@ -2697,5 +2768,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
