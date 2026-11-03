@@ -3622,6 +3622,15 @@ async function handleDiag(req, res) {
         }
         out.search_include_sources = wantSources;
     }
+    // Проверка набора фото для альбома на живой странице somon.tj: /diag?photos=https://somon.tj/adv/… (только чтение, только адреса somon.tj)
+    if (/^https:\/\/somon\.tj\/[\w\-./%]{3,200}$/.test(String(req.query?.photos || ''))) {
+        out.photos_test = await timed(async () => {
+            const page = await fetchPage(String(req.query.photos));
+            const meta = metaAd(page.html);
+            const imgs = importPhotos(page.html, page.url, meta.image);
+            return { first: meta.image ? meta.image.slice(0, 90) : null, count: imgs.length, sameFirst: imgs[0] === meta.image, hosts: [...new Set(imgs.map(u => hostOf(u)))] };
+        });
+    }
     // Проверка строки «Продавец на iZamoN» на настоящей базе: /diag?sellers=1 (только чтение, коды владельцев в ответ не попадают)
     if (req.query?.sellers === '1' && adsOn()) {
         out.seller_stats = await timed(async () => {
