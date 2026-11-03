@@ -822,6 +822,52 @@ const hostOf = u => { try { return new URL(u).hostname.replace(/^www\./, ''); } 
 
 const CALL_LABEL = { tg: 'Занг задан', ru: 'Позвонить', uz: "Qo'ng'iroq" };
 
+// ---------- Цена числом и метка «ниже, чем у большинства найденных» ----------
+// Метка — только сравнение с другими карточками этой же выдачи, не «цена рынка». Показываем её, когда в выдаче есть минимум
+// CHEAP_MIN цен в одной валюте; цену дешевле 5% от середины считаем заглушкой или опечаткой (на somon.tj «договорная» часто «1 сом.»).
+const CHEAP_MIN = 5;
+const CHEAP_LABEL = {
+    ru: 'Цена ниже, чем у большинства найденных',
+    tg: 'Нарх аз аксари эълонҳои ёфтшуда паст аст',
+    uz: "Narxi topilgan e'lonlarning ko'pchiligidan past"
+};
+
+// «350 000 c.» → { n: 350000, c: 'TJS' }; «3 доллара» → { n: 3, c: 'USD' }. Диапазон, «от…», два числа или незнакомая валюта — null.
+function priceParts(raw) {
+    const s = String(raw || '').replace(/\u00a0/g, ' ').trim();
+    if (!s || s.length > 40) return null;
+    const groups = s.match(/\d[\d\s.,]*\d|\d/g);
+    if (!groups || groups.length !== 1) return null;
+    if (/(?:^|\s)(?:от|до|за)\s/i.test(s) || /\d\s*[–—-]\s*\d/.test(s)) return null;
+    let t = groups[0].replace(/\s+/g, '');
+    if (/[.,]/.test(t)) t = /^\d{1,3}(?:[.,]\d{3})+$/.test(t) ? t.replace(/[.,]/g, '') : t.replace(',', '.');
+    const n = Number(t);
+    if (!isFinite(n) || n <= 0) return null;
+    const rest = s.replace(groups[0], ' ').replace(/[\s.,:]+/g, ' ').trim().toLowerCase();
+    let c = null;
+    if (/^(?:\$|usd|долл\S*)$/.test(rest)) c = 'USD';
+    else if (/^(?:€|eur|евро)$/.test(rest)) c = 'EUR';
+    else if (/^(?:₽|rub|руб\S*)$/.test(rest)) c = 'RUB';
+    else if (/^(?:[cс]|сом\S*|somoni|tjs)$/.test(rest)) c = 'TJS';
+    return c ? { n, c } : null;
+}
+
+// list: [{ pn, pc }] → массив true/false, у кого цена ниже, чем у не менее двух третей остальных (строго дороже их цены).
+function cheapFlags(list) {
+    const out = list.map(() => false);
+    const byCur = Object.create(null);
+    list.forEach((x, i) => { if (x && x.pn > 0 && x.pc) (byCur[x.pc] = byCur[x.pc] || []).push(i); });
+    for (const idx of Object.values(byCur)) {
+        const sorted = idx.map(i => list[i].pn).sort((a, b) => a - b);
+        const mid = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+        const ok = idx.filter(i => list[i].pn >= mid * 0.05);
+        if (ok.length < CHEAP_MIN) continue;
+        const need = Math.ceil((ok.length - 1) * 2 / 3);
+        for (const i of ok) if (ok.filter(j => list[j].pn > list[i].pn).length >= need) out[i] = true;
+    }
+    return out;
+}
+
 const KIND_BADGE = {
     ads: { tg: 'Эълон', ru: 'Объявление', uz: "E'lon" },
     jobs: { tg: 'Ҷои кор', ru: 'Вакансия', uz: 'Vakansiya' },
@@ -861,6 +907,7 @@ function cardHtml(it, kind, lang) {
         badges,
         `<div class="iz-lc-t">${escapeHtml(it.title)}</div>`,
         it.price ? `<div class="iz-lc-p">${escapeHtml(it.price)}</div>` : '',
+        it.cheap && CHEAP_LABEL[lang] ? `<div class="iz-lc-pl">↓ ${escapeHtml(CHEAP_LABEL[lang])}</div>` : '',
         it.place || it.who ? `<div class="iz-lc-m">${it.place ? '📍 ' + escapeHtml(it.place) : ''}${it.place && it.who ? ' · ' : ''}${it.who ? '👤 ' + escapeHtml(it.who) : ''}</div>` : '',
         tiles ? `<div class="iz-tiles">${tiles}</div>` : '',
         it.contact ? `<div class="iz-lc-m">📞 ${escapeHtml(it.contact)}</div>` : '',
@@ -869,16 +916,25 @@ function cardHtml(it, kind, lang) {
     return `<div class="iz-lc">${parts.join('')}</div>`;
 }
 
+function ownItems(rows) {
+    return (rows || []).map(a => {
+        const cur = String(a.currency || '').toUpperCase();
+        return {
+            title: a.title,
+            price: a.price ? `${Number(a.price).toLocaleString('en-US').replace(/,/g, ' ')}${a.currency ? ' ' + a.currency : ''}` : '',
+            place: a.location || '',
+            date: '',
+            contact: a.contact || '',
+            who: a.seller_name ? `${a.seller_name} · iZamoN` : 'iZamoN',
+            url: a.source_url && /^https:\/\//i.test(a.source_url) ? a.source_url : 'https://izamon.vercel.app/',
+            pn: Number(a.price) > 0 ? Number(a.price) : 0,
+            pc: /^[A-Z]{3}$/.test(cur) ? cur : ''
+        };
+    });
+}
+
 function ownCards(rows, lang) {
-    return (rows || []).map(a => cardHtml({
-        title: a.title,
-        price: a.price ? `${Number(a.price).toLocaleString('en-US').replace(/,/g, ' ')}${a.currency ? ' ' + a.currency : ''}` : '',
-        place: a.location || '',
-        date: '',
-        contact: a.contact || '',
-        who: a.seller_name ? `${a.seller_name} · iZamoN` : 'iZamoN',
-        url: a.source_url && /^https:\/\//i.test(a.source_url) ? a.source_url : 'https://izamon.vercel.app/'
-    }, 'ads', lang)).join('');
+    return ownItems(rows).map(it => cardHtml(it, 'ads', lang)).join('');
 }
 
 // Ссылки на поиск билетов — всегда под карточками билетов.
@@ -1542,6 +1598,7 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
     const word = (PRICE_WORDS[lang] || {})[rawPrice.toLowerCase().replace(/[.!]+$/, '')];
     const priceOk = lang === 'ru' ? true : lang === 'tg' ? !!word || PRICE_PLAIN.test(rawPrice) || !rawPrice : false;
     const note = somonNote(a, pts.length);
+    const pp = priceParts(rawPrice);
     return { ...cleanItem({
         title: detTitle || (lang === 'tg' ? polishTg(a.title) : a.title),
         price: word || rawPrice,
@@ -1551,7 +1608,7 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
         url: `https://somon.tj${a.path}`,
         image: a.images[0] || a.thumb || null,
         points: pts
-    }), contact: somonContacts(a.description), trusted: true, pub: parsePublished(a.published),
+    }), contact: somonContacts(a.description), trusted: true, pub: parsePublished(a.published), pn: pp ? pp.n : 0, pc: pp ? pp.c : '',
     det: { title: titleOk, price: priceOk }, note, gallery0: a.images.slice(0, 16), photoCount: Math.min(a.imgCount || a.images.length || 0, 16) };
 }
 
@@ -1631,7 +1688,7 @@ async function finishItems(top, kind, lang, debug) {
         const count = t.trusted && img ? (t.photoCount || gal.length || 1) : 0;
         if (img && gal.length && gal[0] !== img) gal = [img, ...gal.filter(x => x !== img)];
         if (count) gal = gal.slice(0, count);
-        return { ...it, date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
+        return { ...it, pn: t.pn || 0, pc: t.pc || '', date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
     });
 }
@@ -1836,8 +1893,12 @@ ${CARD_GLOSSARY[lang] || ''}
 function listingsAnswer(items, kind, lang, own) {
     const count = items.length + (own ? own.length : 0);
     const head = `<div class="iz-lh">🔎 ${count} ${FOUND_LABEL[kind] ? FOUND_LABEL[kind][lang] : ''}</div>`;
-    const ownHtml = own && own.length ? ownCards(own, lang) : '';
-    return `<div class="iz-lcs">${head}${ownHtml}${items.map(it => cardHtml(it, kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
+    const ownList = own && own.length ? ownItems(own) : [];
+    // Метку «цена ниже, чем у большинства найденных» считаем по всем карточкам выдачи вместе (свои и с других сайтов), только для объявлений
+    const flags = kind === 'ads' ? cheapFlags([...ownList, ...items]) : [];
+    const mark = (it, i) => (flags[i] ? { ...it, cheap: true } : it);
+    const ownHtml = ownList.map((it, i) => cardHtml(mark(it, i), 'ads', lang)).join('');
+    return `<div class="iz-lcs">${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -3464,6 +3525,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+    priceParts, cheapFlags, ownItems,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
