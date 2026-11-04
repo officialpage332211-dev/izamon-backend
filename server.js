@@ -2874,7 +2874,11 @@ function webExtra({ kind, lang, date, query, somon }) {
                 const stat = { checked: cand.length, noPage: 0, noTitle: 0, noPrice: 0 };
                 verdict.forEach(v => { if (v) stat[v]++; });
                 dbg.confirm = stat;
-                return cand.filter((_, i) => !verdict[i]);
+                // «1 с.», «5 с.» — заглушка вместо цены (так пишут «договорная»): цену не показываем
+                return cand.filter((_, i) => !verdict[i]).map(x => {
+                    const ns = (String(x.price || '').replace(/(?<=\d)[\s\u00a0,.](?=\d{3}(?!\d))/g, '').match(/\d+/g) || []).map(Number);
+                    return ns.length && Math.max(...ns) < 10 ? { ...x, price: '' } : x;
+                });
             };
             let found = await sift(await run(dbg));
             // Поиск отвечает не всегда с первого раза (то пусто, то находит): одна повторная попытка
