@@ -2728,7 +2728,7 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
 const BOARD_HOSTS = { 'ola.tj': 'https://ola.tj/category/', 'paydo.tj': 'https://paydo.tj/ru/all/' };
 const BOARD_WAIT_MS = 8000;           // дольше не ждём медленный сайт: покажем остальные, а его список ляжет в запас
 const BOARD_CACHE = new Map();        // адрес → { at, p }
-const BOARD_CACHE_MS = 5 * 60 * 1000, BOARD_CACHE_MAX = 60;
+const BOARD_CACHE_MS = 20 * 60 * 1000, BOARD_CACHE_MAX = 60; // списки других сайтов держим 20 минут: ola.tj грузится долго
 const htmlText = s => decodeEntities(String(s || '').replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
 
 // ola.tj: карточки <article class="ola-card"> прямо в странице раздела
@@ -2802,8 +2802,8 @@ function parsePaydoAds(html, max = 60) {
 function boardGet(host, url) {
     const hit = BOARD_CACHE.get(url);
     if (hit && Date.now() - hit.at < BOARD_CACHE_MS) return hit.p;
-    // ola.tj бывает медленным (до 12 с): ждём страницу до 15 с, но человек ждёт не дольше BOARD_WAIT_MS — остальное ляжет в запас
-    const p = fetchPage(url, { cap: 2500000, timeoutMs: 15000 }).then(r => {
+    // ola.tj бывает медленным (страница раздела ~600 КБ, 8–15 с): грузим до 25 с, но человек ждёт не дольше BOARD_WAIT_MS — остальное ляжет в запас
+    const p = fetchPage(url, { cap: 2500000, timeoutMs: 25000 }).then(r => {
         const list = host === 'ola.tj' ? parseOlaCards(r.html) : parsePaydoAds(r.html);
         if (!list.length) throw new Error('в странице нет списка');
         return list;
