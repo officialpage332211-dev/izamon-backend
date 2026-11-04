@@ -4088,7 +4088,9 @@ async function handleDiag(req, res) {
                     try {
                         const raw = await askOpenAISearch(buildSystemPrompt({ mode: routed.mode, lang: diagLang, canSearch: true, date: todayTJ() }), query);
                         const t0 = cleanModelText(raw.text);
-                        trace = { raw: t0.slice(0, 700), sources: raw.sources.map(x => hostOf(x.uri)).slice(0, 6), mixed: mixedLanguage(t0, diagLang), needsRewrite: needsRewrite(t0, diagLang), afterHaram: dropHaramLines(t0, true).slice(0, 500), afterMixed: dropMixedLines(dropHaramLines(t0, true), diagLang).slice(0, 500) };
+                        const why = x => { const t = String(x).replace(/<[^>]*>/g, ' ').replace(/https?:\/\/\S+/g, ' ').replace(/(?<![\p{L}])[\p{L}\d-]+\.(?:tj|com|ru|org|net|uz|io|me|info)(?![\p{L}])/giu, ' '); const o = []; for (const re of [RU_LEAK, RU_WORDS, RU_ENDINGS, /[ыщьц]/i, /(?<![A-Za-z\u00C0-\u024F])[a-z\u00DF-\u024F][a-z\u00DF-\u024F]{3,}(?![A-Za-z\u00C0-\u024F])/]) { const m = t.match(re); if (m) o.push(m[0]); } return o; };
+                        const rw = await rewriteForUser(t0, { mode: routed.mode, lang: diagLang, date: todayTJ(), tips: true });
+                        trace = { raw: t0.slice(0, 500), sources: raw.sources.map(x => hostOf(x.uri)).slice(0, 6), mixed: mixedLanguage(t0, diagLang), gemini: geminiUp(), rewritten: rw.slice(0, 600), rewrittenMixed: mixedLanguage(rw, diagLang), why: why(rw), afterHaram: dropHaramLines(rw, true).slice(0, 400) };
                     } catch (e) { trace = { error: String(e.message || e).slice(0, 160) }; }
                 }
                 return { lang: diagLang, routed, provider: res.body.provider, view: res.body.view || null, tips: (String(res.body.answer || '').match(/class="iz-tip"/g) || []).length, plain, sources: (res.body.sources || []).length, trace };
