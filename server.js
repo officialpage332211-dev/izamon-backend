@@ -190,7 +190,7 @@ const PORTAL_RULES = [
     { re: /маслиҳатҳо|^советы$|^maslahat$/, mode: 'digest', kind: 'tips',
       query: 'Найди 4 практичных, проверенных источниками совета для жителей Таджикистана по семейному бюджету, экономии при покупках, накоплениям и малой торговле. Без инвестиций и финансовых продуктов. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение с конкретикой из источника. Без вступительных слов.' },
     { re: /^(?:кишт|посев|ekin)$/, mode: 'digest', kind: 'sowing',
-      query: d => `Сегодня ${String(d.human).replace(/\.+$/, '')}. Найди в агро-источниках (сайты Министерства сельского хозяйства Таджикистана, agro.tj, khovar.tj, asiaplus.news, сайты по огородничеству и садоводству) что сеять и сажать в Таджикистане именно в текущем месяце: только культуры, которые сеют или сажают сейчас, с учётом климата Таджикистана. Ответ — РОВНО 3 строки. Формат каждой строки: эмодзи культуры, название культуры из 1–2 слов, двоеточие, одно простое предложение до 20 слов: срок посева (месяц) и главный приём ухода. Ничего не придумывай: нет данных — меньше строк. Без вступления.` },
+      query: d => `Сегодня ${String(d.human).replace(/\.+$/, '')}. Найди в агро-источниках Таджикистана (khovar.tj, сайт Министерства сельского хозяйства, agro.tj, asiaplus.news, аграрные сайты) что сеять и сажать именно в этом месяце. Бери только то, что прямо написано в источниках про этот месяц или эту осень, с учётом климата Таджикистана. Ответ — РОВНО 3 строки, каждая в таком виде: эмодзи, пробел, название культуры (1–2 слова), двоеточие, пробел, одно простое предложение до 20 слов: когда сеять или сажать (месяц или декада) и один главный приём ухода с цифрой, если она есть в источнике (глубина, норма, срок полива). Без общих фраз вроде «регулярный полив». Нет данных — напиши меньше строк. Без вступления, без ссылок в тексте.` },
     { re: /чорводорӣ|животноводств|^chorva$/, mode: 'ads',
       somon: { sources: [{ path: 'zhivotnyie-i-rasteniya/skot/' }, { path: 'zhivotnyie-i-rasteniya/ptitsyi/' }, { path: 'zhivotnyie-i-rasteniya/kroliki/' }], notWords: PET_BIRDS, facts: 'livestock', fixed: 'livestock' },
       query: 'Найди актуальные объявления о продаже скота и птицы в Таджикистане (коровы, быки, овцы, козы, лошади, птица), сначала на somon.tj: что за животное, возраст, вес, цена, место, контакт продавца. Домашних питомцев (кошки, собаки) не показывай.' },
@@ -538,6 +538,13 @@ const TEXT_CARDS = {
     sowing: { icon: '🌱', head: { tg: 'Кишт', ru: 'Посев', uz: 'Ekin' }, max: 3 }
 };
 const TIP_LINE = /^(\p{Extended_Pictographic}(?:[\uFE0F\u200D]|\p{Extended_Pictographic})*)\s*(.*)$/su;
+// Модель иногда пишет «🌾Пшеница:Посев в ноябре» без пробелов — тогда строка не узнаётся как карточка. Ставим пробел после значка и после двоеточия в заголовке.
+function spaceTipLines(text) {
+    const EMO = '\\p{Extended_Pictographic}(?:[\\uFE0F\\u200D]|\\p{Extended_Pictographic})*';
+    const lead = new RegExp(`^(${EMO})\\s*`, 'u');
+    const colon = new RegExp(`^((?:${EMO}\\s+)?(?:\\*\\*)?[^:*\\n]{2,50}?(?:\\*\\*)?):(?=[^\\s\\d/])`, 'u');
+    return String(text).split('\n').map(line => line.trim().replace(lead, '$1 ').replace(colon, '$1: ')).join('\n');
+}
 function tipsAnswer(text, sources, lang, key = 'tips') {
     const cfg = TEXT_CARDS[key] || TEXT_CARDS.tips;
     const cards = String(text).split('\n').map(l => l.trim()).filter(Boolean).slice(0, cfg.max).map(line => {
@@ -2072,7 +2079,7 @@ const FARM_L = {
 const nw = w => new RegExp(`(?<![\\p{L}\\d])(?:${w})`, 'iu');
 // порядок важен: сначала детёныши и узкие названия, потом общие; названия — [русский, таджикский, узбекский]
 const ANIMALS = [
-    [nw('телён\\S*|телен\\S*|тёлк\\S*|телк\\S*|гун[уо]чин\\S*|гунаҷин\\S*|гӯсола\\S*|гусола\\S*|говча\\S*|buzoq\\S*'), ['Телёнок', 'Гӯсола', 'Buzoq']],
+    [nw('телён\\S*|телен\\S*|тёлк\\S*|телк\\S*|[гғ]ун[оуа][чҷ]ин\\S*|гӯсола\\S*|гусола\\S*|говча\\S*|buzoq\\S*'), ['Телёнок', 'Гӯсола', 'Buzoq']],
     [nw('бык(?![\\p{L}])|быка|быки|быков|быч\\S*|бугай\\S*|барзагов\\S*|buqa'), ['Бык', 'Барзагов', 'Buqa']],
     [nw('коров\\S*|гов(?:и|ҳо|ӣ)?(?![\\p{L}])|sigir\\S*'), ['Корова', 'Гов', 'Sigir']],
     [nw('ягн\\S*|барра\\S*|qo.zi(?![\\p{L}])'), ['Ягнёнок', 'Барра', "Qo'zi"]],
@@ -3012,7 +3019,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                     let text = cleanModelText(r.text);
                     if (TEXT_CARDS[kind]) {
                         // запретное убираем до перевода; переводим только если ответ не на языке человека
-                        text = dropHaramLines(text, true);
+                        text = dropHaramLines(spaceTipLines(text), true);
                         if (kind === 'mmt') text = dropStaleDates(text, date.iso);
                         if (text.trim() && mixedLanguage(text, lang)) text = (await translateTips(text, { lang })) || '';
                     } else if (needsRewrite(text, lang)) text = await rewriteForUser(text, { mode, lang, date });
@@ -4674,5 +4681,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, spaceTipLines, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
