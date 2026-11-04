@@ -2860,12 +2860,14 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
         }
     }
     flat.sort((x, y) => (x.age - y.age) || (x.n - y.n));
-    // Объявления с фото — вперёд; без фото берём, только если с фото слишком мало.
-    const need = flat.filter(x => x.a.images[0] || x.a.thumb).length >= 3;
+    // Объявления с фото — вперёд; без фото берём, только если с фото слишком мало. Считаем по каждому сайту отдельно:
+    // у вакансий somon.tj фото нет совсем, а у paydo.tj есть — один сайт не должен вытеснять другой.
+    const withPhoto = {};
+    for (const x of flat) if (x.a.images[0] || x.a.thumb) withPhoto[x.host] = (withPhoto[x.host] || 0) + 1;
     const ok = x => {
         const a = x.a;
         const photo = a.images[0] || a.thumb || '';
-        if (need && !photo) return false;
+        if ((withPhoto[x.host] || 0) >= 3 && !photo) return false;
         const textKey = `${a.title.toLowerCase()}|${a.who.toLowerCase()}`;
         const whoKey = a.who ? `${x.host}|${a.who.toLowerCase()}` : '';
         // повтор одного и того же объявления (в том числе на другом сайте) или одной и той же фотографии не показываем; больше двух объявлений одного продавца тоже
