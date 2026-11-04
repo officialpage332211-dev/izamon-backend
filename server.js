@@ -275,6 +275,45 @@ function buildUserText({ mode, cleaned }) {
     return cleaned;
 }
 
+// ---------- Поиск по ключевым словам ----------
+// Человек пишет «водитель», «iPhone 13 Pro», «диван Худжанд», «ищу работу бухгалтером»: ключевые слова ищем прямо в поиске
+// сайтов объявлений (somon.tj, paydo.tj) — так же, как человек искал бы сам, — а не пересказом через модель.
+const KW_STOP = new Set(('найди найти найдите ищу ищем ищет поищи покажи показать нужен нужна нужно нужны надо хочу хотим купить куплю покупаю '
+    + 'продам продаю продажа продается продаётся продаются сдам сдаю сниму арендую есть где можно мне нам меня для в во на по с со и или а из от до у о об '
+    + 'недорого дешево дёшево дешевле срочно новый новая новое новые бу б/у объявление объявления объявлений цена цены цену сколько стоит стоят '
+    + 'работа работу работы работе вакансия вакансии вакансий требуется требуются нужен ищу_работу '
+    + 'душанбе худжанд хуҷанд бохтар куляб кӯлоб кулоб турсунзаде турсунзода истаравшан пенджикент панҷакент гиссар ҳисор вахдат ваҳдат таджикистан тоҷикистон '
+    + 'мехоҳам лозим харид харидан фурӯш фурӯхтан кор ҷои ҷустуҷӯ дар бо барои аз то ва ё ки '
+    + 'kerak sotiladi sotaman sotib olaman ish izlayman qidiraman uchun va bilan dushanbe xujand').split(/\s+/));
+const KW_ASK = /[?？]|(?<![\p{L}])(?:что|чем|как|почему|зачем|кто|когда|какой|какая|какие|каков|сколько\s+лет|расскажи|объясни|что\s+такое|чӣ|чаро|кай|кӣ|чӣ\s+тавр|чанд|nima|nega|qanday|qachon|kim)(?![\p{L}])/iu;
+// справки, а не объявления: погода, новости, законы, курсы, расписания
+const KW_INFO = /(?<![\p{L}])(?:погод|новост|хабар|закон|қонун|налог|андоз|расписани|курс\s+(?:валют|доллар|рубл)|ob-havo|yangilik|qonun|soliq|рецепт|тарих|история)/iu;
+const KW_TALK = /^(?:привет|здравствуй(?:те)?|салом|салам|ассалому|assalomu|salom|спасибо|рахмат|раҳмат|rahmat|ташаккур|ок|ok|да|нет|ҳа|не|ha|yo['’]?q|пока|хайр|хорошо|понятно|ладно|хуб|xo['’]?p|тест|test)[!.\s]*$/iu;
+
+function keywordQuery(text) {
+    const words = String(text || '').toLowerCase().replace(/ё/g, 'е').replace(/[«»"“”„()\[\]{}!?.,;:]+/g, ' ').split(/\s+/).filter(Boolean);
+    const kept = words.filter(w => !KW_STOP.has(w) && /[\p{L}\d]/u.test(w) && w.length >= 2).slice(0, 4);
+    const q = kept.join(' ');
+    return q.replace(/[^\p{L}\d]/gu, '').length >= 3 ? q : '';
+}
+
+// Слова для сверки найденного: корни ключевых слов (первые 5 букв); цифры («13», «256») — как есть.
+function keywordWords(q) {
+    const stems = String(q).split(/\s+/).filter(Boolean).map(w => /^\d+$/.test(w) ? w : w.slice(0, Math.max(3, Math.min(5, w.length - 1)))).filter(w => w.length >= 2);
+    return stems.length ? new RegExp(stems.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'iu') : null;
+}
+
+// Набор для прямого поиска (somon.tj + paydo.tj) или null, если запрос — вопрос, разговор или справка.
+function keywordSpec(text, mode) {
+    const t = String(text || '').trim();
+    if (!t || t.length > 80 || KW_TALK.test(t)) return null;
+    if (mode === 'general' && (KW_ASK.test(t) || KW_INFO.test(t) || t.split(/\s+/).length > 6)) return null;
+    if (mode !== 'general' && mode !== 'ads' && mode !== 'jobs') return null;
+    const q = keywordQuery(t);
+    if (!q) return null;
+    return { q, sources: [{ q }], boards: [{ host: 'paydo.tj', q }], words: keywordWords(q), ...(mode === 'jobs' ? { cat: /\/vakansii\//, facts: 'job', fixed: 'job' } : {}), keyword: true };
+}
+
 // Единая точка выбора: режим, нужен ли поиск, текст запроса к модели.
 // Любая кнопка раздела — это всегда запрос с поиском, никаких «подсказок раздела».
 const KIND_OF_MODE = { ads: 'ads', jobs: 'jobs', finance: 'rates' };
@@ -2815,6 +2854,8 @@ function boardGet(host, url) {
 }
 
 function boardUrl(b) {
+    // поиск по словам: paydo.tj сам находит нужный раздел («iphone» → Телефоны → Apple); у ola.tj адреса поиска нет
+    if (b && b.q) return b.host === 'paydo.tj' ? `https://paydo.tj/ru/all?q=${encodeURIComponent(String(b.q).slice(0, 80))}` : null;
     const base = BOARD_HOSTS[b && b.host];
     if (!base || !/^[a-z0-9\-]{2,80}$/i.test(b.path || '')) return null;
     return base + b.path + (b.host === 'paydo.tj' ? '?sorting=date' : '');
@@ -3703,7 +3744,18 @@ async function handleChat(req, res) {
     const followUp = !topic && lastUser && cleaned.length <= 60;
     const routeOn = followUp ? `${lastUser.content} ${cleaned}` : cleaned;
     const routed = routeRequest({ cleaned: routeOn, topic, category });
-    const { mode, factual, kind, somon } = routed;
+    let { mode, factual, kind, somon } = routed;
+    // Набранный запрос («водитель», «iPhone 13», «диван»): сначала прямой поиск по сайтам объявлений
+    if (!topic && !somon && process.env.KEYWORD_SEARCH !== 'off') {
+        const kw = keywordSpec(followUp ? cleaned : routeOn, mode);
+        if (kw && (mode === 'ads' || mode === 'jobs')) { somon = kw; kind = mode === 'jobs' ? 'jobs' : 'ads'; factual = true; }
+        else if (kw) {
+            // общий запрос без явных слов «купить/работа»: карточки показываем, только если сайты действительно нашли (3 и больше)
+            let found = [];
+            try { found = await withTimeout(somonListings(kw, 'ads', null, lang), 12000); } catch { found = []; }
+            if (found.length >= 3) { mode = 'ads'; kind = 'ads'; factual = true; somon = kw; }
+        }
+    }
     const userText = withHistory(followUp ? cleaned : routed.userText, history);
     const detectOn = topic || cleaned;
     const fullMessage = category ? `[Подраздел: ${category}] ${userText}` : userText;
@@ -5700,5 +5752,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
