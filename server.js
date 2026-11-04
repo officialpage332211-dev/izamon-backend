@@ -2861,7 +2861,12 @@ async function localizeItems(items, lang, debug) {
 }
 
 async function localizeItemsModel(items, lang, debug) {
-    const note = extra => { if (debug) Object.assign(debug, extra); };
+    const note = extra => {
+        if (!debug) return;
+        Object.assign(debug, extra);
+        // Для проверки: все сбои по порядку (последняя запись localizeError может быть повтором ответа первой модели)
+        if (extra.localizeError) (debug.locErrs = debug.locErrs || []).push(String(extra.localizeError).slice(0, 90));
+    };
     if (!items.length) return items;
     // Русский сайт: переводим, только если в карточках таджикские буквы.
     if (lang === 'ru' && !items.some(it => NEEDS_TRANSLATE_RU.test(itemTexts(it)))) return items;
@@ -5256,7 +5261,7 @@ async function handleDiag(req, res) {
         const c = out.cards_test;
         return res.json({
             v: out.version, gem: out.geminiPauseSec, item: out.item || null, lang: c.lang || null, ok: c.ok, ms: c.ms, err: c.error ? String(c.error).slice(0, 120) : undefined,
-            items: c.items, img: c.withImage, loc: c.localized, locMs: c.localizeMs, locErr: c.localizeError ? String(c.localizeError).slice(0, 40) : undefined,
+            items: c.items, img: c.withImage, loc: c.localized, locMs: c.localizeMs, locErr: c.localizeError ? String(c.localizeError).slice(0, 40) : undefined, locErrs: c.locErrs,
             provider: c.provider, tips: c.tips, plain: c.plain ? String(c.plain).slice(0, 220) : undefined,
             titles: Array.isArray(c.pointsAll) ? c.pointsAll.map(x => String(x).split(' => ')[0].slice(0, 50)) : undefined
         });
