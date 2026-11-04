@@ -5295,6 +5295,28 @@ async function handleDiag(req, res) {
     if (process.env.DIAG_KEY && req.query?.k !== process.env.DIAG_KEY) return res.status(403).json({ error: 'forbidden' });
     if (diagLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
     if (req.query?.channel === '1') return res.json({ date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), channel_test: await diagChannel() });
+    // Как устроены страницы других сайтов объявлений (для прямого подключения): /diag?peek=https://arzon.tj/…&find=текст&from=0&len=2000
+    // Только чтение, только arzon.tj, ola.tj, paydo.tj.
+    if (/^https:\/\/(?:www\.)?(?:arzon|ola|paydo)\.tj(?:\/[\w\-./%?=&]{0,200})?$/.test(String(req.query?.peek || ''))) {
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), peek: await timed(async () => {
+            const page = await fetchPage(String(req.query.peek), { cap: 2500000, timeoutMs: 12000 });
+            const html = String(page.html || '');
+            const from = Math.max(0, Number(req.query.from) || 0), len = Math.min(3500, Number(req.query.len) || 1500);
+            const find = String(req.query.find || '');
+            const at = find ? html.indexOf(find) : -1;
+            const links = [...new Set([...html.matchAll(/href=["']([^"']+)["']/g)].map(m => m[1]).filter(h => /\d{4,}/.test(h)))].slice(0, 25);
+            return {
+                url: page.url, len: html.length,
+                title: ((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '').trim().slice(0, 150),
+                scripts: [...html.matchAll(/<script\b([^>]*)>/gi)].map(m => m[1].trim().slice(0, 80)).slice(0, 30),
+                markers: ['__NEXT_DATA__', '__NUXT__', 'self.__next_f', '__INITIAL_STATE__', 'application/ld+json', 'og:image', 'wire:', 'data-page', 'livewire', 'inertia'].filter(k => html.includes(k)),
+                ld: [...html.matchAll(/"@type"\s*:\s*"([A-Za-z]+)"/g)].map(m => m[1]).slice(0, 12),
+                links,
+                findAt: at, findCtx: at >= 0 ? html.slice(Math.max(0, at - 300), at + len).replace(/\s+/g, ' ') : null,
+                slice: at >= 0 ? null : html.slice(from, from + len).replace(/\s+/g, ' ')
+            };
+        }) });
+    }
     // /diag?orders=1: проверка таблиц заявок на настоящей базе. Пишет одну пробную строку (заявка с номером 0 и продавцом «diag») и сразу её удаляет.
     if (req.query?.orders === '1') {
         const t = { version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ordersTable: await tableReady('orders'), sellerTgTable: await tableReady('seller_tg') };
