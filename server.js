@@ -297,10 +297,14 @@ function keywordQuery(text) {
     return q.replace(/[^\p{L}\d]/gu, '').length >= 3 ? q : '';
 }
 
-// Слова для сверки найденного: корни ключевых слов (первые 5 букв); цифры («13», «256») — как есть.
-function keywordWords(q) {
-    const stems = String(q).split(/\s+/).filter(Boolean).map(w => /^\d+$/.test(w) ? w : w.slice(0, Math.max(3, Math.min(5, w.length - 1)))).filter(w => w.length >= 2);
-    return stems.length ? new RegExp(stems.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|'), 'iu') : null;
+// Сверка найденного: в названии должны быть все слова запроса (корни — первые 5 букв), числа («13», «256») — отдельным числом.
+// Если по названиям нашлось мало, keywordLoose разрешает искать слова и в тексте объявления.
+function keywordStems(q) {
+    return String(q).split(/\s+/).filter(Boolean).map(w => /^\d+$/.test(w) ? w : w.slice(0, Math.max(3, Math.min(5, w.length - 1)))).filter(w => w.length >= 2);
+}
+function keywordHas(text, stems) {
+    const t = String(text || '').toLowerCase().replace(/ё/g, 'е');
+    return stems.every(st => /^\d+$/.test(st) ? new RegExp(`(?<!\\d)${st}(?!\\d)`).test(t) : t.includes(st));
 }
 
 // Набор для прямого поиска (somon.tj + paydo.tj) или null, если запрос — вопрос, разговор или справка.
@@ -311,7 +315,8 @@ function keywordSpec(text, mode) {
     if (mode !== 'general' && mode !== 'ads' && mode !== 'jobs') return null;
     const q = keywordQuery(t);
     if (!q) return null;
-    return { q, sources: [{ q }], boards: [{ host: 'paydo.tj', q }], words: keywordWords(q), ...(mode === 'jobs' ? { cat: /\/vakansii\//, facts: 'job', fixed: 'job' } : {}), keyword: true };
+    const stems = keywordStems(q);
+    return { q, sources: [{ q }], boards: [{ host: 'paydo.tj', q }], stems, ...(mode === 'jobs' ? { cat: /\/vakansii\//, facts: 'job', fixed: 'job' } : {}), keyword: true };
 }
 
 // Единая точка выбора: режим, нужен ли поиск, текст запроса к модели.
@@ -2885,6 +2890,13 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
         }
     }));
     const seenId = new Set(), seenPhoto = new Set(), seenText = new Set(), seenNorm = new Map(), perWho = Object.create(null);
+    // поиск по ключевым словам: все слова — в названии; если так набралось меньше трёх — в названии или тексте объявления
+    let kwLoose = false;
+    if (spec.stems && spec.stems.length) {
+        const strict = lists.reduce((n, l) => n + l.filter(a => keywordHas(a.title, spec.stems)).length, 0);
+        kwLoose = strict < 3;
+        stat.keyword = { stems: spec.stems, strict, loose: kwLoose };
+    }
     const flat = [];
     for (const [li, list] of lists.entries()) {
         stat.parsed += list.length;
@@ -2892,6 +2904,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
         const words = j.words || spec.words;
         const somon = j.host === 'somon.tj';
         for (const a of list) {
+            if (spec.stems && spec.stems.length && !keywordHas(kwLoose ? `${a.title} ${a.description}` : a.title, spec.stems)) continue;
             // рубрики (cat) есть только у somon.tj; ola.tj и paydo.tj и так берутся из нужного раздела
             if ((somon && spec.cat && !spec.cat.test(a.cats)) || (somon && spec.notCat && spec.notCat.test(a.cats)) || (words && !words.test(`${a.title} ${a.description}`)) || (spec.notWords && spec.notWords.test(a.title)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
             // вакансии: работу, которой на iZamoN нет места, тихо пропускаем
