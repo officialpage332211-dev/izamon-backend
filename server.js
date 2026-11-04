@@ -214,10 +214,10 @@ const PORTAL_RULES = [
       query: 'Найди актуальные объявления мастеров на дом в Таджикистане (ремонт и отделка квартир, сборка мебели, мелкий бытовой ремонт, «мастер на час»), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Электриков, сантехников и автомехаников отдельно не выделяй: показывай мастеров общего профиля.' },
     // Остальные подразделы с объявлениями: тот же прямой список somon.tj, что и у недвижимости (фото, цена, место, контакт из текста объявления).
     { re: /^(?:мошинҳо|машины|mashinalar)$/, mode: 'ads',
-      somon: { sources: [{ path: 'transport/legkovyie-avtomobili/' }], facts: 'car' },
+      somon: { sources: [{ path: 'transport/legkovyie-avtomobili/' }], facts: 'car', fixed: 'car' },
       query: 'Найди актуальные объявления о продаже легковых автомобилей в Таджикистане, сначала на somon.tj: марка и модель, год, пробег, цена, город, контакт продавца. Только продажа машин: запчасти и услуги не показывай.' },
     { re: /^(?:қисмҳои\s+эҳтиётӣ|запчасти|qismlar)$/, mode: 'ads',
-      somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], facts: 'parts' },
+      somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], facts: 'parts', fixed: 'parts' },
       query: 'Найди актуальные объявления о продаже автозапчастей, шин и дисков в Таджикистане, сначала на somon.tj: что за деталь, для какой машины, состояние, цена, город, контакт продавца.' },
     { re: /^(?:мебел|мебель|mebel)$/, mode: 'ads',
       somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], facts: 'furniture' },
@@ -904,8 +904,8 @@ function cardHtml(it, kind, lang) {
     // характеристики плитками 2×2, как в образце: «Ключ: значение» → подпись + значение
     // fixed — одинаковый для всех карточек раздела набор плиток (пустая показывается как «—»)
     const fixedTiles = (it.fixed || []).map(f => f.value
-        ? `<div class="iz-tile"><span>${escapeHtml(f.label)}</span><b>${escapeHtml(f.value)}</b></div>`
-        : `<div class="iz-tile iz-empty"><span>${escapeHtml(f.label)}</span><b>—</b></div>`).join('');
+        ? `<div class="iz-tile iz-fx"><span>${escapeHtml(f.label)}</span><b>${escapeHtml(f.value)}</b></div>`
+        : `<div class="iz-tile iz-fx iz-empty"><span>${escapeHtml(f.label)}</span><b>—</b></div>`).join('');
     const tiles = fixedTiles + (it.points || []).map(x => {
         const m = String(x).match(/^([^:]{2,25}):\s*(.+)$/);
         return m ? `<div class="iz-tile"><span>${escapeHtml(m[1])}</span><b>${escapeHtml(m[2])}</b></div>` : `<div class="iz-tile"><b>${escapeHtml(x)}</b></div>`;
@@ -963,9 +963,9 @@ function ownItems(rows, lang) {
             sellerSince: a.seller_since && Number.isFinite(Date.parse(a.seller_since)) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dushanbe' }).format(new Date(a.seller_since)).split('-').reverse().join('.') : '',
             sellerCount: Number(a.seller_count) || 0,
             points: adPoints(a.description),
-            _estate: String(a.category || '') === 'estate'
+            _cat: String(a.category || '')
         };
-    }).map(it => { const e = it._estate; delete it._estate; return e ? { ...it, ...estateSlots(it, lang || 'ru', 'estate') } : it; });
+    }).map(it => { const c = it._cat; delete it._cat; return c === 'estate' ? { ...it, ...estateSlots(it, lang || 'ru', 'estate') } : c === 'transport' ? { ...it, ...carSlots(it, lang || 'ru') } : it; });
 }
 
 function ownCards(rows, lang) {
@@ -1556,6 +1556,83 @@ function estateSlots(it, lang, mode) {
     return { fixed: slots, points: rest.slice(0, 3) };
 }
 
+// ---------- «Транспорт»: одинаковые карточки у «Машины» и «Запчасти» ----------
+// Машины: Год, Пробег, КПП, Топливо. Запчасти: Состояние, Марка авто, Радиус. Чего нет — «—» (ничего не выдумываем).
+// Данные: название, готовые характеристики, описание продавца и строка характеристик на странице объявления somon.tj.
+function pageSpecs(html) {
+    const m = String(html || '').match(/<meta\s+name="keywords"\s+content="([^"]*)"/i);
+    if (!m) return null;
+    const kw = m[1].replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+    const pick = re => { const x = kw.match(re); return x ? x[1].trim().slice(0, 40) : ''; };
+    const out = {
+        year: pick(/(?:^|,\s)Год выпуска\s+(\d{4})(?=,|$)/),
+        mileage: pick(/(?:^|,\s)Пробег\s+(\d[\d\s]*?)\s*км/i),
+        gearbox: pick(/(?:^|,\s)Коробка передач\s+([^,]+)/),
+        // несколько видов топлива сайт может перечислить через запятую: «Бензин, Газ»
+        fuel: pick(/(?:^|,\s)Вид топлива\s+([^,]+(?:,\s*(?:Бензин|Газ|Дизель|Гибрид|Электро|Метан|Пропан)(?=,|$))*)/i),
+        engine: pick(/(?:^|,\s)Объем двигателя\s+(\d[.,]\d)\s*л/),
+        state: pick(/(?:^|,\s)Состояние\s+([^,]+)/),
+        brand: pick(/(?:^|,\s)Марка автомобиля\s+([^,]+)/),
+        radius: pick(/(?:^|,\s)Радиус\s+(R\s?\d{2}(?:[.,]\d)?)(?=,|$)/i)
+    };
+    return Object.values(out).some(Boolean) ? out : null;
+}
+const FUEL_ALL = FUEL_WORDS.concat([[/(?<![\p{L}])(?:газ|метан|пропан)(?![\p{L}])/iu, ['Газ', 'Газ', 'Gaz']]]);
+const GEAR_ALL = GEAR_WORDS.concat([[/(?<![\p{L}])робот\S*/iu, ['Робот', 'Робот', 'Robot']]]);
+// слова с сайта (по-русски) → слова на языке карточки; незнакомое слово на таджикском/узбекском не показываем (чтобы не смешивать языки)
+function wordsIn(raw, table, lang, sep) {
+    const t = String(raw || '');
+    const hit = table.filter(([re]) => re.test(t)).map(([, tr]) => tr[LI[lang] ?? 0]);
+    if (hit.length) return hit.join(sep);
+    return lang === 'ru' && t && t.length <= 20 && !blankValue(t) ? t : '';
+}
+const valueOf = p => String(p).replace(/^[^:]*:\s*/, '').trim();
+function carSlots(it, lang, extra = {}) {
+    const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru;
+    const sp = extra.specs || {};
+    const pts = Array.isArray(it.points) ? it.points : [];
+    const find = re => { const p = pts.find(x => re.test(String(x).split(':')[0])); return p ? valueOf(p) : ''; };
+    const okv = v => (v && !blankValue(v) ? v : '');
+    // текст продавца: описание со страницы и из списка (то, что он написал сам)
+    const text = { title: String(it.title || ''), description: [extra.desc, it.listDesc].filter(Boolean).join(' ') };
+    const fx = (key, ...more) => okv(valueOf(FX[key](text, L, V, lang, ...more) || ''));
+    let year = okv(find(/год|сол|yil/i)) || fx('year') || sp.year || '';
+    let mileage = okv(find(/пробег|километр|масофа|yurgan|probeg/i)) || fx('mileage');
+    if (!mileage && sp.mileage) { const n = +String(sp.mileage).replace(/\D/g, ''); if (n >= 1000 && n <= 999999) mileage = `${fmtNum(n)} ${V.km}`; }
+    const gearbox = okv(find(/кпп|коробк|қутти|uzatma/i)) || wordsIn(sp.gearbox, GEAR_ALL, lang, '/') || fx('gearbox');
+    let fuel = okv(find(/топлив|сӯзишвор|yoqilg/i)) || wordsIn(sp.fuel, FUEL_ALL, lang, '/') || fx('fuel');
+    const engine = okv(find(/двигател|муҳаррик|dvigatel/i)) || (sp.engine ? `${sp.engine.replace(',', '.')} ${V.l}` : '') || fx('engine');
+    if (fuel && engine) fuel = `${fuel} ${engine}`;
+    return {
+        fixed: [{ label: L.year, value: year }, { label: L.mileage, value: mileage }, { label: L.gearbox, value: gearbox }, { label: L.fuel, value: fuel }],
+        points: []
+    };
+}
+const PARTS_L = {
+    ru: { brand: 'Марка авто', radius: 'Радиус' },
+    tg: { brand: 'Маркаи мошин', radius: 'Радиус' },
+    uz: { brand: 'Avto markasi', radius: 'Radius' }
+};
+function partsSlots(it, lang, extra = {}) {
+    const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru, P = PARTS_L[lang] || PARTS_L.ru;
+    const sp = extra.specs || {};
+    const pts = Array.isArray(it.points) ? it.points : [];
+    const st = pts.find(x => /состоян|ҳолат|holati/i.test(String(x).split(':')[0]));
+    let state = st ? valueOf(st) : '';
+    if (!state && sp.state) state = /нов|нав/i.test(sp.state) ? V.fresh : /б\s?\/\s?у|подерж|использ|с пробегом/i.test(sp.state) ? V.used : '';
+    if (!state) state = valueOf(FX.state({ title: String(it.title || ''), description: '' }, L, V) || '');
+    let radius = '';
+    const rm = (sp.radius || '').match(/R\s?(\d{2}(?:[.,]\d)?)/i) || String(it.title || '').match(/(?<![\p{L}\d])R\s?(\d{2})(?![\d])/iu);
+    if (rm) radius = `R${rm[1].replace(',', '.')}`;
+    const brand = sp.brand && !blankValue(sp.brand) ? sp.brand.slice(0, 24) : '';
+    return { fixed: [{ label: L.state, value: state }, { label: P.brand, value: brand }, { label: P.radius, value: radius }], points: [] };
+}
+function fixedSlots(it, lang, mode, extra) {
+    if (mode === 'car') return carSlots(it, lang, extra);
+    if (mode === 'parts') return partsSlots(it, lang, extra);
+    return estateSlots(it, lang, mode);
+}
+
 function somonNote(a, nPts) {
     // Текст продавца режем по целому слову и ставим «…» — не посреди слова и не посреди числа.
     const full = clip(a.description, 2000);
@@ -1722,7 +1799,7 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
         image: a.images[0] || a.thumb || null,
         points: pts
     }), contact: somonContacts(a.description), trusted: true, pub: parsePublished(a.published), pn: pp ? pp.n : 0, pc: pp ? pp.c : '',
-    det: { title: titleOk, price: priceOk }, note, gallery0: a.images.slice(0, 16), photoCount: Math.min(a.imgCount || a.images.length || 0, 16) };
+    det: { title: titleOk, price: priceOk }, note, listDesc: clip(a.description, 400), gallery0: a.images.slice(0, 16), photoCount: Math.min(a.imgCount || a.images.length || 0, 16) };
 }
 
 // Список объявлений для карточек: spec.sources — страницы (поиск q= или раздел path=), spec.cat/spec.words — что считать подходящим.
@@ -1807,7 +1884,7 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
         const age = kind === 'tickets' || kind === 'tours' ? null : (t.pub ? t.pub.ageMin : ageFromDate(it.date));
         const base = { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
-        return fixed ? { ...base, ...estateSlots(base, lang, fixed) } : base;
+        return fixed ? { ...base, ...fixedSlots(base, lang, fixed, { specs: photos.specs && photos.specs[i], desc: photos.descs && photos.descs[i] }) } : base;
     });
 }
 
@@ -2754,35 +2831,35 @@ async function resolvePhotos(items, debug) {
     const one = async (it) => {
         if (!isListingUrl(it.url)) return { img: null, why: 'общая страница списка' };
         const hit = PHOTO_CACHE.get(it.url);
-        if (hit && Date.now() - hit.at < PHOTO_CACHE_MS) return { img: hit.img, why: hit.why, cached: true, gallery: hit.gallery || [], desc: hit.desc || '' };
+        if (hit && Date.now() - hit.at < PHOTO_CACHE_MS) return { img: hit.img, why: hit.why, cached: true, gallery: hit.gallery || [], desc: hit.desc || '', specs: hit.specs || null };
         const cands = [];
-        let how = '', page = null, gallery = [], desc = '';
+        let how = '', page = null, gallery = [], desc = '', specs = null;
         try {
             page = await getPage(it.url);
             for (const c of pageImages(page.html, page.url)) cands.push({ url: c, from: 'page' });
-            if (it.trusted) { gallery = pageGallery(page.html, it.photoCount || 16); desc = pageDescription(page.html); }
+            if (it.trusted) { gallery = pageGallery(page.html, it.photoCount || 16); desc = pageDescription(page.html); specs = pageSpecs(page.html); }
             if (!cands.length) how = 'на странице нет фото в тегах';
         } catch (err) { how = `страница: ${String(err && err.message || err).slice(0, 40)}`; }
         if (it.image && sameSite(hostOf(it.image), hostOf(it.url))) cands.push({ url: it.image, from: 'model' });
         let last = how, soft = null;
         for (const c of cands.slice(0, 4)) {
             const bad = await checkImage(c.url);
-            if (!bad) return { img: c.url, why: c.from, gallery, desc };
+            if (!bad) return { img: c.url, why: c.from, gallery, desc, specs };
             if (bad[0] === '?') { if (!soft) soft = { c, bad }; last = `${c.from}: ${bad.slice(1)}`; continue; }
             last = `${c.from}: ${bad}`;
         }
         // Проверить не удалось (сайт не отвечает боту), но фото не признано плохим: браузер покупателя откроет его сам,
         // а битая ссылка просто покажет карточку без фото.
-        if (soft) return { img: soft.c.url, why: soft.c.from + '?', unchecked: true, gallery, desc };
+        if (soft) return { img: soft.c.url, why: soft.c.from + '?', unchecked: true, gallery, desc, specs };
         // В служебных тегах фото не было вовсе: пробуем крупные картинки из самой страницы (строгая проверка размера).
         if (page && !cands.some(c => c.from === 'page')) {
             for (const g of galleryImages(page.html, page.url).slice(0, 4)) {
                 const bad = await checkImage(g, { minW: 400, minH: 250, needSize: true });
-                if (!bad) return { img: g, why: 'gallery', gallery, desc };
+                if (!bad) return { img: g, why: 'gallery', gallery, desc, specs };
             }
             last = (last ? last + '; ' : '') + 'в галерее страницы нет подходящих';
         }
-        return { img: null, why: last || 'нет кандидатов', desc };
+        return { img: null, why: last || 'нет кандидатов', desc, specs };
     };
     const res = await Promise.all(items.map(it => withTimeout(one(it), 9500).catch(() => ({ img: null, why: 'время вышло' }))));
     // Одно и то же фото у разных объявлений — это картинка сайта, а не фото товара.
@@ -2794,7 +2871,7 @@ async function resolvePhotos(items, debug) {
             // запоминаем только удачу: сбой сети или таймаут не должен надолго лишать объявление фото
             if (r.img) {
                 if (PHOTO_CACHE.size >= PHOTO_CACHE_MAX) PHOTO_CACHE.delete(PHOTO_CACHE.keys().next().value);
-                PHOTO_CACHE.set(items[i].url, { at: Date.now(), img: r.img, why: r.why, gallery: r.gallery || [], desc: r.desc || '' });
+                PHOTO_CACHE.set(items[i].url, { at: Date.now(), img: r.img, why: r.why, gallery: r.gallery || [], desc: r.desc || '', specs: r.specs || null });
             }
         }
         if (r.img) { if (r.why.startsWith('model')) stat.fromModel++; else stat.fromPage++; if (r.unchecked) stat.unchecked = (stat.unchecked || 0) + 1; } else { stat.none++; why(r.why); }
@@ -2808,6 +2885,7 @@ async function resolvePhotos(items, debug) {
     const imgs = res.map(r => r.img);
     imgs.galleries = res.map(r => r.gallery || []);
     imgs.descs = res.map(r => r.desc || '');
+    imgs.specs = res.map(r => r.specs || null);
     return imgs;
 }
 
@@ -3747,7 +3825,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    priceParts, cheapFlags, ownItems, adPoints, estateSlots, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
+    priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
