@@ -290,9 +290,13 @@ const KW_ASK = /[?？]|(?<![\p{L}])(?:что|чем|как|почему|заче
 const KW_INFO = /(?<![\p{L}])(?:погод|новост|хабар|закон|қонун|налог|андоз|расписани|курс\s+(?:валют|доллар|рубл)|ob-havo|yangilik|qonun|soliq|рецепт|тарих|история)/iu;
 const KW_TALK = /^(?:привет|здравствуй(?:те)?|салом|салам|ассалому|assalomu|salom|спасибо|рахмат|раҳмат|rahmat|ташаккур|ок|ok|да|нет|ҳа|не|ha|yo['’]?q|пока|хайр|хорошо|понятно|ладно|хуб|xo['’]?p|тест|test)[!.\s]*$/iu;
 
+// Общие слова раздела («машина», «телефон»): убираем, только если рядом есть марка или модель («мошин toyota» → «toyota»)
+const KW_SOFT = new Set('машина машину машины машин мошин мошина мошинҳо авто автомобиль автомобили телефон телефона телефоны телефонҳо mashina telefon avtomobil'.split(' '));
 function keywordQuery(text) {
     const words = String(text || '').toLowerCase().replace(/ё/g, 'е').replace(/[«»"“”„()\[\]{}!?.,;:]+/g, ' ').split(/\s+/).filter(Boolean);
-    const kept = words.filter(w => !KW_STOP.has(w) && /[\p{L}\d]/u.test(w) && w.length >= 2).slice(0, 4);
+    let kept = words.filter(w => !KW_STOP.has(w) && /[\p{L}\d]/u.test(w) && w.length >= 2);
+    if (kept.some(w => !KW_SOFT.has(w))) kept = kept.filter(w => !KW_SOFT.has(w));
+    kept = kept.slice(0, 4);
     const q = kept.join(' ');
     return q.replace(/[^\p{L}\d]/gu, '').length >= 3 ? q : '';
 }
@@ -307,10 +311,24 @@ function keywordHas(text, stems) {
     return stems.every(st => /^\d+$/.test(st) ? new RegExp(`(?<!\\d)${st}(?!\\d)`).test(t) : t.includes(st));
 }
 
+// Запросы про жильё и землю ведём сразу в свой раздел (там подключены все сайты): «сниму квартиру» → аренда, «куплю дом» → продажа.
+const KW_HOME = /(?<![\p{L}])(?:квартир|комнат|дом(?:а|у|ом)?(?![\p{L}])|хавли|ҳавлӣ|хона(?![\p{L}])|хонаи|kvartira|xonadon|uy(?![\p{L}])|hovli)/iu;
+const KW_RENT = /(?<![\p{L}])(?:сним|снять|снимаю|аренд|сда[её]т|сдам|сдаю|посуточн|иҷора|ижара|ijara|kiraga)/iu;
+const KW_LAND = /(?<![\p{L}])(?:участ|земл|сотк|замин|yer(?![\p{L}])|офис|склад|магазин\s+в\s+аренду|помещени)/iu;
+function keywordSection(t) {
+    if (KW_LAND.test(t) && !KW_HOME.test(t)) return resolvePortal('недвижимость - земля и коммерческая');
+    if (KW_HOME.test(t)) return resolvePortal(KW_RENT.test(t) ? 'недвижимость - аренда' : 'недвижимость - продажа жилья');
+    return null;
+}
+
 // Набор для прямого поиска (somon.tj + paydo.tj) или null, если запрос — вопрос, разговор или справка.
 function keywordSpec(text, mode) {
     const t = String(text || '').trim();
     if (!t || t.length > 80 || KW_TALK.test(t)) return null;
+    if (mode !== 'jobs' && !KW_ASK.test(t) && !KW_INFO.test(t)) {
+        const sec = keywordSection(t);
+        if (sec && sec.somon) return { ...sec.somon, section: true };
+    }
     if (mode === 'general' && (KW_ASK.test(t) || KW_INFO.test(t) || t.split(/\s+/).length > 6)) return null;
     if (mode !== 'general' && mode !== 'ads' && mode !== 'jobs') return null;
     const q = keywordQuery(t);
