@@ -2480,8 +2480,34 @@ function dropMixedLines(text, lang) {
     return String(text).split('\n').filter(l => !l.trim() || !mixedLanguage(l, lang)).join('\n').trim();
 }
 
-async function rewriteForUser(text, { mode, lang, date, strict = false, tips = false }) {
-    const task = `\n\nЗАДАЧА: перепиши найденные данные в короткий ответ ПОЛНОСТЬЮ на языке: ${LANG_NAMES[lang]}. Переведи всё, кроме названий компаний, сайтов и брендов. Оставь 2–3 самых полезных пункта, не больше 8 строк, каждая строка — одно простое предложение с эмодзи в начале. Названия, цифры, даты, телефоны и сайты сохрани точно, ничего не добавляй от себя. Полностью убери пункты про кредиты, проценты, займы, алкоголь, казино и другое запретное; слова «шариат», «халал/халол», «харам», «ислам» не пиши. Если конкретных данных не осталось, скажи об этом одной строкой.${tips ? ' Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно предложение.' : ''}`;
+// Перевод советов: короткий «переводческий» промпт без характера и правил. С общим промптом модель отвечала отказом
+// или пересказывала правила вместо перевода. Ответ без нужного числа строк (отказ, комментарий) не принимаем.
+async function translateTips(text, { lang }) {
+    const system = `Ты — переводчик. Переведи текст на язык: ${LANG_NAMES[lang]}. ${LANG_RULES[lang]}
+Сохрани эмодзи в начале строк, **жирный** заголовок, порядок и число строк. Цифры, названия сайтов и брендов не меняй. Ничего не добавляй от себя, не отказывайся и не комментируй: выведи только перевод.`;
+    const want = Math.min(2, String(text).split('\n').filter(l => l.trim()).length);
+    const order = lang === 'ru' ? ['openai', 'openrouter'] : ['gemini', 'openai', 'openrouter'];
+    let fallback = null;
+    for (const name of order) {
+        let run = null;
+        if (name === 'openai' && openai) run = () => askChat(openai, OPENAI_MODEL, system, text, 500);
+        if (name === 'gemini' && geminiUp()) run = () => askGemini(system, text, false);
+        if (name === 'openrouter' && openrouter) run = () => askChat(openrouter, OPENROUTER_MODEL, system, text, 500);
+        if (!run) continue;
+        try {
+            const r = await run();
+            if (r.text.split('\n').filter(l => l.trim()).length < want) continue;
+            if (!mixedLanguage(r.text, lang)) return r.text;
+            fallback = fallback || r.text;
+        } catch (err) {
+            console.warn(`[translate Сбой]: ${err.status || ''} ${err.message}`);
+        }
+    }
+    return fallback;
+}
+
+async function rewriteForUser(text, { mode, lang, date, strict = false }) {
+    const task = `\n\nЗАДАЧА: перепиши найденные данные в короткий ответ ПОЛНОСТЬЮ на языке: ${LANG_NAMES[lang]}. Переведи всё, кроме названий компаний, сайтов и брендов. Оставь 2–3 самых полезных пункта, не больше 8 строк, каждая строка — одно простое предложение с эмодзи в начале. Названия, цифры, даты, телефоны и сайты сохрани точно, ничего не добавляй от себя. Полностью убери пункты про кредиты, проценты, займы, алкоголь, казино и другое запретное; слова «шариат», «халал/халол», «харам», «ислам» не пиши. Если конкретных данных не осталось, скажи об этом одной строкой.`;
     // Для таджикского и узбекского первым идёт Gemini: он грамотнее. Каждая следующая попытка — строже.
     const order = lang === 'ru' ? ['openai', 'gemini', 'openrouter'] : ['gemini', 'openai', 'openrouter'];
     let fallback = null;
@@ -2544,7 +2570,11 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                     const sources = orderSources(r.sources.length ? r.sources : sourcesFromText(r.text));
                     if (!sources.length) continue; // настоящих источников нет — пробуем следующий поиск
                     let text = cleanModelText(r.text);
-                    if (needsRewrite(text, lang)) text = await rewriteForUser(text, { mode, lang, date, tips: kind === 'tips' });
+                    if (kind === 'tips') {
+                        // запретное убираем до перевода; переводим только если ответ не на языке человека
+                        text = dropHaramLines(text, true);
+                        if (text.trim() && mixedLanguage(text, lang)) text = (await translateTips(text, { lang })) || '';
+                    } else if (needsRewrite(text, lang)) text = await rewriteForUser(text, { mode, lang, date });
                     // Последняя защита: чужой язык до человека не доходит. Не осталось строк — пробуем другой поиск.
                     if (mixedLanguage(text, lang)) text = dropMixedLines(text, lang);
                     text = capLines(shapeLines(dropHaramLines(cleanModelText(text), true), mode), kind === 'tips' ? 3 : 10);
@@ -4088,7 +4118,7 @@ async function handleDiag(req, res) {
                         const raw = await askOpenAISearch(buildSystemPrompt({ mode: routed.mode, lang: diagLang, canSearch: true, date: todayTJ() }), query);
                         const t0 = cleanModelText(raw.text);
                         const why = x => { const t = String(x).replace(/<[^>]*>/g, ' ').replace(/https?:\/\/\S+/g, ' ').replace(/(?<![\p{L}])[\p{L}\d-]+\.(?:tj|com|ru|org|net|uz|io|me|info)(?![\p{L}])/giu, ' '); const o = []; for (const re of [RU_LEAK, RU_WORDS, RU_ENDINGS, /[ыщьц]/i, /(?<![A-Za-z\u00C0-\u024F])[a-z\u00DF-\u024F][a-z\u00DF-\u024F]{3,}(?![A-Za-z\u00C0-\u024F])/]) { const m = t.match(re); if (m) o.push(m[0]); } return o; };
-                        const rw = await rewriteForUser(t0, { mode: routed.mode, lang: diagLang, date: todayTJ(), tips: true });
+                        const rw = (await translateTips(dropHaramLines(t0, true), { lang: diagLang })) || '';
                         trace = { raw: t0.slice(0, 500), sources: raw.sources.map(x => hostOf(x.uri)).slice(0, 6), mixed: mixedLanguage(t0, diagLang), gemini: geminiUp(), rewritten: rw.slice(0, 600), rewrittenMixed: mixedLanguage(rw, diagLang), why: why(rw), afterHaram: dropHaramLines(rw, true).slice(0, 400) };
                     } catch (e) { trace = { error: String(e.message || e).slice(0, 160) }; }
                 }
@@ -4195,5 +4225,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
