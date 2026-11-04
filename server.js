@@ -286,7 +286,8 @@ const KW_STOP = new Set(('найди найти найдите ищу ищем �
     + 'работа работу работы работе вакансия вакансии вакансий требуется требуются нужен ищу_работу '
     + 'душанбе худжанд хуҷанд бохтар куляб кӯлоб кулоб турсунзаде турсунзода истаравшан пенджикент панҷакент гиссар ҳисор вахдат ваҳдат таджикистан тоҷикистон '
     + 'мехоҳам лозим харид харидан фурӯш фурӯхтан кор ҷои ҷустуҷӯ дар бо барои аз то ва ё ки '
-    + 'kerak sotiladi sotaman sotib olaman ish izlayman qidiraman uchun va bilan dushanbe xujand').split(/\s+/));
+    + 'kerak sotiladi sotaman sotib olaman ish izlayman qidiraman uchun va bilan dushanbe xujand '
+    + 'хуб нав арзон зуд ҳозир хозир yangi arzon yaxshi tez hozir').split(/\s+/));
 const KW_ASK = /[?？]|(?<![\p{L}])(?:что|чем|как|почему|зачем|кто|когда|какой|какая|какие|каков|сколько\s+лет|расскажи|объясни|что\s+такое|чӣ|чаро|кай|кӣ|чӣ\s+тавр|чанд|nima|nega|qanday|qachon|kim)(?![\p{L}])/iu;
 // справки, а не объявления: погода, новости, законы, курсы, расписания
 const KW_INFO = /(?<![\p{L}])(?:погод|новост|хабар|закон|қонун|налог|андоз|расписани|курс\s+(?:валют|доллар|рубл)|ob-havo|yangilik|qonun|soliq|рецепт|тарих|история)/iu;
@@ -296,8 +297,47 @@ const KW_TALK = /^(?:привет|здравствуй(?:те)?|салом|са�
 
 // Общие слова раздела («машина», «телефон»): убираем, только если рядом есть марка или модель («мошин toyota» → «toyota»)
 const KW_SOFT = new Set('машина машину машины машин мошин мошина мошинҳо авто автомобиль автомобили телефон телефона телефоны телефонҳо mashina telefon avtomobil'.split(' '));
+// Одно и то же слово на трёх языках: первое слово группы — то, как пишут на сайтах объявлений (по нему ищем),
+// остальные — таджикский, узбекский, другое написание. В названии объявления подходит любое слово группы.
+// Сравнение без особых букв: ҳ=х, ӣ=и, ӯ=у, ҷ=ч, қ=к, ғ=г, апострофы узбекской латиницы не учитываются.
+const KW_SYN_GROUPS = [
+    // работа
+    'повар ошпаз oshpaz', 'водитель ронанда haydovchi ҳайдовчи шофер', 'учитель муаллим омузгор oqituvchi ўқитувчи преподаватель',
+    'врач духтур табиб shifokor', 'бухгалтер хисобчи buxgalter', 'продавец фурушанда sotuvchi сотувчи', 'охранник посбон qoriqchi',
+    'строитель бинокор quruvchi', 'электрик барқчи elektrik', 'швея дарзи tikuvchi портной', 'уборщица тозакунанда farrosh уборщик',
+    'сварщик кафшергар payvandchi', 'грузчик борбардор hammol', 'няня доя enaga', 'официант пешхизмат ofitsiant',
+    // дом и вещи
+    'холодильник яхдон muzlatgich xolodilnik', 'шкаф чевон shkaf', 'кровать karavot', 'ковер гилем колин gilam', 'одежда либос kiyim',
+    'обувь пойафзол poyabzal', 'часы соат soat', 'компьютер компютер kompyuter', 'велосипед velosiped', 'машина мошин мошина mashina', 'телефон telefon',
+    // скот и урожай
+    'баран гусфанд гуспанд qoy', 'корова sigir', 'курица мург tovuq', 'коза бузгола echki', 'виноград ангур uzum', 'яблоко себ olma',
+    'картофель картошка kartoshka', 'лук пиез piyoz', 'морковь сабзи sabzi', 'рис биринч guruch', 'пшеница гандум bugdoy',
+    // стройка
+    'кирпич хишт gisht', 'цемент семент sement', 'песок qum',
+    // марки, которые пишут и кириллицей, и латиницей
+    'iphone айфон', 'samsung самсунг', 'xiaomi сяоми ксиоми', 'redmi редми', 'toyota тойота', 'hyundai хендай хундай хюндай',
+    'mercedes мерседес мерс', 'opel опель', 'lexus лексус', 'nissan ниссан', 'honda хонда', 'chevrolet шевроле', 'daewoo дэу деу',
+    'volkswagen фольксваген', 'bmw бмв', 'kia киа', 'ford форд', 'audi ауди', 'mitsubishi митсубиси мицубиси',
+    'camry камри', 'corolla королла', 'prius приус', 'matiz матиз', 'nexia нексия', 'spark спарк', 'cobalt кобальт', 'gentra джентра', 'galaxy галакси', 'macbook макбук'
+].map(g => g.split(' '));
+const kwNorm = w => String(w || '').toLowerCase().replace(/ё/g, 'е').replace(/ҳ/g, 'х').replace(/ӣ/g, 'и').replace(/ӯ/g, 'у').replace(/ҷ/g, 'ч')
+    .replace(/қ/g, 'к').replace(/ғ/g, 'г').replace(/ў/g, 'у').replace(/[ʻʼ'’`]/g, '');
+const KW_SYN = new Map();
+for (const g of KW_SYN_GROUPS) for (const w of g) if (!KW_SYN.has(kwNorm(w))) KW_SYN.set(kwNorm(w), g);
+// Слово целиком или с окончанием («поваром», «ошпази», «yanqi»): ищем группу по самому слову, затем по корню не короче 4 букв
+function kwGroup(w) {
+    const n = kwNorm(w);
+    if (KW_SYN.has(n)) return KW_SYN.get(n);
+    if (n.length < 5) return null;
+    for (let len = n.length - 1; len >= 4; len--) {
+        const g = KW_SYN.get(n.slice(0, len));
+        if (g && g.some(x => kwNorm(x).length >= 4 && n.startsWith(kwNorm(x)))) return g;
+    }
+    return null;
+}
 function keywordQuery(text) {
-    const words = String(text || '').toLowerCase().replace(/ё/g, 'е').replace(/[«»"“”„()\[\]{}!?.,;:]+/g, ' ').split(/\s+/).filter(Boolean);
+    const words = String(text || '').toLowerCase().replace(/ё/g, 'е').replace(/[«»"“”„()\[\]{}!?.,;:]+/g, ' ').split(/\s+/).filter(Boolean)
+        .map(w => { const g = kwGroup(w); return g && !KW_STOP.has(w) ? g[0] : w; });
     let kept = words.filter(w => !KW_STOP.has(w) && /[\p{L}\d]/u.test(w) && w.length >= 2);
     if (kept.some(w => !KW_SOFT.has(w))) kept = kept.filter(w => !KW_SOFT.has(w));
     kept = kept.slice(0, 4);
@@ -307,12 +347,20 @@ function keywordQuery(text) {
 
 // Сверка найденного: в названии должны быть все слова запроса (корни — первые 5 букв), числа («13», «256») — отдельным числом.
 // Если по названиям нашлось мало, keywordLoose разрешает искать слова и в тексте объявления.
+// Слово из группы синонимов даёт несколько корней через «|»: «повар|ошпа|oshpa» — подходит любой.
+const kwStem = w => /^\d+$/.test(w) ? w : w.slice(0, Math.max(3, Math.min(5, w.length - 1)));
 function keywordStems(q) {
-    return String(q).split(/\s+/).filter(Boolean).map(w => /^\d+$/.test(w) ? w : w.slice(0, Math.max(3, Math.min(5, w.length - 1)))).filter(w => w.length >= 2);
+    return String(q).split(/\s+/).filter(Boolean).map(w => {
+        const g = /^\d+$/.test(w) ? null : kwGroup(w);
+        if (!g) return kwStem(w);
+        const latinBrand = /^[a-z]+$/.test(g[0]);
+        const alts = [kwStem(w), ...g.map(x => kwStem(kwNorm(x))).filter(x => latinBrand || x.length >= 4)];
+        return [...new Set(alts)].join('|');
+    }).filter(w => w.length >= 2);
 }
 function keywordHas(text, stems) {
-    const t = String(text || '').toLowerCase().replace(/ё/g, 'е');
-    return stems.every(st => /^\d+$/.test(st) ? new RegExp(`(?<!\\d)${st}(?!\\d)`).test(t) : t.includes(st));
+    const t = kwNorm(text);
+    return stems.every(st => /^\d+$/.test(st) ? new RegExp(`(?<!\\d)${st}(?!\\d)`).test(t) : st.split('|').some(x => t.includes(kwNorm(x))));
 }
 
 // Запросы про жильё и землю ведём сразу в свой раздел (там подключены все сайты): «сниму квартиру» → аренда, «куплю дом» → продажа.
@@ -5813,5 +5861,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
