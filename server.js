@@ -5237,6 +5237,16 @@ async function handleDiag(req, res) {
     } catch { out.service_key_role = SB_KEY() ? 'unknown' : 'missing'; }
     out.anon_key = process.env.SUPABASE_ANON_KEY ? 'set' : 'missing';
     out.ads_database = adsOn() ? await timed(async () => { await sb('ads?select=id&limit=1'); return {}; }) : 'не подключена (объявления остаются на устройстве автора)';
+    // /diag?cards=1&item=…&brief=1: короткий итог по одному разделу (для проверки всех разделов подряд)
+    if (req.query?.brief === '1' && out.cards_test) {
+        const c = out.cards_test;
+        return res.json({
+            v: out.version, gem: out.geminiPauseSec, item: out.item || null, lang: c.lang || null, ok: c.ok, ms: c.ms, err: c.error ? String(c.error).slice(0, 120) : undefined,
+            items: c.items, img: c.withImage, loc: c.localized, locMs: c.localizeMs, locErr: c.localizeError ? String(c.localizeError).slice(0, 40) : undefined,
+            provider: c.provider, tips: c.tips, plain: c.plain ? String(c.plain).slice(0, 220) : undefined,
+            titles: Array.isArray(c.pointsAll) ? c.pointsAll.map(x => String(x).split(' => ')[0].slice(0, 50)) : undefined
+        });
+    }
     return res.json(out);
 }
 
