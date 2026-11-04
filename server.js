@@ -904,8 +904,8 @@ function cardHtml(it, kind, lang) {
     // характеристики плитками 2×2, как в образце: «Ключ: значение» → подпись + значение
     // fixed — одинаковый для всех карточек раздела набор плиток (пустая показывается как «—»)
     const fixedTiles = (it.fixed || []).map(f => f.value
-        ? `<div class="iz-tile iz-fx"><span>${escapeHtml(f.label)}</span><b>${escapeHtml(f.value)}</b></div>`
-        : `<div class="iz-tile iz-fx iz-empty"><span>${escapeHtml(f.label)}</span><b>—</b></div>`).join('');
+        ? `<div class="iz-tile iz-fx${f.row ? ' iz-row' : ''}"><span>${escapeHtml(f.label)}</span><b>${escapeHtml(f.value)}</b></div>`
+        : `<div class="iz-tile iz-fx${f.row ? ' iz-row' : ''} iz-empty"><span>${escapeHtml(f.label)}</span><b>—</b></div>`).join('');
     const tiles = fixedTiles + (it.points || []).map(x => {
         const m = String(x).match(/^([^:]{2,25}):\s*(.+)$/);
         return m ? `<div class="iz-tile"><span>${escapeHtml(m[1])}</span><b>${escapeHtml(m[2])}</b></div>` : `<div class="iz-tile"><b>${escapeHtml(x)}</b></div>`;
@@ -1627,9 +1627,40 @@ function partsSlots(it, lang, extra = {}) {
     const brand = sp.brand && !blankValue(sp.brand) ? sp.brand.slice(0, 24) : '';
     return { fixed: [{ label: L.state, value: state }, { label: P.brand, value: brand }, { label: P.radius, value: radius }], points: [] };
 }
+// Поездки (туры): поиск по сайтам агентств присылает «Длительность», «Маршрут», «Уровень сложности» (что нашлось — то и написано).
+// Подписи плиток — на языке сайта; «Маршрут» длинный, поэтому идёт отдельной строкой (row), остальные — в полосе.
+const TOUR_L = {
+    ru: { dur: 'Длительность', level: 'Сложность', route: 'Маршрут' },
+    tg: { dur: 'Давомнокӣ', level: 'Душворӣ', route: 'Масир' },
+    uz: { dur: 'Davomiyligi', level: 'Murakkabligi', route: "Yo'nalish" }
+};
+const TOUR_RE = {
+    dur: /длитель|продолжит|срок|давомнок|давом|муддат|мӯҳлат|davomiy|muddat/i,
+    level: /сложност|уровень|мураккаб|душвор|мушкил|murakkab|qiyin|daraja/i,
+    route: /маршрут|масир|йўналиш|yo.?nalish|marshrut|самт/i
+};
+function tourSlots(it, lang) {
+    const T = TOUR_L[lang] || TOUR_L.ru;
+    const pts = Array.isArray(it.points) ? it.points : [];
+    const used = new Set();
+    const take = re => {
+        const i = pts.findIndex((x, k) => !used.has(k) && re.test(String(x).split(':')[0]) && /:/.test(String(x)));
+        if (i < 0) return '';
+        const v = valueOf(pts[i]);
+        if (!v || blankValue(v)) return '';
+        used.add(i);
+        return clip(v, 90);
+    };
+    const dur = take(TOUR_RE.dur), level = take(TOUR_RE.level), route = take(TOUR_RE.route);
+    return {
+        fixed: [{ label: T.dur, value: dur }, { label: T.level, value: level }, { label: T.route, value: route, row: true }],
+        points: pts.filter((_, k) => !used.has(k))
+    };
+}
 function fixedSlots(it, lang, mode, extra) {
     if (mode === 'car') return carSlots(it, lang, extra);
     if (mode === 'parts') return partsSlots(it, lang, extra);
+    if (mode === 'tour') return tourSlots(it, lang);
     return estateSlots(it, lang, mode);
 }
 
@@ -1949,7 +1980,7 @@ url — обычная ссылка https://… (без Markdown и скобок
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
     if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
-    const done = await finishItems(items.slice(0, 10), kind, lang, debug, kind === 'ads' && somon && somon.fixed || '');
+    const done = await finishItems(items.slice(0, 10), kind, lang, debug, kind === 'ads' && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
     return kind === 'tickets' ? withTicketLinks(done, debug) : done;
 }
 
@@ -3825,7 +3856,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
+    priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
