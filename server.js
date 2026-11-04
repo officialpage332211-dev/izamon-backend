@@ -1117,7 +1117,8 @@ function cardHtml(it, kind, lang) {
     // Для кнопок «Дешевле» / «Новее» на сайте: цена числом, её валюта и возраст объявления в минутах (только то, что известно точно)
     const sortAttrs = (it.pn > 0 && /^[A-Z]{3}$/.test(it.pc || '') && ['ads', 'services', 'masters'].includes(kind) ? ` data-pn="${Number(it.pn)}" data-pc="${it.pc}"` : '') +
         (Number.isFinite(it.age) && it.age >= 0 ? ` data-age="${Math.round(it.age)}"` : '');
-    return `<div class="iz-lc"${sortAttrs}>${parts.join('')}</div>`;
+    const fullAttr = it.full ? ` data-full="${escapeAttr(it.full)}"` : '';
+    return `<div class="iz-lc"${sortAttrs}${fullAttr}>${parts.join('')}</div>`;
 }
 
 // Характеристики своего объявления: строки «• Подпись: значение» из описания (форма «Гузоштани эълон» кладёт их в начало). Максимум 4 плитки.
@@ -1153,6 +1154,7 @@ function ownItems(rows, lang) {
             sellerSince: a.seller_since && Number.isFinite(Date.parse(a.seller_since)) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dushanbe' }).format(new Date(a.seller_since)).split('-').reverse().join('.') : '',
             sellerCount: Number(a.seller_count) || 0,
             points: adPoints(a.description),
+            full: fullText(String(a.description || '').split(/\n/).filter(l => !/^\s*[•·\-*]\s*[^:\n]{2,25}:\s*\S/.test(l)).join('\n')),
             _cat: String(a.category || '')
         };
     }).map(it => { const c = it._cat; delete it._cat; return c === 'estate' ? { ...it, ...estateSlots(it, lang || 'ru', 'estate') } : c === 'transport' ? { ...it, ...carSlots(it, lang || 'ru') } : it; });
@@ -2412,6 +2414,27 @@ function fixedSlots(it, lang, mode, extra) {
     return estateSlots(it, lang, mode);
 }
 
+// Полный текст продавца для окна «Подробнее» на сайте: как он написал, без ссылок и без предложений с запретными словами.
+// Списки с «✅ …» разбиваем по строкам. Берём первый достаточно длинный текст из переданных (страница объявления, затем список).
+function fullText(...parts) {
+    const raw = String(parts.find(p => String(p || '').trim().length >= 12) || '');
+    if (!raw) return '';
+    const text = raw
+        .replace(MD_LINK, '')
+        .replace(/https?:\/\/\S+/gi, ' ')
+        .replace(/\s*(✅️?|✔️?|☑️|▪️|🔹|🔸|➡️|👉|📌|📞|☎️|🔧|⚡|🛠️?)\s*/gu, '\n$1 ')
+        .replace(/[ \t]+/g, ' ');
+    const lines = [];
+    for (const line of text.split(/\n+/)) {
+        const sentences = line.split(/(?<=[.!?…])\s+(?=[\p{Lu}\d])/u).filter(x => x.trim() && !HARAM_LINE.test(x));
+        const l = sentences.join(' ').trim();
+        if (l) lines.push(l);
+    }
+    let out = lines.join('\n');
+    if (out.length > 1500) out = out.slice(0, 1500).replace(/\s+\S*$/, '') + '…';
+    return out.length >= 12 && !blankValue(out) ? out : '';
+}
+
 function somonNote(a, nPts) {
     // Текст продавца режем по целому слову и ставим «…» — не посреди слова и не посреди числа.
     const full = clip(a.description, 2000);
@@ -2663,6 +2686,7 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
         // Возраст объявления; у билетов и туров дата — это день вылета/поездки, а не публикации, поэтому возраста у них нет
         const age = kind === 'tickets' || kind === 'tours' ? null : (t.pub ? t.pub.ageMin : ageFromDate(it.date));
         const base = { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
+            full: kind === 'tickets' || kind === 'tours' ? '' : fullText(photos.descs && photos.descs[i], t.listDesc),
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
         return fixed ? { ...base, ...fixedSlots(base, lang, fixed, { specs: photos.specs && photos.specs[i], desc: photos.descs && photos.descs[i], title0: t.title }) } : base;
     });
@@ -4756,7 +4780,8 @@ async function handleDiag(req, res) {
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
             const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon });
             const f = items[0];
-            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points, fixed: f.fixed } : null, fixedAll: items.map(x => x.fixed ? x.fixed.map(y => y.value || '—').join('/') : null).slice(0, 10), slugsAll: kind === 'jobs' ? items.map(x => x.sphereSlug || null).slice(0, 10) : undefined, pointsAll: items.slice(0, 10).map(x => `${String(x.title || '').slice(0, 60)} => ${(x.points || []).join(' ; ')}`), sort: { priced: items.filter(x => x.pn > 0).length, aged: items.filter(x => Number.isFinite(x.age)).length, cheap: cheapFlags(items).filter(Boolean).length, prices: items.map(x => x.pn > 0 ? x.pn + x.pc : '-').join(' '), ages: items.map(x => Number.isFinite(x.age) ? x.age : '-').join(' ') }, ...dbgL };
+            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points, fixed: f.fixed } : null, fixedAll: items.map(x => x.fixed ? x.fixed.map(y => y.value || '—').join('/') : null).slice(0, 10),
+            fullLens: items.slice(0, 10).map(x => String(x.full || '').length), slugsAll: kind === 'jobs' ? items.map(x => x.sphereSlug || null).slice(0, 10) : undefined, pointsAll: items.slice(0, 10).map(x => `${String(x.title || '').slice(0, 60)} => ${(x.points || []).join(' ; ')}`), sort: { priced: items.filter(x => x.pn > 0).length, aged: items.filter(x => Number.isFinite(x.age)).length, cheap: cheapFlags(items).filter(Boolean).length, prices: items.map(x => x.pn > 0 ? x.pn + x.pc : '-').join(' '), ages: items.map(x => Number.isFinite(x.age) ? x.age : '-').join(' ') }, ...dbgL };
         });
         if (!out.cards_test.ok) out.cards_test.debug = dbgL;
         if (!diagTopic) {
@@ -4854,5 +4879,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
