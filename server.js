@@ -1324,8 +1324,12 @@ const JOB_SPHERE = {
     'smi--izdatelstvo': ['СМИ, издательства', 'ВАО, нашриёт', 'OAV, nashriyot'],
     'stroitelstvo': ['Строительство', 'Сохтмон', 'Qurilish'],
     'transport--logistika': ['Транспорт, логистика', 'Нақлиёт, логистика', 'Transport, logistika'],
-    'turizm--gostinici--razvlecheniya': ['Туризм, гостиницы', 'Сайёҳӣ, меҳмонхонаҳо', 'Turizm, mehmonxonalar']
+    'turizm--gostinici--razvlecheniya': ['Туризм, гостиницы', 'Сайёҳӣ, меҳмонхонаҳо', 'Turizm, mehmonxonalar'],
+    // у старых разделов сайта адрес написан иначе (заглавные буквы и «_»), поэтому ключи сравниваем без учёта регистра и «_»
+    'Restoratori_povara_ofisianti': ['Рестораторы, повара, официанты', 'Ресторан, ошпазон, пешхизматон', 'Restoran, oshpazlar, ofitsiantlar']
 };
+const normSlug = x => String(x || '').toLowerCase().replace(/_+/g, '-');
+const JOB_SPHERE_N = new Map(Object.entries(JOB_SPHERE).map(([k, v]) => [normSlug(k), v]));
 // Если слов из таблицы нашлось несколько разных, не угадываем: возвращаем null
 const onlyWord = (t, table) => { const hit = table.filter(([re]) => re.test(t)); return hit.length === 1 ? hit[0][1] : null; };
 const unitRu = (u, V, lang, n) => /^(?:лет|год|летн|сол)/i.test(u) ? yearsWord(lang, n) : /^(?:мес|моҳ)/i.test(u) ? V.mo : /^(?:недел|ҳафта)/i.test(u) ? V.wk : V.dy;
@@ -1426,7 +1430,7 @@ const FX = {
         m = t.match(/(?:график|реҷа\S*|ҷадвал\S*)[^\n]{0,20}?(?<![\d/])(\d)\s*\/\s*(\d)(?![\d/])/iu);
         return m ? `${L.sched}: ${m[1]}/${m[2]}` : '';
     },
-    sphere: (a, L, V, lang) => { const slug = (/"slug":"([^"]+)"/.exec(a.cats || '') || [])[1]; const n = JOB_SPHERE[slug]; return n ? `${L.sphere}: ${n[LI[lang]]}` : ''; },
+    sphere: (a, L, V, lang) => { const slug = (/"slug":"([^"]+)"/.exec(a.cats || '') || [])[1]; const n = JOB_SPHERE_N.get(normSlug(slug)); return n ? `${L.sphere}: ${n[LI[lang]]}` : ''; },
     age: (a, L, V, lang) => {
         const t = factText(a);
         const m = t.match(/возраст\S*\s*[:\-–]?\s*(?:около\s*|~)?(\d{1,2}(?:[.,]\d)?)\s*(лет|года|год|мес\S*|недел\S*|дн\S*)(?![\p{L}])/iu)
@@ -1980,7 +1984,7 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
         image: a.images[0] || a.thumb || null,
         points: pts
     }), contact: somonContacts(a.description), trusted: true, pub: parsePublished(a.published), pn: pp ? pp.n : 0, pc: pp ? pp.c : '',
-    det: { title: titleOk, price: priceOk }, note, listDesc: clip(a.description, 400), gallery0: a.images.slice(0, 16), photoCount: Math.min(a.imgCount || a.images.length || 0, 16) };
+    sphereSlug: ((/"slug":"([^"]+)"/.exec(a.cats || '') || [])[1] || '').slice(0, 60), det: { title: titleOk, price: priceOk }, note, listDesc: clip(a.description, 400), gallery0: a.images.slice(0, 16), photoCount: Math.min(a.imgCount || a.images.length || 0, 16) };
 }
 
 // Список объявлений для карточек: spec.sources — страницы (поиск q= или раздел path=), spec.cat/spec.words — что считать подходящим.
@@ -3945,7 +3949,7 @@ async function handleDiag(req, res) {
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
             const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon });
             const f = items[0];
-            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points, fixed: f.fixed } : null, fixedAll: items.map(x => x.fixed ? x.fixed.map(y => y.value || '—').join('/') : null).slice(0, 10), pointsAll: items.slice(0, 10).map(x => `${String(x.title || '').slice(0, 60)} => ${(x.points || []).join(' ; ')}`), sort: { priced: items.filter(x => x.pn > 0).length, aged: items.filter(x => Number.isFinite(x.age)).length, cheap: cheapFlags(items).filter(Boolean).length, prices: items.map(x => x.pn > 0 ? x.pn + x.pc : '-').join(' '), ages: items.map(x => Number.isFinite(x.age) ? x.age : '-').join(' ') }, ...dbgL };
+            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points, fixed: f.fixed } : null, fixedAll: items.map(x => x.fixed ? x.fixed.map(y => y.value || '—').join('/') : null).slice(0, 10), slugsAll: kind === 'jobs' ? items.map(x => x.sphereSlug || null).slice(0, 10) : undefined, pointsAll: items.slice(0, 10).map(x => `${String(x.title || '').slice(0, 60)} => ${(x.points || []).join(' ; ')}`), sort: { priced: items.filter(x => x.pn > 0).length, aged: items.filter(x => Number.isFinite(x.age)).length, cheap: cheapFlags(items).filter(Boolean).length, prices: items.map(x => x.pn > 0 ? x.pn + x.pc : '-').join(' '), ages: items.map(x => Number.isFinite(x.age) ? x.age : '-').join(' ') }, ...dbgL };
         });
         if (!out.cards_test.ok) out.cards_test.debug = dbgL;
         if (!diagTopic) {
@@ -3994,9 +3998,9 @@ async function handleDiag(req, res) {
             for (const m of text.matchAll(/"slug":"([a-z0-9_\-]{3,80})"/g)) {
                 if (seen.has(m[1])) continue;
                 seen.add(m[1]);
-                if (!JOB_SPHERE[m[1]] && unknown.length < 40) unknown.push({ slug: m[1], ctx: text.slice(Math.max(0, m.index - 60), m.index + 140).replace(/\s+/g, ' ') });
+                if (!JOB_SPHERE_N.has(normSlug(m[1])) && unknown.length < 40) unknown.push({ slug: m[1], ctx: text.slice(Math.max(0, m.index - 60), m.index + 140).replace(/\s+/g, ' ') });
             }
-            return { slugs: seen.size, known: [...seen].filter(x => JOB_SPHERE[x]).length, unknown };
+            return { slugs: seen.size, known: [...seen].filter(x => JOB_SPHERE_N.has(normSlug(x))).length, unknown };
         });
     }
     // Проверка строки «Продавец на iZamoN» на настоящей базе: /diag?sellers=1 (только чтение, коды владельцев в ответ не попадают)
