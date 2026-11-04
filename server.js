@@ -158,10 +158,13 @@ const SOMON_FARMLAND = {
         { path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/', page: 3, words: /сельхоз|сельскохоз|посев|пашн|пахот|огород|орошаем|поливн|гектар|(?<![\p{L}])га(?![\p{L}])|кишт|зироат|теплиц|виноградн|плодов|(?<![\p{L}])сад(?![\p{L}])|ферм/iu },
         { path: 'vsyo-dlya-biznesa/biznes/fermyi-sadyi/' }
     ],
-    facts: 'land'
+    facts: 'land',
+    fixed: 'farm'
 };
 // Автомобили на продажу, запчасти, шины, мотоциклы и вакансии — не услуги автомеханика.
 const SOMON_NOT_AUTO = /legkovyie|gruzov|zapchast|shiny|shinyi|disk|moto|velo|vakansii|spetstehnik|tehnika|bitovoi/i;
+// Комнатные и певчие птицы — не животноводство: в список «Животноводство» не берём
+const PET_BIRDS = /попугай|неразлучник|волнист|канарейк|щегол|кенар|амадин|какаду|(?<![\p{L}])жако|корелл|снегир|зяблик|соловей|(?<![\p{L}])чиж|тӯтӣ|тути(?![\p{L}])|булбул|кабк(?![\p{L}])/iu;
 
 // «Энциклопедии»: темы на сегодня берутся из списков по номеру дня в году — ответ каждый день разный, а поиск открывает конкретную статью
 const FACT_SCIENCE = ['Солнечная система', 'Человеческое тело', 'Электричество', 'Свет', 'Атом', 'ДНК', 'Вулканы', 'Погода', 'Звёзды', 'Магнетизм', 'Вода', 'Звук', 'Мозг', 'Радуга', 'Гравитация', 'Периодическая таблица', 'Землетрясения', 'Луна', 'Сердце', 'Алмаз'];
@@ -186,13 +189,13 @@ const PORTAL_RULES = [
       query: d => { const [sci, his, nat] = factTopics(d.iso); return `Открой статьи энциклопедий (Википедия, Британника, Большая российская энциклопедия) и дай по одному короткому проверенному факту: наука — по теме «${sci}», история — по теме «${his}», природа — по теме «${nat}». Факт вечный, без привязки к дате: не «в этот день в истории», не новости, не праздники. Формат каждой строки: эмодзи (🔬 наука, 🏛️ история, 🌿 природа), короткий заголовок из 2–4 слов, двоеточие, одно простое предложение до 18 слов.`; } },
     { re: /маслиҳатҳо|^советы$|^maslahat$/, mode: 'digest', kind: 'tips',
       query: 'Найди 4 практичных, проверенных источниками совета для жителей Таджикистана по семейному бюджету, экономии при покупках, накоплениям и малой торговле. Без инвестиций и финансовых продуктов. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение с конкретикой из источника. Без вступительных слов.' },
-    { re: /^(?:кишт|посев|ekin)$/, mode: 'digest',
-      query: 'Что сеять и сажать в Таджикистане именно сейчас, по сегодняшней дате: 3–4 культуры, сроки посева и главный приём ухода, по данным агро-источников.' },
+    { re: /^(?:кишт|посев|ekin)$/, mode: 'digest', kind: 'sowing',
+      query: d => `Сегодня ${String(d.human).replace(/\.+$/, '')}. Найди в агро-источниках (сайты Министерства сельского хозяйства Таджикистана, agro.tj, khovar.tj, asiaplus.news, сайты по огородничеству и садоводству) что сеять и сажать в Таджикистане именно в текущем месяце: только культуры, которые сеют или сажают сейчас, с учётом климата Таджикистана. Ответ — РОВНО 3 строки. Формат каждой строки: эмодзи культуры, название культуры из 1–2 слов, двоеточие, одно простое предложение до 20 слов: срок посева (месяц) и главный приём ухода. Ничего не придумывай: нет данных — меньше строк. Без вступления.` },
     { re: /чорводорӣ|животноводств|^chorva$/, mode: 'ads',
-      somon: { sources: [{ path: 'zhivotnyie-i-rasteniya/skot/' }, { path: 'zhivotnyie-i-rasteniya/ptitsyi/' }, { path: 'zhivotnyie-i-rasteniya/kroliki/' }], facts: 'livestock' },
+      somon: { sources: [{ path: 'zhivotnyie-i-rasteniya/skot/' }, { path: 'zhivotnyie-i-rasteniya/ptitsyi/' }, { path: 'zhivotnyie-i-rasteniya/kroliki/' }], notWords: PET_BIRDS, facts: 'livestock', fixed: 'livestock' },
       query: 'Найди актуальные объявления о продаже скота и птицы в Таджикистане (коровы, быки, овцы, козы, лошади, птица), сначала на somon.tj: что за животное, возраст, вес, цена, место, контакт продавца. Домашних питомцев (кошки, собаки) не показывай.' },
     { re: /^(?:ҳосил|урожай|hosil)$/, mode: 'ads',
-      somon: { sources: [{ path: 'vse-dlya-doma/pihevie-produkti/' }], facts: 'food' },
+      somon: { sources: [{ path: 'vse-dlya-doma/pihevie-produkti/' }], facts: 'food', fixed: 'harvest' },
       query: 'Найди актуальные объявления о продаже сельхозпродукции и продуктов (мёд, фрукты, овощи, сухофрукты, мясо, зерно) в Таджикистане, сначала на somon.tj: что продаётся, цена, количество, место, контакт продавца.' },
     { re: /^(?:сафарҳо|поездки|safar)$/, mode: 'digest', kind: 'tours',
       query: 'Найди актуальные предложения туров и поездок из Таджикистана: направление, цена, даты, контакт оператора.' },
@@ -531,7 +534,8 @@ const TIPS_HEAD = { tg: 'Маслиҳатҳо', ru: 'Советы', uz: 'Maslaha
 const TEXT_CARDS = {
     tips: { icon: '💡', head: TIPS_HEAD, max: 3 },
     mmt: { icon: '🎓', head: { tg: 'ММТ', ru: 'ММТ', uz: 'MMT' }, max: 3 },
-    facts: { icon: '📚', head: { tg: 'Донишномаҳо', ru: 'Энциклопедии', uz: 'Kitoblar' }, max: 3 }
+    facts: { icon: '📚', head: { tg: 'Донишномаҳо', ru: 'Энциклопедии', uz: 'Kitoblar' }, max: 3 },
+    sowing: { icon: '🌱', head: { tg: 'Кишт', ru: 'Посев', uz: 'Ekin' }, max: 3 }
 };
 const TIP_LINE = /^(\p{Extended_Pictographic}(?:[\uFE0F\u200D]|\p{Extended_Pictographic})*)\s*(.*)$/su;
 function tipsAnswer(text, sources, lang, key = 'tips') {
@@ -2057,7 +2061,213 @@ function courseSlots(it, lang, mode, extra = {}) {
     const rest = pts.filter(p => !taken.has(String(p).split(':')[0].trim()));
     return { fixed, points: rest.slice(0, 3) };
 }
+// ---------- «Кишоварзӣ»: одинаковые карточки у Животноводства, Земель и Урожая ----------
+// Животноводство: Животное, Возраст, Вес, Количество. Земли: Площадь, Тип, Полив, Сделка. Урожай: Тип, Количество, Цена за.
+// Чего в объявлении нет — «—» (ничего не выдумываем). Берём только то, что написано в названии, тексте продавца и строке характеристик страницы.
+const FARM_L = {
+    ru: { animal: 'Животное', kind: 'Тип', deal: 'Сделка' },
+    tg: { animal: 'Ҳайвон', kind: 'Навъ', deal: 'Муомила' },
+    uz: { animal: 'Hayvon', kind: 'Turi', deal: 'Bitim' }
+};
+const nw = w => new RegExp(`(?<![\\p{L}\\d])(?:${w})`, 'iu');
+// порядок важен: сначала детёныши и узкие названия, потом общие; названия — [русский, таджикский, узбекский]
+const ANIMALS = [
+    [nw('телён\\S*|телен\\S*|тёлк\\S*|телк\\S*|гун[уо]чин\\S*|гунаҷин\\S*|гӯсола\\S*|гусола\\S*|говча\\S*|buzoq\\S*'), ['Телёнок', 'Гӯсола', 'Buzoq']],
+    [nw('бык(?![\\p{L}])|быка|быки|быков|быч\\S*|бугай\\S*|барзагов\\S*|buqa'), ['Бык', 'Барзагов', 'Buqa']],
+    [nw('коров\\S*|гов(?:и|ҳо|ӣ)?(?![\\p{L}])|sigir\\S*'), ['Корова', 'Гов', 'Sigir']],
+    [nw('ягн\\S*|барра\\S*|qo.zi(?![\\p{L}])'), ['Ягнёнок', 'Барра', "Qo'zi"]],
+    [nw('баран(?:ы|а|ов|у|ом)?(?![\\p{L}])|қӯчқор\\S*|кочкор\\S*|qo.chqor'), ['Баран', 'Қӯчқор', "Qo'chqor"]],
+    [nw('овц\\S*|овечк\\S*|гӯсфанд\\S*|гусфанд\\S*|qo.y(?![\\p{L}])'), ['Овца', 'Гӯсфанд', "Qo'y"]],
+    [nw('козлён\\S*|козлят\\S*|бузғола\\S*|бузгола\\S*|uloq'), ['Козлёнок', 'Бузғола', 'Uloq']],
+    [nw('козёл|козел|така(?![\\p{L}])|taka(?![\\p{L}])'), ['Козёл', 'Така', 'Taka']],
+    [nw('коз(?:а|ы|у|ой|ам)(?![\\p{L}])|козочк\\S*|буз(?![\\p{L}])|бузи(?![\\p{L}])|echki'), ['Коза', 'Буз', 'Echki']],
+    [nw('жеребён\\S*|жеребят\\S*|тай(?![\\p{L}])'), ['Жеребёнок', 'Тай', 'Toy']],
+    [nw('лошад\\S*|конь|коня|коней|кобыл\\S*|жеребец|жеребц\\S*|аспи(?![\\p{L}])|асп(?![\\p{L}])|байтал\\S*'), ['Лошадь', 'Асп', 'Ot']],
+    [nw('осёл|осел|ослик\\S*|ишак\\S*|эшак\\S*|хар(?![\\p{L}])|хари(?![\\p{L}])|eshak'), ['Осёл', 'Хар', 'Eshak']],
+    [nw('верблюд\\S*|шутур\\S*|tuya'), ['Верблюд', 'Шутур', 'Tuya']],
+    [nw('перепел\\S*|бедона|бедан\\S*|bedana'), ['Перепел', 'Бедона', 'Bedana']],
+    [nw('бройлер\\S*|broyler'), ['Бройлер', 'Бройлер', 'Broyler']],
+    [nw('цыпл\\S*|чуҷа\\S*|чуча\\S*|jo.ja'), ['Цыплёнок', 'Чуҷа', "Jo'ja"]],
+    [nw('петух\\S*|петушк\\S*|хур[ӯу]с\\S*|xo.roz'), ['Петух', 'Хурӯс', "Xo'roz"]],
+    [nw('индюк\\S*|индюш\\S*|индейк\\S*|индук\\S*|kurka'), ['Индюк', 'Индюк', 'Kurka']],
+    [nw('утк\\S*|утён\\S*|утят\\S*|селезн\\S*|мурғоб\\S*|o.rdak'), ['Утка', 'Мурғобӣ', "O'rdak"]],
+    [nw('гус(?:ь|и|ей|ак|ака|аки)(?![\\p{L}])|гусён\\S*|гусят\\S*|ғоз\\S*|гоз(?![\\p{L}])|g.oz'), ['Гусь', 'Ғоз', "G'oz"]],
+    [nw('куриц\\S*|кур(?:ы|ят|очк\\S*)(?![\\p{L}])|несушк\\S*|мурғ(?:и|ҳо|он)?(?![\\p{L}])|мурғак\\S*|tovuq'), ['Курица', 'Мурғ', 'Tovuq']],
+    [nw('кролик\\S*|крольч\\S*|харгӯш\\S*|харгуш\\S*|quyon'), ['Кролик', 'Харгӯш', 'Quyon']],
+    [nw('голуб\\S*|кабӯтар\\S*|кабутар\\S*|kaptar'), ['Голубь', 'Кабӯтар', 'Kaptar']],
+    [nw('скот(?![\\p{L}])|қорамол\\S*|чорво(?![\\p{L}])|chorva'), ['Скот', 'Чорво', 'Chorva']]
+];
+const ANIMAL_BIRD = ['Птица', 'Парранда', 'Qush'];
+// самые ранние упоминания разных животных (до двух), по порядку в тексте
+function animalsIn(text, max) {
+    const t = String(text || '');
+    const hits = [];
+    for (const [re, names] of ANIMALS) { const m = re.exec(t); if (m) hits.push({ at: m.index, names }); }
+    // «Чучаи бедона» — детёныш перепела: видом считаем перепела, а возраст виден отдельно
+    const sorted = hits.sort((a, b) => a.at - b.at);
+    return (sorted.length > 1 ? sorted.filter(h => h.names[0] !== 'Цыплёнок') : sorted).slice(0, max);
+}
+function livestockSlots(it, lang, extra = {}) {
+    const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru, F = FARM_L[lang] || FARM_L.ru, i = LI[lang] ?? 0;
+    const kw = (extra.specs && extra.specs.kw) || '';
+    const title = String(it.title || '');
+    const art = { title, description: [it.listDesc, extra.desc].filter(Boolean).join(' ') };
+    const pts = Array.isArray(it.points) ? it.points : [];
+    const take = re => { const p = pts.find(x => /:/.test(String(x)) && re.test(String(x).split(':')[0])); const v = p ? valueOf(p) : ''; return v && !blankValue(v) ? v : ''; };
+    const val = fn => { let r = ''; try { r = fn(art, L, V, lang) || ''; } catch { r = ''; } return r ? valueOf(r) : ''; };
+    // Животное: из названия (до двух), иначе из текста продавца (одно), иначе из раздела на странице («Кролики», «Сельхоз. птицы»)
+    let hit = animalsIn(title, 2).map(h => h.names[i]);
+    if (!hit.length) hit = animalsIn(art.description, 1).map(h => h.names[i]);
+    if (!hit.length && /(?:^|,\s)Кролики(?:,|$)/.test(kw)) hit = [ANIMALS.find(([, n]) => n[0] === 'Кролик')[1][i]];
+    if (!hit.length && /Сельхоз\.?\s*птиц/i.test(kw)) hit = [ANIMAL_BIRD[i]];
+    if (!hit.length && /Сельхоз\.?\s*животн/i.test(kw)) hit = [ANIMALS.find(([, n]) => n[0] === 'Скот')[1][i]];
+    const animal = hit.length ? hit.join(', ') : take(/животн|ҳайвон|hayvon/i);
+    // Возраст: «возраст 2 года», «3-месячный», а также «2 года» / «6 мес.» в названии
+    let age = val(FX.age);
+    if (!age) {
+        const m = title.match(/(?<![\d.,])(\d{1,2}(?:[.,]\d)?)\s*(лет|года|год|месяц\S*|мес\.?|моҳ\S*|сол(?:а|ӣ|агӣ)?)(?![\p{L}])/iu);
+        if (m) { const n = m[1].replace(',', '.'); age = `${n} ${unitRu(m[2], V, lang, +n)}`; }
+    }
+    age = age || take(/возраст|синну|yosh/i);
+    // Вес: «вес 300 кг» в тексте или «300 кг» в названии (килограммы в названии объявления о животном — это вес)
+    let weight = '';
+    let m = art.description.match(/(?:вес\S*|вазн\S*)\s*[:\-–]?\s*(?:около\s*|примерно\s*|~|≈|тақрибан\s*)?(\d{1,4}(?:[.,]\d)?)(?:\s*[-–]\s*\d{1,4})?\s*(?:кг|kg)(?![\p{L}])/iu) || title.match(/(?<![\d.,])(\d{1,4}(?:[.,]\d)?)\s*(?:кг|kg)(?![\p{L}])/iu);
+    if (m && +m[1].replace(',', '.') > 0) weight = `${m[1].replace(',', '.')} ${V.kg}`;
+    weight = weight || take(/вес|вазн|vazn/i);
+    const count = val(FX.count) || take(/колич|миқдор|soni|голов/i);
+    const fixed = [
+        { label: F.animal, value: blankValue(animal) ? '' : clip(animal, 30) },
+        { label: L.age, value: clip(age, 24) },
+        { label: L.weight, value: clip(weight, 24) },
+        { label: L.count, value: clip(count, 24) }
+    ];
+    const taken = new Set([F.animal, L.age, L.weight, L.count]);
+    return { fixed, points: pts.filter(p => !taken.has(String(p).split(':')[0].trim())).slice(0, 3) };
+}
+// Земли под посев: Площадь (сотки, гектары или м²), Тип, Полив, Сделка.
+const LAND_KINDS = [
+    [nw('теплиц\\S*|парник\\S*|гармхона\\S*|issiqxona'), ['Теплица', 'Гармхона', 'Issiqxona']],
+    [nw('птицеферм\\S*|птицефабрик\\S*|мурғпарвар\\S*'), ['Птицеферма', 'Мурғпарварӣ', 'Parrandachilik']],
+    [nw('рыб(?:н|ов)\\S*|хавз\\S*\\s+мо[хҳ]\\S*|мо[хҳ]ипарвар\\S*|форел\\S*|baliq'), ['Рыбное хозяйство', 'Моҳипарварӣ', 'Baliqchilik']],
+    [nw('виноградник\\S*|токзор\\S*|uzumzor'), ['Виноградник', 'Токзор', 'Uzumzor']],
+    [nw('сад(?:а|у|ы|ом|е)?(?![\\p{L}])|садов\\S*|плодов\\S*|абрикосов\\S*|яблон\\S*|боғ(?:и|ҳо)?(?![\\p{L}])'), ['Сад', 'Боғ', "Bog'"]],
+    [nw('чорво\\S*|чорводор\\S*|скотоводч\\S*|животновод\\S*|скотн\\S*|коровник\\S*|овчарн\\S*'), ['Животноводство', 'Чорводорӣ', 'Chorvachilik']],
+    [nw('ферм\\S*|хоҷаги\\S*|хозяйств\\S*|деҳқон\\S*|фермер\\S*|xo.jalik'), ['Ферма', 'Ферма', 'Ferma']],
+    [nw('дач\\S*'), ['Дача', 'Дача', 'Dacha']],
+    [nw('пашн\\S*|пахот\\S*|сельхоз\\S*|сельскохоз\\S*|зироат\\S*|кишт\\S*|богарн\\S*|орошаем\\S*|поливн\\S*|огород\\S*'), ['Сельхозземля', 'Замини кишт', 'Ekin yeri']],
+    [nw('под\\s+(?:индивидуальн\\S*\\s+)?(?:строительств|застройк)\\S*|ижс'), ['Под застройку', 'Барои сохтмон', 'Qurilish uchun']]
+];
+const DEAL_WORDS = { sale: ['Продажа', 'Фурӯш', 'Sotuv'], rent: ['Аренда', 'Иҷора', 'Ijara'] };
+const SALE_RE = /продаж\S*|продаю|продам(?![\p{L}])|продаёт\S*|продает\S*|фурӯш\S*|фурӯхт\S*|сотилад\S*|sotaman/iu;
+const RENT_RE = /аренд\S*|сда[ёе]тся|сдаю|сдам(?![\p{L}])|иҷора\S*|ijara/iu;
+function landSlots(it, lang, extra = {}) {
+    const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru, S = SOMON_L[lang] || SOMON_L.ru, F = FARM_L[lang] || FARM_L.ru, i = LI[lang] ?? 0;
+    const kw = (extra.specs && extra.specs.kw) || '';
+    const kwv = re => { const m = kw.match(re); return m ? m[1].trim() : ''; };
+    const title = String(it.title || '');
+    const desc = [it.listDesc, extra.desc].filter(Boolean).join(' ');
+    const pts = Array.isArray(it.points) ? it.points : [];
+    const take = re => { const p = pts.find(x => /:/.test(String(x)) && re.test(String(x).split(':')[0])); const v = p ? valueOf(p) : ''; return v && !blankValue(v) ? v : ''; };
+    // Площадь: сначала название, потом текст продавца
+    const sizeIn = t => {
+        let m;
+        if ((m = t.match(/(?<![\d.,])(\d{1,4}(?:[.,]\d+)?)\s*(?:сот(?![\p{L}])|сот(?:ок|ки|ку|ка|ке|ках|ох|их|ых)(?![\p{L}])|sotix)/iu))) return `${m[1].replace(',', '.')} ${S.sot}`;
+        if ((m = t.match(/(?<![\d.,])(\d{1,4}(?:[.,]\d+)?)\s*(?:га(?![\p{L}])|гектар\S*|ga(?![\p{L}]))/iu))) return `${m[1].replace(',', '.')} ${V.ha}`;
+        if ((m = t.match(/(?<![\d.,])(\d{2,6})\s*(?:м²|м2|кв\.?\s*м)/iu))) return `${m[1]} ${S.m2}`;
+        return '';
+    };
+    const size = sizeIn(title) || sizeIn(desc) || take(/участ|площад|масоҳат|қитъа|maydon|uchast/i);
+    // Тип: из названия, потом из строки «Тип участка …» на странице; в тексте продавца не ищем (слово «сад» там встречается где угодно)
+    let kind = '';
+    const byTitle = LAND_KINDS.find(([re]) => re.test(title));
+    if (byTitle) kind = byTitle[1][i];
+    else {
+        const raw = kwv(/(?:^|,\s)Тип участка\s+([^,]+)/);
+        const byKw = raw && LAND_KINDS.find(([re]) => re.test(raw));
+        kind = byKw ? byKw[1][i] : '';
+    }
+    kind = kind || take(/тип|навъ|turi/i);
+    // Сделка: «Тип сделки …» на странице, иначе слова продавца (если встретились и продажа, и аренда — не гадаем)
+    const rawDeal = kwv(/(?:^|,\s)Тип сделки\s+([^,]+)/);
+    let deal = '';
+    if (SALE_RE.test(rawDeal) && !RENT_RE.test(rawDeal)) deal = DEAL_WORDS.sale[i];
+    else if (RENT_RE.test(rawDeal) && !SALE_RE.test(rawDeal)) deal = DEAL_WORDS.rent[i];
+    else {
+        const t = `${title} ${desc}`, sale = SALE_RE.test(t), rent = RENT_RE.test(t);
+        deal = sale && !rent ? DEAL_WORDS.sale[i] : rent && !sale ? DEAL_WORDS.rent[i] : '';
+    }
+    let water = '';
+    try { water = FX.water({ title, description: desc }, L, V, lang) || ''; } catch { water = ''; }
+    water = water ? valueOf(water) : take(/полив|обёрӣ|sug.orish/i);
+    const fixed = [
+        { label: S.area, value: clip(size, 24) },
+        { label: F.kind, value: blankValue(kind) ? '' : clip(kind, 30) },
+        { label: L.water, value: clip(water, 24) },
+        { label: F.deal, value: clip(deal, 24) }
+    ];
+    const taken = new Set([S.plot, S.area, F.kind, L.water, F.deal]);
+    return { fixed, points: pts.filter(p => !taken.has(String(p).split(':')[0].trim())).slice(0, 3) };
+}
+// Урожай: Тип (что за продукт), Количество, Цена за (за какое количество указана цена).
+const FOOD_KINDS = [
+    [nw('мёд(?![\\p{L}])|мед(?:а|у|ом|е)?(?![\\p{L}])|асал\\S*|asal'), ['Мёд', 'Асал', 'Asal']],
+    [nw('яйц\\S*|тухми\\s+(?:хонаг\\S*|мурғ\\S*|бедона\\S*|мурғоб\\S*)|tuxum'), ['Яйца', 'Тухм', 'Tuxum']],
+    [nw('мяс[оау]\\S*|говядин\\S*|баранин\\S*|конин\\S*|курин\\S*|гӯшт\\S*|гушт\\S*|колбас\\S*|go.sht'), ['Мясо', 'Гӯшт', "Go'sht"]],
+    [nw('молок\\S*|молочн\\S*|сливк\\S*|сметан\\S*|творог\\S*|кефир\\S*|йогурт\\S*|сыр(?:а|у|ы|ом)?(?![\\p{L}])|қаймоқ\\S*|каймок\\S*|қатиқ\\S*|катик\\S*|панир\\S*|сузма\\S*|қурут\\S*|курут\\S*|pishloq|sut(?![\\p{L}])'), ['Молочное', 'Маҳсулоти ширӣ', 'Sut mahsulotlari']],
+    [nw('хлеб\\S*|нон(?![\\p{L}])|лепёшк\\S*|лепешк\\S*|торт\\S*|коржи?(?![\\p{L}])|пирог\\S*|выпечк\\S*|печень\\S*|баурсак\\S*|самс\\S*|пахлав\\S*'), ['Выпечка', 'Нонвойӣ', 'Pishiriq']],
+    [nw('сухофрукт\\S*|кишмиш\\S*|изюм\\S*|курага\\S*|урюк\\S*|чормағз\\S*|чормагз\\S*|орех\\S*|миндал\\S*|бодом\\S*|фисташ\\S*|фундук\\S*|финик\\S*|мавиз\\S*|меваи\\s+хушк\\S*|yong.oq|quruq\\s+meva'), ['Сухофрукты и орехи', 'Меваи хушк ва чормағз', 'Quruq meva va yong\'oq']],
+    [nw('варень\\S*|джем(?![\\p{L}])|компот\\S*|соленья|консерв\\S*|мураббо\\S*|маринад\\S*|повидло|конфет\\S*|халва'), ['Консервы и сладости', 'Консерва ва ширинӣ', 'Konserva va shirinlik']],
+    [nw('зерно|зерн\\S*|пшениц\\S*|мук[аиу](?![\\p{L}])|гандум\\S*|ғалла\\S*|гуруч\\S*|рис(?![\\p{L}])|кукуруз\\S*|ҷуворимакка|ячмен\\S*|просо|фасол\\S*|лӯбиё\\S*|нут(?![\\p{L}])|чечевиц\\S*|горох|горош|подсолнеч\\S*'), ['Зерно и бобовые', 'Ғалла ва лӯбиёгиҳо', 'Don va dukkaklilar']],
+    [nw('овощ\\S*|картоф\\S*|картошк\\S*|морков\\S*|лук(?![\\p{L}])|лука(?![\\p{L}])|капуст\\S*|помидор\\S*|памидор\\S*|томат\\S*|огурц\\S*|огурец|перец|перц\\S*|тыкв\\S*|свёкл\\S*|свекл\\S*|редис\\S*|баклажан\\S*|чеснок\\S*|кабачк\\S*|редьк\\S*|зелень|укроп|кинза|шпинат|сабзавот\\S*|сабзӣ|пиёз\\S*|карам(?![\\p{L}])|sabzavot'), ['Овощи', 'Сабзавот', 'Sabzavot']],
+    [nw('фрукт\\S*|яблок\\S*|яблоч\\S*|груш\\S*|абрикос\\S*|персик\\S*|виноград\\S*|гранат\\S*|инжир\\S*|айв[аыу]\\S*|слив[аыу]\\S*|вишн\\S*|черешн\\S*|арбуз\\S*|дын[яеию]\\S*|лимон\\S*|мандарин\\S*|апельсин\\S*|банан\\S*|хурм\\S*|мева(?![\\p{L}])|меваҳо|себ(?![\\p{L}])|нок(?![\\p{L}])|зардолу|шафтолу|ангур\\S*|анор\\S*|анҷир(?![\\p{L}])|беҳи(?![\\p{L}])|олу(?![\\p{L}])|тарбуз\\S*|харбуз\\S*|meva(?![\\p{L}])'), ['Фрукты', 'Мева', 'Meva']]
+];
+function foodKind(title, desc, i) {
+    const byTitle = FOOD_KINDS.find(([re]) => re.test(title));
+    if (byTitle) return byTitle[1][i];
+    // в названии нет — смотрим текст продавца, но только если там ровно один вид продукта
+    const hits = FOOD_KINDS.filter(([re]) => re.test(String(desc || '').slice(0, 200)));
+    return hits.length === 1 ? hits[0][1][i] : '';
+}
+function harvestSlots(it, lang, extra = {}) {
+    const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru, F = FARM_L[lang] || FARM_L.ru, i = LI[lang] ?? 0;
+    const title = String(it.title || '');
+    const desc = [it.listDesc, extra.desc].filter(Boolean).join(' ');
+    const art = { title, description: desc };
+    const text = factText(art);
+    const pts = Array.isArray(it.points) ? it.points : [];
+    const take = re => { const p = pts.find(x => /:/.test(String(x)) && re.test(String(x).split(':')[0])); const v = p ? valueOf(p) : ''; return v && !blankValue(v) ? v : ''; };
+    const kind = foodKind(title, desc, i) || take(/тип|вид|навъ|turi/i);
+    // Цена за: «за кг», «за 1 л», «70 сом/кг»
+    let per = '';
+    try { per = FX.per(art, L, V, lang) || ''; } catch { per = ''; }
+    per = per ? valueOf(per) : '';
+    let perAt = -1;
+    if (!per) {
+        const m = text.match(/\/\s*(кг|килограмм\S*|кило\S*|л|литр\S*|шт\S*|штук\S*|дона)(?![\p{L}])/iu);
+        const u = m ? UNIT_CANON(m[1]) : '';
+        if (u) { per = `1 ${V[u]}`; perAt = m.index; }
+    }
+    per = per || take(/цена за|нарх барои|narxi/i);
+    // Количество: первое «N кг / N л / N шт» в тексте, но не то, что стоит после «за» и «/» — это единица цены
+    let qty = '';
+    const re = /(?<![\d.,])(\d{1,4}(?:[.,]\d+)?)\s*(кг|килограмм\S*|кило\S*|л|литр\S*|шт\S*|штук\S*|г|гр)(?![\p{L}])/giu;
+    let m;
+    while ((m = re.exec(text))) {
+        const before = text.slice(Math.max(0, m.index - 6), m.index);
+        if (/(?:за|барои|ҳар|\/)\s*$/iu.test(before) || m.index === perAt + 1) continue;
+        const u = UNIT_CANON(m[2]);
+        if (u) { qty = `${m[1].replace(',', '.')} ${V[u]}`; break; }
+    }
+    qty = qty || take(/колич|миқдор|объ[её]м|вес|soni|hajm/i);
+    return {
+        fixed: [{ label: F.kind, value: blankValue(kind) ? '' : clip(kind, 30) }, { label: L.count, value: clip(qty, 24) }, { label: L.per, value: clip(per, 24) }],
+        points: pts.filter(p => !new Set([F.kind, L.count, L.per, L.volume, L.weight]).has(String(p).split(':')[0].trim())).slice(0, 3)
+    };
+}
 function fixedSlots(it, lang, mode, extra) {
+    if (mode === 'livestock') return livestockSlots(it, lang, extra);
+    if (mode === 'farm') return landSlots(it, lang, extra);
+    if (mode === 'harvest') return harvestSlots(it, lang, extra);
     if (mode === 'lang' || mode === 'itc') return courseSlots(it, lang, mode, extra);
     if (mode === 'car') return carSlots(it, lang, extra);
     if (mode === 'parts') return partsSlots(it, lang, extra);
@@ -2254,7 +2464,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
         stat.parsed += list.length;
         const words = ((spec.sources || [])[li] || {}).words || spec.words;
         for (const a of list) {
-            if ((spec.cat && !spec.cat.test(a.cats)) || (spec.notCat && spec.notCat.test(a.cats)) || (words && !words.test(`${a.title} ${a.description}`)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
+            if ((spec.cat && !spec.cat.test(a.cats)) || (spec.notCat && spec.notCat.test(a.cats)) || (words && !words.test(`${a.title} ${a.description}`)) || (spec.notWords && spec.notWords.test(a.title)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
             const p = parsePublished(a.published);
             flat.push({ a, age: p ? p.ageMin : Infinity, n: flat.length });
         }
@@ -4297,7 +4507,8 @@ const DIAG_TOPICS = {
     harvest: '6. Кишоварзӣ - Ҳосил',
     tips: '4. Молия ва тиҷорат - Маслиҳатҳо',
     mmt: '5. Маориф ва илм - ММТ',
-    encyc: '5. Маориф ва илм - Донишномаҳо'
+    encyc: '5. Маориф ва илм - Донишномаҳо',
+    sowing: '6. Кишоварзӣ - Кишт'
 };
 
 async function handleDiag(req, res) {
@@ -4463,5 +4674,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
