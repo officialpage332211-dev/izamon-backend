@@ -2747,6 +2747,25 @@ function parseOlaCards(html, max = 60) {
         out.push({ id: 'ola' + link[2], title, description: '', price, priceNote: '', thumb: img, imgCount: img ? 1 : 0, images: img ? [img] : [], published: when, path: '', url: link[1], location: city, who: '', cats: '' });
         if (out.length >= max) break;
     }
+    if (out.length) return out;
+    // страница раздела: карточки «items-element» (галерея фото, описание продавца, телефон, город, дата «04.11.2026 18:18»)
+    const html0 = String(html || '');
+    const starts = [...html0.matchAll(/class="items-element\b[^"]*js-favorite"/g)].map(m => m.index);
+    for (let i = 0; i < starts.length && out.length < max; i++) {
+        const c = html0.slice(starts[i], i + 1 < starts.length ? starts[i + 1] : starts[i] + 20000);
+        const link = /href="(https:\/\/ola\.tj\/listing\/(\d+)\/[^"#?]*)"/.exec(c);
+        if (!link) continue;
+        const images = [...new Set([...c.matchAll(/data-zzload-source-img="(https:\/\/ola\.tj\/storage\/[^"]+)"/g)].map(m => m[1]))].slice(0, 16);
+        const title = htmlText((/class="items-element__title\s*">([\s\S]*?)<\/(?:div|a)>/.exec(c) || [])[1]);
+        if (!title || title.length > 300) continue;
+        const price = htmlText((/class="item-info__price">([\s\S]*?)<\/span>/.exec(c) || [])[1]);
+        const desc = htmlText(((/class="item-element__descrr">([\s\S]*?)<span>/.exec(c) || [])[1] || '').replace(/\.\.\.\s*$/, ''));
+        const city = htmlText((/class="item-info__address">[\s\S]*?<span>([\s\S]*?)<\/span>/.exec(c) || [])[1]);
+        const when = htmlText((/class="item-info__date">\s*<span>([\s\S]*?)<\/span>/.exec(c) || [])[1]);
+        // телефон, который продавец указал в объявлении (сайт показывает его в карточке)
+        const phone = (/class="mobile-contacts__phone">\s*(\+?\d[\d\s\-]{7,16}\d)/.exec(c) || [])[1] || '';
+        out.push({ id: 'ola' + link[2], title, description: [desc, phone ? `Тел: ${phone.replace(/\s+/g, '')}` : ''].filter(Boolean).join('\n'), price, priceNote: '', thumb: images[0] || '', imgCount: images.length, images, published: when, path: '', url: link[1], location: city, who: '', cats: '' });
+    }
     return out;
 }
 
@@ -2789,7 +2808,7 @@ function boardGet(host, url) {
         if (!list.length) throw new Error('в странице нет списка');
         return list;
     });
-    p.catch(() => BOARD_CACHE.delete(url));
+    p.catch(err => { if (!/ответил 404/.test(String(err && err.message))) BOARD_CACHE.delete(url); }); // «404» помним 5 минут: такого раздела нет
     if (BOARD_CACHE.size >= BOARD_CACHE_MAX) BOARD_CACHE.delete(BOARD_CACHE.keys().next().value);
     BOARD_CACHE.set(url, { at: Date.now(), p });
     return p;
