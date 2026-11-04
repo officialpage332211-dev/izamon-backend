@@ -611,7 +611,16 @@ function spaceTipLines(text) {
     const EMO = '\\p{Extended_Pictographic}(?:[\\uFE0F\\u200D]|\\p{Extended_Pictographic})*';
     const lead = new RegExp(`^(${EMO})\\s*`, 'u');
     const colon = new RegExp(`^((?:${EMO}\\s+)?(?:\\*\\*)?[^:*\\n]{2,50}?(?:\\*\\*)?):(?=[^\\s\\d/])`, 'u');
-    return String(text).split('\n').map(line => line.trim().replace(lead, '$1 ').replace(colon, '$1: ')).join('\n');
+    // «🔬 **Звезды:**» на одной строке, а текст — на следующей (без значка): это одна карточка, склеиваем
+    const titleOnly = new RegExp(`^(?:${EMO}\\s*)?(?:\\*\\*)?[^.!?:*\\n]{2,60}?\\s*:\\s*(?:\\*\\*)?\\s*$|^(?:${EMO}\\s*)?\\*\\*[^*\\n]{2,60}?\\*\\*\\s*:\\s*$`, 'u');
+    const startsEmo = new RegExp(`^${EMO}`, 'u');
+    const src = String(text).split('\n').map(l => l.trim()).filter(Boolean);
+    const lines = [];
+    for (let i = 0; i < src.length; i++) {
+        if (titleOnly.test(src[i]) && i + 1 < src.length && !startsEmo.test(src[i + 1]) && !titleOnly.test(src[i + 1])) { lines.push(`${src[i]} ${src[i + 1]}`); i++; }
+        else lines.push(src[i]);
+    }
+    return lines.map(line => line.replace(lead, '$1 ').replace(colon, '$1: ')).join('\n');
 }
 function tipsAnswer(text, sources, lang, key = 'tips') {
     const cfg = TEXT_CARDS[key] || TEXT_CARDS.tips;
