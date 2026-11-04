@@ -2084,7 +2084,7 @@ const ANIMALS = [
     [nw('коров\\S*|гов(?:и|ҳо|ӣ)?(?![\\p{L}])|sigir\\S*'), ['Корова', 'Гов', 'Sigir']],
     [nw('ягн\\S*|барра\\S*|qo.zi(?![\\p{L}])'), ['Ягнёнок', 'Барра', "Qo'zi"]],
     [nw('баран(?:ы|а|ов|у|ом)?(?![\\p{L}])|қӯчқор\\S*|кочкор\\S*|qo.chqor'), ['Баран', 'Қӯчқор', "Qo'chqor"]],
-    [nw('овц\\S*|овечк\\S*|гӯсфанд\\S*|гусфанд\\S*|qo.y(?![\\p{L}])'), ['Овца', 'Гӯсфанд', "Qo'y"]],
+    [nw('овц\\S*|овечк\\S*|г[уӯ]с[пф]анд\\S*|qo.y(?![\\p{L}])'), ['Овца', 'Гӯсфанд', "Qo'y"]],
     [nw('козлён\\S*|козлят\\S*|бузғола\\S*|бузгола\\S*|uloq'), ['Козлёнок', 'Бузғола', 'Uloq']],
     [nw('козёл|козел|така(?![\\p{L}])|taka(?![\\p{L}])'), ['Козёл', 'Така', 'Taka']],
     [nw('коз(?:а|ы|у|ой|ам)(?![\\p{L}])|козочк\\S*|буз(?![\\p{L}])|бузи(?![\\p{L}])|echki'), ['Коза', 'Буз', 'Echki']],
@@ -2099,7 +2099,7 @@ const ANIMALS = [
     [nw('индюк\\S*|индюш\\S*|индейк\\S*|индук\\S*|kurka'), ['Индюк', 'Индюк', 'Kurka']],
     [nw('утк\\S*|утён\\S*|утят\\S*|селезн\\S*|мурғоб\\S*|o.rdak'), ['Утка', 'Мурғобӣ', "O'rdak"]],
     [nw('гус(?:ь|и|ей|ак|ака|аки)(?![\\p{L}])|гусён\\S*|гусят\\S*|ғоз\\S*|гоз(?![\\p{L}])|g.oz'), ['Гусь', 'Ғоз', "G'oz"]],
-    [nw('куриц\\S*|кур(?:ы|ят|очк\\S*)(?![\\p{L}])|несушк\\S*|мурғ(?:и|ҳо|он)?(?![\\p{L}])|мурғак\\S*|tovuq'), ['Курица', 'Мурғ', 'Tovuq']],
+    [nw('куриц\\S*|кур(?:ы|ят|очк\\S*)(?![\\p{L}])|несушк\\S*|мур[гғ](?:и|ҳо|хои|хо|он)?(?![\\p{L}])|мур[гғ]ак\\S*|tovuq'), ['Курица', 'Мурғ', 'Tovuq']],
     [nw('кролик\\S*|крольч\\S*|харгӯш\\S*|харгуш\\S*|quyon'), ['Кролик', 'Харгӯш', 'Quyon']],
     [nw('голуб\\S*|кабӯтар\\S*|кабутар\\S*|kaptar'), ['Голубь', 'Кабӯтар', 'Kaptar']],
     [nw('скот(?![\\p{L}])|қорамол\\S*|чорво(?![\\p{L}])|chorva'), ['Скот', 'Чорво', 'Chorva']]
@@ -2117,7 +2117,7 @@ function animalsIn(text, max) {
 function livestockSlots(it, lang, extra = {}) {
     const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru, F = FARM_L[lang] || FARM_L.ru, i = LI[lang] ?? 0;
     const kw = (extra.specs && extra.specs.kw) || '';
-    const title = String(it.title || '');
+    const title = String(extra.title0 || it.title || '');
     const art = { title, description: [it.listDesc, extra.desc].filter(Boolean).join(' ') };
     const pts = Array.isArray(it.points) ? it.points : [];
     const take = re => { const p = pts.find(x => /:/.test(String(x)) && re.test(String(x).split(':')[0])); const v = p ? valueOf(p) : ''; return v && !blankValue(v) ? v : ''; };
@@ -2171,7 +2171,7 @@ function landSlots(it, lang, extra = {}) {
     const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru, S = SOMON_L[lang] || SOMON_L.ru, F = FARM_L[lang] || FARM_L.ru, i = LI[lang] ?? 0;
     const kw = (extra.specs && extra.specs.kw) || '';
     const kwv = re => { const m = kw.match(re); return m ? m[1].trim() : ''; };
-    const title = String(it.title || '');
+    const title = String(extra.title0 || it.title || '');
     const desc = [it.listDesc, extra.desc].filter(Boolean).join(' ');
     const pts = Array.isArray(it.points) ? it.points : [];
     const take = re => { const p = pts.find(x => /:/.test(String(x)) && re.test(String(x).split(':')[0])); const v = p ? valueOf(p) : ''; return v && !blankValue(v) ? v : ''; };
@@ -2237,7 +2237,7 @@ function foodKind(title, desc, i) {
 }
 function harvestSlots(it, lang, extra = {}) {
     const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru, F = FARM_L[lang] || FARM_L.ru, i = LI[lang] ?? 0;
-    const title = String(it.title || '');
+    const title = String(extra.title0 || it.title || '');
     const desc = [it.listDesc, extra.desc].filter(Boolean).join(' ');
     const art = { title, description: desc };
     const text = factText(art);
@@ -2536,7 +2536,7 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
         const age = kind === 'tickets' || kind === 'tours' ? null : (t.pub ? t.pub.ageMin : ageFromDate(it.date));
         const base = { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
-        return fixed ? { ...base, ...fixedSlots(base, lang, fixed, { specs: photos.specs && photos.specs[i], desc: photos.descs && photos.descs[i] }) } : base;
+        return fixed ? { ...base, ...fixedSlots(base, lang, fixed, { specs: photos.specs && photos.specs[i], desc: photos.descs && photos.descs[i], title0: t.title }) } : base;
     });
 }
 
