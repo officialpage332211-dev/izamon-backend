@@ -2903,7 +2903,13 @@ ${CARD_GLOSSARY[lang] || ''}
         // Перевод принимаем, только если цифры (цена, год, площадь) не изменились; иначе остаётся исходное значение.
         // Латинские слова, которых не было в исходном тексте («3-xONA»), — выдумка модели: такой перевод не берём.
         const latin = s => (String(s || '').match(/[A-Za-z]{2,}/g) || []).map(x => x.toLowerCase());
-        const invented = (orig, t) => { if (lang === 'uz') return false; const o = latin(orig); return latin(t).some(x => !o.includes(x)); };
+        // Буквы другого письма (арабские, иврит, китайские и т.п.), которых не было в исходном тексте, — сбой модели: такой перевод не берём.
+        const ALIEN = /[֐-ࣿ฀-๿぀-ヿ㐀-鿿가-힯]/;
+        const invented = (orig, t) => {
+            if (ALIEN.test(String(t || '')) && !ALIEN.test(String(orig || ''))) return true;
+            if (lang === 'uz') return false;
+            const o = latin(orig); return latin(t).some(x => !o.includes(x));
+        };
         const pick = (orig, tr) => { const t = typeof tr === 'string' ? tr.trim() : ''; return t && digits(t) === digits(orig) && !invented(orig, t) ? t : orig; };
         const out = items.map((it, i) => {
             const t = arr[i] && typeof arr[i] === 'object' ? arr[i] : {};
