@@ -175,8 +175,8 @@ const PORTAL_RULES = [
       query: 'Найди актуальную информацию про вступительное тестирование ММТ (Маркази миллии тестӣ, Национальный центр тестирования Таджикистана): ближайшие сроки, регистрация, результаты. Если по источникам ММТ означает иное, опирайся на источники.' },
     { re: /донишномаҳо|энциклопеди|^kitoblar$/, mode: 'digest',
       query: 'Дай один интересный вечный факт из энциклопедии (например, Википедии) по науке, истории или природе. Это не новость и не событие сегодняшнего дня. Для разнообразия выбери тему по номеру сегодняшнего дня в году.' },
-    { re: /маслиҳатҳо|^советы$|^maslahat$/, mode: 'digest',
-      query: 'Найди 2–3 практичных совета для жителей Таджикистана по семейному бюджету, сбережениям, халяльной торговле и малому бизнесу. Без кредитов, процентов и займов.' },
+    { re: /маслиҳатҳо|^советы$|^maslahat$/, mode: 'digest', kind: 'tips',
+      query: 'Найди 3 практичных, проверенных источниками совета для жителей Таджикистана по семейному бюджету, сбережениям, торговле и малому бизнесу. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение с конкретикой из источника. Без вступительных слов.' },
     { re: /^(?:кишт|посев|ekin)$/, mode: 'digest',
       query: 'Что сеять и сажать в Таджикистане именно сейчас, по сегодняшней дате: 3–4 культуры, сроки посева и главный приём ухода, по данным агро-источников.' },
     { re: /чорводорӣ|животноводств|^chorva$/, mode: 'ads',
@@ -343,9 +343,11 @@ function buildSystemPrompt({ mode, lang, canSearch, date, strict = false }) {
 - О чувствах слушай и поддерживай, без лекций. Ты ИИ, не притворяйся человеком.
 - Если человеку очень тяжело или он говорит о желании навредить себе — мягко поддержи и посоветуй обратиться к близким или специалисту.
 
-ШАРИАТ (обязательно):
+ОГРАНИЧЕНИЯ (обязательно, но молча):
 - Всё строго в рамках шариата. Не советуй и не рекламируй кредиты, проценты, займы, ипотеку, депозиты под процент, страхование с риба, азартные игры, лотереи, алкоголь, табак и другое запретное.
 - Такие пункты (вакансии, объявления, советы) пропускай полностью, не упоминай их.
+- Никогда не пиши слова «шариат», «халал/халол/ҳалол/халяль», «харам/ҳаром», «ислам», «запрещено» и не объясняй свои ограничения: просто давай подходящее и молча пропускай остальное.
+- Если вопрос целиком про запретное, ответь одной мягкой строкой на языке человека: «🤍 Простите, по этой теме я помочь не смогу.» — без причин и без встречных вопросов.
 
 СТИЛЬ (строго):
 - По умолчанию 2–5 строк. Больше — только если человек просит подробно.
@@ -370,6 +372,9 @@ const RU_LEAK = new RegExp('(?<![а-яёӣӯқғҳҷ])(?:информаци[яи
 // Частые русские слова, которых нет в таджикском.
 const RU_WORDS = new RegExp('(?<![а-яёӣӯқғҳҷ])(?:для|года|году|был[аио]?|были|что|это|как|после|если|или|есть|можно|нужно|сейчас|сегодня|только|через|когда|который|при|под|от|до)(?![а-яёӣӯқғҳҷ])', 'i');
 
+// Окончания русских прилагательных и существительных, которых в таджикском нет.
+const RU_ENDINGS = /(?<![а-яёӣӯқғҳҷ])[а-яё]{3,}(?:евой|овой|ский|ская|ское|ские|ского|ской|ному|ного|ении|ения|ение|ность|ности)(?![а-яёӣӯқғҳҷ])/i;
+
 function mixedLanguage(text, lang) {
     if (lang === 'uz') {
         // Узбекский на сайте — латиницей: заметная доля кириллицы значит чужой язык.
@@ -384,7 +389,7 @@ function mixedLanguage(text, lang) {
         .replace(/(?<![\p{L}])[\p{L}\d-]+\.(?:tj|com|ru|org|net|uz|io|me|info)(?![\p{L}])/giu, ' ');
     const latin = t.match(/(?<![A-Za-z\u00C0-\u024F])[a-z\u00DF-\u024F][a-z\u00DF-\u024F]{3,}(?![A-Za-z\u00C0-\u024F])/g) || [];
     if (latin.some(w => !LATIN_OK.has(w.toLowerCase()))) return true;
-    if (lang === 'tg' && (RU_LEAK.test(t) || RU_WORDS.test(t) || /[ыщьц]/i.test(t))) return true;
+    if (lang === 'tg' && (RU_LEAK.test(t) || RU_WORDS.test(t) || RU_ENDINGS.test(t) || /[ыщьц]/i.test(t))) return true;
     if (lang === 'ru' && /[ӣӯқғҳҷ]/.test(t)) return true;
     return false;
 }
@@ -396,13 +401,15 @@ const B = '(?<![а-яёӣӯқғҳҷa-z])';
 const HARAM_ASK = new RegExp(`${B}(?:кредит|ипотек|микрокредит|займ|заём|қарз(?:и|ӣ)?\\s+(?:бонк|бо\\s+фоиз)|фоиз|процент(?:ы|ная)?\\s+(?:по|ставк|вклад)|депозит|казино|ставк[иа]\\s+на\\s+спорт|букмекер|лотере|алкогол|пиво|водк|коньяк|шароб|вино(?![а-яё])|kredit|ipoteka|foiz|qarz|kazino)`, 'i');
 const HARAM_LINE = new RegExp(`${B}(?:кредит|ипотек|займ|заём|қарз(?:ӣ|и)?(?![а-яёӣӯқғҳҷ])|фоиз|процент|ставк[аи]\\s+рефинанс|депозит|казино|букмекер|лотере|алкогол|пиво|водк|шароб|свинин|хамон|бекон|коньяк|виски|самогон|ликёр|ликер|шампанск|вино(?![а-яёӣӯқғҳҷ])|хук(?:и|ҳо)?(?![а-яёӣӯқғҳҷ])|kredit|ipoteka|foiz)`, 'i');
 const SHARIA_REPLY = {
-    tg: '🤲 iZamoN дар бораи кредит, фоиз ва дигар чизҳои манъшуда маслиҳат намедиҳад.\n💡 Метавонам дар бораи пасандоз, тиҷорати ҳалол ва сарфакорӣ маълумот диҳам.',
-    ru: '🤲 iZamoN не консультирует по кредитам, процентам и другим запретным вещам.\n💡 Могу рассказать о сбережениях, халяльной торговле и экономии.',
-    uz: "🤲 iZamoN kredit, foiz va boshqa taqiqlangan narsalar bo'yicha maslahat bermaydi.\n💡 Jamg'arma, halol savdo va tejamkorlik haqida aytib bera olaman."
+    tg: '🤍 Бубахшед, дар ин мавзӯъ ёрӣ расонида наметавонам.',
+    ru: '🤍 Простите, по этой теме я помочь не смогу.',
+    uz: "🤍 Kechirasiz, bu mavzuda yordam bera olmayman."
 };
+// Слова, которые в ответах не показываем: ограничения действуют молча, без объяснений (бренды и пункты с ними пропускаем).
+const SHARIA_TALK = new RegExp(`${B}(?:шариат|шариа|халал|халол|ҳалол|халяль|харам|ҳаром|ислам|исломӣ|исламск|мусулман|риба(?![а-яёӣӯқғҳҷ])|рибо|фатв|манъшуд|запрещ[её]нн|shariat|halol|halal|harom|haram|islom|riba(?![a-z]))`, 'i');
 
-function dropHaramLines(text) {
-    return String(text).split('\n').filter(l => !HARAM_LINE.test(l)).join('\n');
+function dropHaramLines(text, quiet = false) {
+    return String(text).split('\n').filter(l => !HARAM_LINE.test(l) && !(quiet && SHARIA_TALK.test(l))).join('\n');
 }
 
 // Тексты на таджикском и узбекском стоит показать носителю языка.
@@ -444,8 +451,15 @@ function cleanModelText(text) {
         .trim();
 }
 
-const MODE_EMOJI = { ads: '🔹', jobs: '💼', finance: '💱', digest: '🔹', general: '🔹' };
+const MODE_EMOJI = { ads: '🔹', jobs: '💼', finance: '💱', digest: '💡', general: '🔹' };
 const STARTS_EMOJI = /^\s*(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[0-9]️?⃣)/u;
+// Модель иногда ставит эмодзи в конце строки: переносим его в начало, чтобы все строки выглядели одинаково.
+const TRAIL_EMOJI = /^(.*?[^\s\p{Extended_Pictographic}\uFE0F\u200D])\s*((?:\p{Extended_Pictographic}[\uFE0F\u200D]*)+)\s*$/su;
+function emojiFirst(line) {
+    if (STARTS_EMOJI.test(line)) return line;
+    const m = line.match(TRAIL_EMOJI);
+    return m ? `${m[2]} ${m[1]}` : line;
+}
 
 // Делаем ответ понятным с первого взгляда: таблицы → строки, без «-»/«*», длинные абзацы режем,
 // каждая строка начинается с эмодзи.
@@ -464,7 +478,7 @@ function shapeLines(text, mode = 'general') {
         } else {
             tableRow = 0;
         }
-        line = line.replace(/^(?:[-•*·]|\d{1,2}[.)])\s+/, '').replace(/(?<!\*)\*(?!\*)/g, '').trim();
+        line = emojiFirst(line.replace(/^(?:[-•*·]|\d{1,2}[.)])\s+/, '').replace(/(?<!\*)\*(?!\*)/g, '').trim());
         if (!line) continue;
         const parts = line.length > 180 ? line.split(/(?<=[.!?])\s+(?=[A-ZА-ЯЁӢӮҚҒҲҶ0-9«"(])/u) : [line];
         for (let part of parts) {
@@ -492,13 +506,35 @@ function linkify(safe) {
     });
 }
 
+const sourceLinks = sources => sources
+    .filter(s => /^https:\/\//i.test(s.uri || ''))
+    .map(s => `<a href="${escapeAttr(s.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceLabel(s.title, s.uri))}</a>`);
+
 // Сайт вставляет ответ через innerHTML: текст модели экранируется, ссылки на источники собираем сами.
 function finalize(text, sources, lang) {
     const safe = linkify(escapeHtml(cleanModelText(text)));
-    const links = sources
-        .filter(s => /^https:\/\//i.test(s.uri || ''))
-        .map(s => `<a href="${escapeAttr(s.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceLabel(s.title, s.uri))}</a>`);
+    const links = sourceLinks(sources);
     return links.length ? `${safe}\n\n🔎 ${SOURCES_LABEL[lang]}: ${links.join(', ')}` : safe;
+}
+
+// «Советы»: каждая строка «эмодзи, заголовок: предложение» — отдельная карточка. HTML без переносов строк (сайт меняет \n на <br>).
+const TIPS_HEAD = { tg: 'Маслиҳатҳо', ru: 'Советы', uz: 'Maslahatlar' };
+const TIP_LINE = /^(\p{Extended_Pictographic}(?:[\uFE0F\u200D]|\p{Extended_Pictographic})*)\s*(.*)$/su;
+function tipsAnswer(text, sources, lang) {
+    const cards = String(text).split('\n').map(l => l.trim()).filter(Boolean).slice(0, 3).map(line => {
+        const m = line.match(TIP_LINE);
+        const icon = m ? m[1] : '💡';
+        const rest = (m ? m[2] : line).trim();
+        const bold = rest.match(/^\*\*([^*]{2,60})\*\*\s*[:—–-]?\s*(.*)$/s);
+        const plain = rest.match(/^([^:*]{2,50}?)\s*:\s+(.+)$/s);
+        const [title, body] = bold ? [bold[1], bold[2]] : plain && plain[1].split(/\s+/).length <= 7 ? [plain[1], plain[2]] : ['', rest];
+        const clean = x => x.replace(/\*\*/g, '').trim();
+        const b = clean(body);
+        if (!b && !clean(title)) return '';
+        return `<div class="iz-tip"><span class="iz-tip-ic">${escapeHtml(icon)}</span><div class="iz-tip-b">${clean(title) ? `<b>${escapeHtml(clean(title))}</b> ` : ''}<span>${linkify(escapeHtml(b || clean(title)))}</span></div></div>`;
+    }).filter(Boolean).join('');
+    const links = sourceLinks(sources);
+    return `<div class="iz-tips"><div class="iz-tips-h">💡 ${TIPS_HEAD[lang]}</div>${cards}${links.length ? `<div class="iz-rt-src">🔎 ${SOURCES_LABEL[lang]}: ${links.join(', ')}</div>` : ''}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -2445,8 +2481,8 @@ function dropMixedLines(text, lang) {
     return String(text).split('\n').filter(l => !l.trim() || !mixedLanguage(l, lang)).join('\n').trim();
 }
 
-async function rewriteForUser(text, { mode, lang, date, strict = false }) {
-    const task = `\n\nЗАДАЧА: перепиши найденные данные в короткий ответ ПОЛНОСТЬЮ на языке: ${LANG_NAMES[lang]}. Переведи всё, кроме названий компаний, сайтов и брендов. Оставь 2–3 самых полезных пункта, не больше 8 строк, каждая строка — одно простое предложение с эмодзи в начале. Названия, цифры, даты, телефоны и сайты сохрани точно, ничего не добавляй от себя. Полностью убери пункты про кредиты, проценты, займы, алкоголь, казино и другое запретное по шариату. Если конкретных данных не осталось, скажи об этом одной строкой.`;
+async function rewriteForUser(text, { mode, lang, date, strict = false, tips = false }) {
+    const task = `\n\nЗАДАЧА: перепиши найденные данные в короткий ответ ПОЛНОСТЬЮ на языке: ${LANG_NAMES[lang]}. Переведи всё, кроме названий компаний, сайтов и брендов. Оставь 2–3 самых полезных пункта, не больше 8 строк, каждая строка — одно простое предложение с эмодзи в начале. Названия, цифры, даты, телефоны и сайты сохрани точно, ничего не добавляй от себя. Полностью убери пункты про кредиты, проценты, займы, алкоголь, казино и другое запретное; слова «шариат», «халал/халол», «харам», «ислам» не пиши. Если конкретных данных не осталось, скажи об этом одной строкой.${tips ? ' Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно предложение.' : ''}`;
     // Для таджикского и узбекского первым идёт Gemini: он грамотнее. Каждая следующая попытка — строже.
     const order = lang === 'ru' ? ['openai', 'gemini', 'openrouter'] : ['gemini', 'openai', 'openrouter'];
     let fallback = null;
@@ -2509,13 +2545,13 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                     const sources = orderSources(r.sources.length ? r.sources : sourcesFromText(r.text));
                     if (!sources.length) continue; // настоящих источников нет — пробуем следующий поиск
                     let text = cleanModelText(r.text);
-                    if (needsRewrite(text, lang)) text = await rewriteForUser(text, { mode, lang, date });
+                    if (needsRewrite(text, lang)) text = await rewriteForUser(text, { mode, lang, date, tips: kind === 'tips' });
                     // Последняя защита: чужой язык до человека не доходит. Не осталось строк — пробуем другой поиск.
                     if (mixedLanguage(text, lang)) text = dropMixedLines(text, lang);
-                    text = capLines(shapeLines(dropHaramLines(cleanModelText(text)), mode), 10);
+                    text = capLines(shapeLines(dropHaramLines(cleanModelText(text), true), mode), kind === 'tips' ? 3 : 10);
                     if (!text.trim()) continue;
-                    const web = finalize(text, sources, lang);
-                    return { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources }, ttl: ttlFor(mode) };
+                    const web = kind === 'tips' ? tipsAnswer(text, sources, lang) : finalize(text, sources, lang);
+                    return { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(kind === 'tips' ? { view: 'tips' } : {}) }, ttl: ttlFor(mode) };
                 } catch (err) {
                     errored = true;
                     console.warn(`[${eng.name} поиск Сбой]: ${err.status || ''} ${err.message}`);
@@ -2541,13 +2577,13 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
             try {
                 const r = await run();
                 if (mixedLanguage(r.text, lang)) { kept = kept || { r, name }; continue; }
-                return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(r.text)), mode), [], lang), provider: name, grounded: false, sources: [] }, ttl: 0 };
+                return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(r.text), mode !== 'general'), mode), [], lang), provider: name, grounded: false, sources: [] }, ttl: 0 };
             } catch (err) {
                 console.warn(`[${name} Сбой]: ${err.status || ''} ${err.message}`);
             }
         }
         if (kept) {
-            return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(kept.r.text)), mode), [], lang), provider: kept.name, grounded: false, sources: [] }, ttl: 0 };
+            return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(kept.r.text), mode !== 'general'), mode), [], lang), provider: kept.name, grounded: false, sources: [] }, ttl: 0 };
         }
         return { body: { answer: ERR_FALLBACK[lang], provider: 'none', grounded: false, sources: [] }, ttl: 0 };
     } finally {
@@ -3994,7 +4030,8 @@ const DIAG_TOPICS = {
     phones: '3. Бозор ва молу ашё - Телефонҳо',
     langs: '5. Маориф ва илм - Забонҳо',
     itcourses: '5. Маориф ва илм - Курсҳои IT',
-    harvest: '6. Кишоварзӣ - Ҳосил'
+    harvest: '6. Кишоварзӣ - Ҳосил',
+    tips: '4. Молия ва тиҷорат - Маслиҳатҳо'
 };
 
 async function handleDiag(req, res) {
@@ -4040,6 +4077,12 @@ async function handleDiag(req, res) {
                 kind = r.kind;
                 somon = r.somon;
                 query = withDictionary(r.userText, diagTopic);
+            }
+            if (kind === 'tips') {
+                // тот же путь, что и у настоящей кнопки «Советы»: готовые карточки и то, что услышит озвучка
+                const res = await compute({ mode: routed.mode, lang: diagLang, factual: true, fullMessage: query, date: todayTJ(), kind, somon: null, adsQuery: diagTopic });
+                const plain = String(res.body.answer || '').replace(/<\/(?:div)>|<br\s*\/?>/gi, '\n').replace(/<\/b>/gi, ': ').replace(/<[^>]*>/g, '').replace(/\n+/g, '\n').trim();
+                return { lang: diagLang, routed, provider: res.body.provider, view: res.body.view || null, tips: (String(res.body.answer || '').match(/class="iz-tip"/g) || []).length, plain, sources: (res.body.sources || []).length };
             }
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
             const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon });
@@ -4142,5 +4185,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
