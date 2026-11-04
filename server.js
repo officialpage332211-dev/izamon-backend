@@ -3701,9 +3701,9 @@ async function handleDiag(req, res) {
             const ctx = (re, n = 220) => { const m = re.exec(html); return m ? html.slice(Math.max(0, m.index - 60), m.index + n).replace(/\s+/g, ' ') : null; };
             return {
                 len: html.length,
+                keywords: ((html.match(/<meta\s+name="keywords"\s+content="([^"]*)"/i) || [])[1] || '').slice(0, 700),
                 ld: [...html.matchAll(/"@type"\s*:\s*"([A-Za-z]+)"/g)].map(m => m[1]).slice(0, 8),
-                mileage: ctx(/Пробег|mileage/i), gearbox: ctx(/Коробка|transmission/i), fuel: ctx(/Топлив|fuel/i), year: ctx(/Год выпуска|productionDate|modelDate/i),
-                rooms: ctx(/Количество комнат|numberOfRooms|Комнат/i), floor: ctx(/Этаж/), area: ctx(/Общая площадь|floorSize|Площадь/i)
+                ld2: null
             };
         });
     }
