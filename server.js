@@ -5345,7 +5345,7 @@ async function handleDiag(req, res) {
             const from = Math.max(0, Number(req.query.from) || 0), len = Math.min(60000, Number(req.query.len) || 1500);
             const find = String(req.query.find || '');
             const at = find ? html.indexOf(find) : -1;
-            const links = [...new Set([...html.matchAll(/href=["']([^"']+)["']/g)].map(m => m[1]).filter(h => /\d{4,}/.test(h)))].slice(0, 25);
+            const links = [...new Set([...html.matchAll(/href=["']([^"']+)["']/g)].map(m => m[1]).filter(h => req.query.all ? !/\.(?:css|js|png|ico|svg|webmanifest)(?:[?#]|$)/i.test(h) : /\d{4,}/.test(h)))].slice(0, req.query.all ? 400 : 25);
             return {
                 url: page.url, len: html.length,
                 title: ((html.match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '').trim().slice(0, 150),
@@ -5359,7 +5359,11 @@ async function handleDiag(req, res) {
                     const pick = String(req.query.pick || '').split('.').filter(Boolean).reduce((o, k) => (o == null ? o : o[k]), d);
                     // форма данных: ключи и длины массивов на 3 уровня
                     const shape = (o, dep) => Array.isArray(o) ? `[${o.length}]${o.length && dep > 0 ? ' ' + JSON.stringify(shape(o[0], dep - 1)) : ''}` : o && typeof o === 'object' ? (dep > 0 ? Object.fromEntries(Object.entries(o).slice(0, 40).map(([k, v]) => [k, shape(v, dep - 1)])) : '{…}') : typeof o === 'string' ? o.slice(0, 40) : o;
-                    return { shape: shape(pick, Number(req.query.depth) || 3), json: JSON.stringify(pick === undefined ? null : pick).slice(0, len) };
+                    // fields=name,slug,…: оставить только эти поля на всех уровнях (дерево разделов)
+                    const keep = String(req.query.fields || '').split(',').filter(Boolean);
+                    const proj = (o, dep) => dep > 12 ? null : Array.isArray(o) ? o.map(x => proj(x, dep + 1)) : o && typeof o === 'object' ? Object.fromEntries(Object.entries(o).filter(([k, v]) => keep.includes(k) && v != null).map(([k, v]) => [k, proj(v, dep + 1)])) : o;
+                    const val = keep.length ? proj(pick, 0) : pick;
+                    return { shape: keep.length ? undefined : shape(pick, Number(req.query.depth) || 3), json: JSON.stringify(val === undefined ? null : val).slice(0, len) };
                 })() : undefined,
                 findAt: at, findCtx: at >= 0 ? html.slice(Math.max(0, at - 300), at + len).replace(/\s+/g, ' ') : null,
                 slice: at >= 0 ? null : html.slice(from, from + len).replace(/\s+/g, ' ')
