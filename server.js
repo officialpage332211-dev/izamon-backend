@@ -3596,7 +3596,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return fallback || text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind, somon, trace }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -3607,7 +3607,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
             let ownBlock = '';
             let ownRows = [];
             if (mode === 'ads' && adsOn()) {
-                try { ownRows = await withSellerStats(await searchAds(adsQuery)); ownBlock = ownRows.length ? listingsAnswer([], 'ads', lang, ownRows) : ''; } catch (err) { console.warn(`[ads Сбой]: ${err.message}`); }
+                try { ownRows = await withSellerStats(await searchAds(adsQuery, 5, !!adsAll)); ownBlock = ownRows.length ? listingsAnswer([], 'ads', lang, ownRows) : ''; } catch (err) { console.warn(`[ads Сбой]: ${err.message}`); }
             }
             // Карточки (объявления, вакансии, билеты, туры) и таблица курсов — самый понятный вид.
             if (openai && kind === 'rates') {
@@ -3801,7 +3801,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : routeOn }));
+        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword) }));
         return res.json(r.body);
     } catch (err) {
         console.error('chat failed:', err);
@@ -4751,7 +4751,8 @@ async function withSellerStats(rows) {
     }
 }
 
-async function searchAds(q, limit = 5) {
+// all — все слова запроса должны найтись (поиск по ключевым словам), иначе хватает одного
+async function searchAds(q, limit = 5, all = false) {
     if (!adsOn()) return [];
     const words = [...new Set(norm(String(q || '')).split(' ').filter(w => w.length >= 3))].slice(0, 4);
     if (!words.length) return [];
@@ -4762,7 +4763,7 @@ async function searchAds(q, limit = 5) {
             const hay = `${a.title} ${a.description} ${a.location}`.toLowerCase();
             return { a, score: words.filter(w => hay.includes(w)).length };
         })
-        .filter(x => x.score > 0)
+        .filter(x => (all ? x.score === words.length : x.score > 0))
         .sort((x, y) => y.score - x.score)
         .slice(0, limit)
         .map(x => x.a);
