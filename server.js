@@ -3017,6 +3017,11 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                     if (step) trace.push(step);
                     if (!sources.length) continue; // настоящих источников нет — пробуем следующий поиск
                     let text = cleanModelText(r.text);
+                    if (kind === 'sowing') {
+                        text = await verifySowing(spaceTipLines(text), sources, date);
+                        if (step) step.verified = text.slice(0, 300);
+                        if (!text.trim()) continue; // страницы-источники про эти культуры и посев не говорят — пробуем другой поиск
+                    }
                     if (TEXT_CARDS[kind]) {
                         // запретное убираем до перевода; переводим только если ответ не на языке человека
                         text = dropHaramLines(spaceTipLines(text), true);
@@ -3475,6 +3480,46 @@ function getPage(url) {
     if (PAGE_CACHE.size >= PAGE_CACHE_MAX) PAGE_CACHE.delete(PAGE_CACHE.keys().next().value);
     PAGE_CACHE.set(url, { at: Date.now(), p });
     return p;
+}
+
+// «Посев»: карточка культуры остаётся, только если на открывшейся странице-источнике рядом с названием культуры
+// (в одном предложении) написано про посев или посадку и про этот месяц или это время года. Иначе это выдумка модели с чужой ссылкой — такую карточку не показываем.
+const SEASON_RE = [/зим|зимистон/, /зим|зимистон/, /весн|баҳор/, /весн|баҳор/, /весн|баҳор/, /лет(?:о|ом|ний|ние|ня)(?![а-яё])|тобистон/, /лет(?:о|ом|ний|ние|ня)(?![а-яё])|тобистон/, /лет(?:о|ом|ний|ние|ня)(?![а-яё])|тобистон/, /осен|тирамоҳ/, /осен|тирамоҳ/, /осен|тирамоҳ/, /зим|зимистон/];
+const SOW_RE = /посев|посад|сеют|сеять|сеем|(?<![а-яё])сев(?![а-яё])|сажа|высев|заделк|озим|кишт|шинонд/;
+async function verifySowing(text, sources, date) {
+    const pages = [];
+    for (const src of (sources || []).slice(0, 4)) {
+        const url = src && (src.uri || src.url);
+        if (!url) continue;
+        try {
+            const r = await withTimeout(getPage(url), 7000);
+            const plain = decodeEntities(String(r.html || '')).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').toLowerCase();
+            if (plain.length > 200) pages.push(plain);
+        } catch { /* страница не открылась — по ней карточку не подтвердить */ }
+    }
+    if (!pages.length) return '';
+    const mi = Math.max(0, Math.min(11, Number(String(date && date.iso || '').slice(5, 7)) - 1 || 0));
+    const when = new RegExp(`${RU_MONTHS[mi]}|${SEASON_RE[mi].source}`);
+    return String(text).split('\n').map(l => l.trim()).filter(Boolean).filter(line => {
+        const title = line.replace(/^\p{Extended_Pictographic}[️‍\p{Extended_Pictographic}]*\s*/u, '').replace(/\*\*/g, '').split(':')[0];
+        const words = title.toLowerCase().replace(/[^а-яёa-zӣӯқғҳҷ]+/g, ' ').trim().split(/\s+/).filter(Boolean);
+        const stem = (words[words.length - 1] || '').slice(0, 5);
+        if (stem.length < 3) return false;
+        const re = new RegExp(`(?<![а-яёa-zӣӯқғҳҷ])${stem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'g');
+        return pages.some(pg => {
+            let m, n = 0;
+            re.lastIndex = 0;
+            while ((m = re.exec(pg)) && n++ < 200) {
+                // то же предложение: от ближайшей точки перед названием до ближайшей после (не дальше 220 знаков в каждую сторону)
+                const before = pg.slice(Math.max(0, m.index - 220), m.index), after = pg.slice(m.index, m.index + 220);
+                const b = Math.max(before.lastIndexOf('.'), before.lastIndexOf('!'), before.lastIndexOf('?'), before.lastIndexOf('\n'));
+                const a = after.search(/[.!?]\s/);
+                const win = before.slice(b + 1) + (a >= 0 ? after.slice(0, a + 1) : after);
+                if (SOW_RE.test(win) && when.test(win)) return true;
+            }
+            return false;
+        });
+    }).join('\n');
 }
 
 // Что есть на странице: телефоны, почта и имена, числа. По этому сверяем всё, что прислала модель.
@@ -4681,5 +4726,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, spaceTipLines, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
