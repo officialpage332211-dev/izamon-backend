@@ -232,7 +232,7 @@ const PORTAL_RULES = [
       somon: { sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], facts: 'phone', fixed: 'phone' },
       query: 'Найди актуальные объявления о продаже мобильных телефонов в Таджикистане, сначала на somon.tj: модель, память, состояние, цена, город, контакт продавца.' },
     { re: /^(?:кор\s+ва\s+шуғл|вакансии|ish)$/, mode: 'jobs',
-      somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], notCat: /Banki-strahovanie-lizing/i, facts: 'job' },
+      somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], notCat: /Banki-strahovanie-lizing/i, facts: 'job', fixed: 'job' },
       query: 'Найди актуальные вакансии в Таджикистане на сегодня, сначала на somon.tj: должность, зарплата, город, работодатель, график, контакт. Банки, кредитные и страховые организации, алкоголь и казино не показывай.' },
     { re: /^(?:земли|заминҳои\s+кишт)$/, mode: 'ads', somon: SOMON_FARMLAND,
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане, сначала на somon.tj: площадь, цена, место, контакт владельца.' },
@@ -1738,10 +1738,78 @@ function goodsSlots(it, lang, mode, extra = {}) {
     const rest = (Array.isArray(it.points) ? it.points : []).filter(p => !taken.has(String(p).split(':')[0].trim()));
     return { fixed, points: rest.slice(0, 3) };
 }
+// ---------- «Финансы»: одинаковые карточки у «Вакансий» ----------
+// Опыт, График, Сфера (сфера — отдельной строкой: названия длинные). Чего нет — «—» (ничего не выдумываем).
+// Данные: строка характеристик на странице объявления somon.tj («Стаж от 1 года, График Полный день»), сфера из раздела объявления,
+// а у вакансий с других сайтов — характеристики «Название: значение», которые нашёл поиск. Слова с сайта (по-русски) переводим по таблице;
+// незнакомое слово на таджикском и узбекском не показываем, чтобы не смешивать языки.
+const JOB_SCHED = [
+    [/(?<![а-яё])неполн\S*\s+(?:день|рабоч)|(?<![а-яё])частичн\S*|(?<![а-яё])подработк/iu, ['Неполный день', 'Рӯзи нопурра', 'Yarim kun']],
+    [/(?<![а-яё])полн\S*\s+(?:день|рабоч)|(?<![а-яё])полная\s+занят/iu, ['Полный день', 'Рӯзи пурра', "To'liq kun"]],
+    [/(?<![а-яё])свободн\S*/iu, ['Свободный', 'Озод', 'Erkin']],
+    [/(?<![а-яё])сменн\S*/iu, ['Сменный', 'Навбатӣ', 'Smenali']],
+    [/(?<![а-яё])гибк\S*/iu, ['Гибкий', 'Мутобиқшаванда', 'Moslashuvchan']],
+    [/(?<![а-яё])удал[её]нн\S*|(?<![а-яё])дистанц\S*/iu, ['Удалённый', 'Фосилавӣ', 'Masofaviy']],
+    [/(?<![а-яё])вахт\S*/iu, ['Вахтовый', 'Вахтавӣ', 'Vaxta usuli']]
+];
+const JOB_EXP_ANY = ['Любой', 'Ҳар гуна', 'Istalgan'];
+// «от 1 года», «от 3 лет», «до 1 года», «2–3 года», «Любой», «Без опыта» → значение на языке карточки (или пусто)
+function jobExp(raw, lang) {
+    const s = String(raw || '').trim();
+    if (!s) return '';
+    const V = FV[lang] || FV.ru;
+    if (/^(?:без\s+опыта|не\s+(?:требуется|нужен|важен)|бе[зс]\s+таҷриба)/iu.test(s)) return V.noneed;
+    if (/^(?:любой|ҳар\s+гуна|istalgan)/iu.test(s)) return JOB_EXP_ANY[LI[lang] ?? 0];
+    const m = s.match(/^(от|до)?\s*(\d{1,2})(?:\s*[-–—]\s*(\d{1,2}))?\s*(лет|года|год|мес\S*)/iu);
+    if (m) {
+        const kind = (m[1] || '').toLowerCase();
+        const a = +m[2], b = m[3] ? +m[3] : 0;
+        const mo = /^мес/i.test(m[4]);
+        const n = b || a;
+        const unit = mo ? V.mo : yearsWord(lang, n, kind === 'от' || kind === 'до');
+        const num = b ? `${a}–${b}` : String(a);
+        if (kind === 'от') return lang === 'tg' ? `аз ${num} ${unit}` : lang === 'uz' ? `${num} ${unit}dan` : `от ${num} ${unit}`;
+        if (kind === 'до') return lang === 'tg' ? `то ${num} ${unit}` : lang === 'uz' ? `${num} ${unit}gacha` : `до ${num} ${unit}`;
+        return `${num} ${unit}`;
+    }
+    return lang === 'ru' && s.length <= 24 && !blankValue(s) ? s : '';
+}
+function jobSlots(it, lang, extra = {}) {
+    const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru;
+    const kw = (extra.specs && extra.specs.kw) || '';
+    const kwv = re => { const m = kw.match(re); return m ? m[1].trim() : ''; };
+    const pts = Array.isArray(it.points) ? it.points : [];
+    const RE = { exp: /опыт|стаж|таҷриба|tajriba/i, sched: /график|режим|реҷа|ҷадвал|jadval|ish\s+vaqti/i, sphere: /сфера|соҳа|soha/i };
+    const used = new Set();
+    const take = re => {
+        const i = pts.findIndex((x, k) => !used.has(k) && /:/.test(String(x)) && re.test(String(x).split(':')[0]));
+        if (i < 0) return '';
+        used.add(i);
+        const v = valueOf(pts[i]);
+        return v && !blankValue(v) ? v : '';
+    };
+    // текст, найденный раньше (на языке карточки), годится, если это не пустое значение
+    const pExp = take(RE.exp), pSched = take(RE.sched), pSphere = take(RE.sphere);
+    const kExp = jobExp(kwv(/(?:^|,\s)Стаж\s+([^,]+)/), lang);
+    const rawSched = kwv(/(?:^|,\s)График\s+([^,]+)/);
+    const hitSched = JOB_SCHED.find(([re]) => re.test(rawSched));
+    const kSched = hitSched ? hitSched[1][LI[lang] ?? 0] : (lang === 'ru' && rawSched && rawSched.length <= 24 && !blankValue(rawSched) ? rawSched : '');
+    const exp = kExp || pExp;
+    const sched = kSched || pSched;
+    return {
+        fixed: [
+            { label: L.exp, value: clip(exp, 30) },
+            { label: L.sched, value: clip(sched, 30) },
+            { label: L.sphere, value: clip(pSphere, 60), row: true }
+        ],
+        points: pts.filter((_, k) => !used.has(k))
+    };
+}
 function fixedSlots(it, lang, mode, extra) {
     if (mode === 'car') return carSlots(it, lang, extra);
     if (mode === 'parts') return partsSlots(it, lang, extra);
     if (mode === 'tour') return tourSlots(it, lang);
+    if (mode === 'job') return jobSlots(it, lang, extra);
     if (GOODS_SETS[mode]) return goodsSlots(it, lang, mode, extra);
     return estateSlots(it, lang, mode);
 }
@@ -2063,7 +2131,7 @@ url — обычная ссылка https://… (без Markdown и скобок
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
     if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
-    const done = await finishItems(items.slice(0, 10), kind, lang, debug, kind === 'ads' && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
+    const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
     return kind === 'tickets' ? withTicketLinks(done, debug) : done;
 }
 
@@ -2243,11 +2311,25 @@ async function searchRates({ lang, date, debug }) {
     return { date: clip(data.date, 40), nbt, banks, sources };
 }
 
+// Одинаковые карточки «Курсов валют»: всегда одни и те же 10 валют Нацбанка в одном порядке и два банка (Алиф, Душанбе Сити)
+// по USD, EUR, RUB. Чего поиск не нашёл — «—» (ничего не выдумываем). Банки показываем, если найден хотя бы один курс банка.
+const RATE_CODES = ['USD', 'EUR', 'RUB', 'CNY', 'KZT', 'UZS', 'KGS', 'TRY', 'AED', 'GBP'];
+const RATE_BANK_CODES = ['USD', 'EUR', 'RUB'];
+const RATE_BANKS = [
+    { re: /алиф|alif/i, names: { tg: 'Алиф', ru: 'Алиф', uz: 'Alif' } },
+    { re: /душанбе\s*сити|dushanbe\s*city|(?<![a-zа-яё])dc(?![a-zа-яё])/i, names: { tg: 'Душанбе Сити', ru: 'Душанбе Сити', uz: 'Dushanbe City' } }
+];
 function ratesAnswer(r, lang) {
     const h = RATE_HEAD[lang];
     const f = n => (n ? String(+n.toFixed(4)) : '—');
-    const nbtRows = r.nbt.map(x => `<tr><td>${FLAGS[x.code] || '💱'} ${x.code}</td><td>${f(x.rate)}</td></tr>`).join('');
-    const bankRows = r.banks.map(b => `<tr><td>${escapeHtml(b.bank)}</td><td>${FLAGS[b.code] || ''} ${b.code}</td><td>${f(b.buy)}</td><td>${f(b.sell)}</td></tr>`).join('');
+    const rateOf = new Map();
+    r.nbt.forEach(x => { if (!rateOf.has(x.code)) rateOf.set(x.code, x.rate); });
+    const nbtRows = RATE_CODES.map(c => `<tr><td>${FLAGS[c]} ${c}</td><td>${f(rateOf.get(c))}</td></tr>`).join('');
+    const anyBank = RATE_BANKS.some(bk => r.banks.some(b => bk.re.test(b.bank)));
+    const bankRows = anyBank ? RATE_BANKS.flatMap(bk => RATE_BANK_CODES.map(c => {
+        const b = r.banks.find(x => bk.re.test(x.bank) && x.code === c);
+        return `<tr><td>${bk.names[lang]}</td><td>${FLAGS[c]} ${c}</td><td>${f(b && b.buy)}</td><td>${f(b && b.sell)}</td></tr>`;
+    })).join('') : '';
     const links = r.sources.map(s => `<a href="${escapeAttr(s.uri)}" target="_blank" rel="noopener noreferrer">${escapeHtml(sourceLabel(s.title, s.uri))}</a>`).join(', ');
     return `<div class="iz-rates"><div class="iz-lh">💱 ${h.title}${r.date ? ' — ' + escapeHtml(r.date) : ''}</div>` +
         `<div class="iz-rt-sub">🏦 ${h.nbt} (${h.per})</div><table class="iz-rt">${nbtRows}</table>` +
@@ -3939,7 +4021,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
+    priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
