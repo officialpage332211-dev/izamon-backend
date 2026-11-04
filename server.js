@@ -2293,9 +2293,85 @@ const RATE_HEAD = {
 const FLAGS = { USD: '🇺🇸', EUR: '🇪🇺', RUB: '🇷🇺', CNY: '🇨🇳', KZT: '🇰🇿', UZS: '🇺🇿', KGS: '🇰🇬', TRY: '🇹🇷', AED: '🇦🇪', GBP: '🇬🇧', IRR: '🇮🇷', AFN: '🇦🇫', JPY: '🇯🇵', CHF: '🇨🇭' };
 const num = v => { const n = Number(String(v ?? '').replace(',', '.').replace(/[^\d.]/g, '')); return Number.isFinite(n) && n > 0 ? n : null; };
 
-async function searchRates({ lang, date, debug }) {
-    const system = `Сегодня ${date.human}. Найди в интернете официальные курсы Национального банка Таджикистана (nbt.tj) к сомони на сегодня для 10 валют: USD, EUR, RUB, CNY, KZT, UZS, KGS, TRY, AED, GBP (курс за 1 единицу валюты). И курсы покупки/продажи USD, EUR, RUB в банках «Алиф» (alif.tj) и «Душанбе Сити» (dc.tj) на сегодня, если найдёшь.
-Верни ТОЛЬКО JSON: {"date":"дата курса","nbt":[{"code":"USD","rate":0}],"banks":[{"bank":"Алиф","code":"USD","buy":0,"sell":0}]}. Не нашёл — не включай. Ничего не выдумывай.`;
+// Нацбанк публикует курс за «номинал»: например, 10 KZT, 100 UZS. В карточке написано «за 1 единицу», поэтому курс делим на номинал.
+const NBT_SRC = { uri: 'https://nbt.tj/ru/kurs/', title: 'nbt.tj' };
+const okNominal = n => Number.isFinite(n) && [1, 10, 100, 1000, 10000, 100000, 1000000].includes(n);
+
+// Курс в карточке: от 1 сомони — четыре знака после запятой; меньше 1 — четыре значащие цифры (0,000774 сум не превращается в 0).
+function fmtRate(n) {
+    if (!(n > 0)) return '—';
+    if (n >= 1) return String(+n.toFixed(4));
+    return String(+n.toFixed(Math.min(10, 3 - Math.floor(Math.log10(n)))));
+}
+
+// Разбор официального файла Нацбанка. Формат читаем терпимо: значения могут стоять и в тегах, и в атрибутах.
+function parseNbtXml(xml, fallbackDate) {
+    const text = String(xml || '');
+    const field = (block, names) => {
+        for (const n of names) {
+            const t = block.match(new RegExp(`<${n}\\b[^>]*>\\s*([^<]*?)\\s*</${n}>`, 'i'));
+            if (t && t[1]) return t[1];
+            const a = block.match(new RegExp(`<[A-Za-z]+\\b[^>]*\\s${n}\\s*=\\s*["']([^"']*)["']`, 'i'));
+            if (a && a[1]) return a[1];
+        }
+        return '';
+    };
+    const blocks = text.match(/<(Valute|Currency|Cur|Item|Row|Record)\b[^>]*\/>|<(Valute|Currency|Cur|Item|Row|Record)\b[\s\S]*?<\/\2>/gi) || [];
+    const seen = new Set();
+    const rows = [];
+    for (const b of blocks) {
+        const code = field(b, ['CharCode', 'Code', 'CurrencyCode', 'ISO']).trim().toUpperCase();
+        const value = num(field(b, ['Value', 'Rate', 'Kurs', 'Amount']));
+        const nomRaw = field(b, ['Nominal', 'Scale', 'Units', 'Quantity']);
+        const nominal = nomRaw ? num(nomRaw) : 1;
+        if (!/^[A-Z]{3}$/.test(code) || !value || !nominal || seen.has(code)) continue;
+        seen.add(code);
+        rows.push({ code, rate: value / nominal });
+    }
+    const dm = text.match(/<(?:ValCurs|Rates|Currencies|Kurs)\b[^>]*\sDate\s*=\s*["']([^"']{6,12})["']/i) || text.match(/<Date>\s*([^<]{6,12}?)\s*<\/Date>/i);
+    let d = dm ? dm[1].trim() : '';
+    if (!/^(\d{1,2}[.\/-]\d{1,2}[.\/-]\d{4}|\d{4}-\d{2}-\d{2})$/.test(d)) d = fallbackDate;
+    return { date: d, rows };
+}
+
+async function nbtXmlRates(date, debug) {
+    const dbg = {};
+    try {
+        let url = `https://nbt.tj/ru/kurs/export_xml.php?date=${date.iso}&export=xmlout`;
+        let body = '';
+        for (let hop = 0; hop < 3; hop++) {
+            const u = await assertPublicUrl(url);
+            if (!/(^|\.)nbt\.tj$/i.test(u.hostname)) throw new Error('Только сайт Нацбанка');
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 8000);
+            let r;
+            try {
+                r = await fetch(u.href, { redirect: 'manual', signal: ctrl.signal, headers: { 'User-Agent': 'iZamoNBot/1.0 (+https://izamon.vercel.app)', 'Accept': 'application/xml,text/xml,*/*', 'Accept-Language': 'ru' } });
+            } finally { clearTimeout(timer); }
+            const loc = r.headers.get('location');
+            if (r.status >= 300 && r.status < 400 && loc) { url = new URL(loc, u).href; continue; }
+            dbg.status = r.status; dbg.ctype = String(r.headers.get('content-type') || '').slice(0, 60);
+            if (!r.ok) throw new Error(`Нацбанк ответил ${r.status}`);
+            body = await withTimeout(readCapped(r, 400000), 8000);
+            break;
+        }
+        dbg.len = body.length; dbg.head = body.replace(/\s+/g, ' ').slice(0, 160);
+        const parsed = parseNbtXml(body, date.iso.split('-').reverse().join('.'));
+        dbg.rows = parsed.rows.length;
+        dbg.sample = parsed.rows.slice(0, 12).map(x => `${x.code}=${fmtRate(x.rate)}`).join(' ');
+        if (parsed.rows.length < 3) return null;
+        return parsed;
+    } catch (err) {
+        dbg.error = String(err && err.message || err).slice(0, 120);
+        return null;
+    } finally {
+        if (debug) debug.xml = dbg;
+    }
+}
+
+async function searchRatesAi({ date, debug }) {
+    const system = `Сегодня ${date.human}. Найди в интернете официальные курсы Национального банка Таджикистана (nbt.tj) к сомони на сегодня для 10 валют: USD, EUR, RUB, CNY, KZT, UZS, KGS, TRY, AED, GBP. У каждой валюты укажи «nominal» — номинал из таблицы на сайте (сколько единиц валюты в строке: 1, 10, 100…) и «rate» — курс в сомони за этот номинал ровно так, как написано на сайте, без пересчёта. И курсы покупки/продажи USD, EUR, RUB в банках «Алиф» (alif.tj) и «Душанбе Сити» (dc.tj) на сегодня, если найдёшь (за 1 единицу).
+Верни ТОЛЬКО JSON: {"date":"дата курса","nbt":[{"code":"USD","nominal":1,"rate":0}],"banks":[{"bank":"Алиф","code":"USD","buy":0,"sell":0}]}. Не нашёл — не включай. Ничего не выдумывай.`;
     const resp = await openaiSearchRaw(system, 'Курсы валют к сомони на сегодня: Нацбанк Таджикистана, Алиф, Душанбе Сити', 1500);
     const { text, cites, consulted } = readSearch(resp);
     let sources = uniqueSources(cites);
@@ -2306,13 +2382,32 @@ async function searchRates({ lang, date, debug }) {
     let data;
     try { data = parseJsonLoose(text); } catch { return null; }
     const nbt = (Array.isArray(data.nbt) ? data.nbt : [])
-        .map(r => ({ code: clip(r && r.code, 5).toUpperCase(), rate: num(r && r.rate) }))
+        .map(r => {
+            // нет поля «nominal» — считаем 1; непонятный номинал — курс не показываем, лучше «—», чем неверное число
+            const nom = r && r.nominal != null && String(r.nominal).trim() !== '' ? num(r.nominal) : 1;
+            const rate = num(r && r.rate);
+            return { code: clip(r && r.code, 5).toUpperCase(), rate: rate && okNominal(nom) ? rate / nom : null };
+        })
         .filter(r => /^[A-Z]{3}$/.test(r.code) && r.rate).slice(0, 12);
     const banks = (Array.isArray(data.banks) ? data.banks : [])
         .map(b => ({ bank: clip(b && b.bank, 30), code: clip(b && b.code, 5).toUpperCase(), buy: num(b && b.buy), sell: num(b && b.sell) }))
         .filter(b => b.bank && /^[A-Z]{3}$/.test(b.code) && (b.buy || b.sell)).slice(0, 12);
     if (nbt.length < 3) return null;
     return { date: clip(data.date, 40), nbt, banks, sources };
+}
+
+// Нацбанк берём из его официального файла (с номиналом), банки — из поиска; если файл не открылся — всё из поиска.
+async function searchRates({ lang, date, debug }) {
+    const [xml, ai] = await Promise.all([
+        nbtXmlRates(date, debug),
+        searchRatesAi({ date, debug }).then(v => ({ v }), e => ({ e }))
+    ]);
+    if (ai.e && !xml) throw ai.e;
+    const a = ai.v || null;
+    if (debug) debug.nbtFrom = xml ? 'xml' : (a ? 'ai' : null);
+    if (!xml) return a;
+    const banks = a ? a.banks : [];
+    return { date: xml.date, nbt: xml.rows, banks, sources: uniqueSources([NBT_SRC, ...(banks.length && a ? a.sources : [])]) };
 }
 
 // Одинаковые карточки «Курсов валют»: всегда одни и те же 10 валют Нацбанка в одном порядке и два банка (Алиф, Душанбе Сити)
@@ -2325,7 +2420,7 @@ const RATE_BANKS = [
 ];
 function ratesAnswer(r, lang) {
     const h = RATE_HEAD[lang];
-    const f = n => (n ? String(+n.toFixed(4)) : '—');
+    const f = fmtRate;
     const rateOf = new Map();
     r.nbt.forEach(x => { if (!rateOf.has(x.code)) rateOf.set(x.code, x.rate); });
     const nbtRows = RATE_CODES.map(c => `<tr><td>${FLAGS[c]} ${c}</td><td>${f(rateOf.get(c))}</td></tr>`).join('');
@@ -4047,5 +4142,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
