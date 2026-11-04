@@ -180,10 +180,10 @@ function factTopics(iso) {
 // Кнопки разделов: у каждой свой поисковый запрос, чтобы ответ сразу содержал данные, а не описание раздела.
 const PORTAL_RULES = [
     { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest', kind: 'services',
-      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/Kompyuter-i-internet/' }], facts: 'course', fixed: 'itc' },
+      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/Kompyuter-i-internet/' }], boards: [{ host: 'paydo.tj', path: 'obuchenie', words: /программ|it|айти|компьютер|1с|1c|дизайн|python|java|web|веб|frontend|backend|excel/i }, { host: 'ola.tj', path: 'obuchenie', words: /программ|it|айти|компьютер|1с|1c|дизайн|python|java|web|веб|frontend|backend|excel/i }],  facts: 'course', fixed: 'itc' },
       query: 'Найди актуальные IT-курсы в Таджикистане (программирование, дизайн, 1С и др.): название школы, цена, длительность, сайт или контакт.' },
     { re: /^(?:забонҳо|языки|tillar)$/, mode: 'digest', kind: 'services',
-      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/inostrannye-yazyki/' }], facts: 'languages', fixed: 'lang' },
+      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/inostrannye-yazyki/' }], boards: [{ host: 'paydo.tj', path: 'obuchenie', words: /язык|англ|русск|немец|корей|китай|турец|арабск|english|ielts|toefl|забон/i }, { host: 'ola.tj', path: 'obuchenie', words: /язык|англ|русск|немец|корей|китай|турец|арабск|english|ielts|toefl|забон/i }],  facts: 'languages', fixed: 'lang' },
       query: 'Найди актуальные курсы иностранных языков в Таджикистане: язык, цена, формат, сайт или контакт школы.' },
     { re: /^(?:ммт|mmt|мнт)$/, mode: 'digest', kind: 'mmt',
       query: d => `Сегодня ${d.human}. Найди свежие новости про централизованные вступительные экзамены (ЦВЭ) в вузы Таджикистана и Национальный центр тестирования (НЦТ, ММТ, Маркази миллии тестӣ). Нужен только ближайший по сегодняшней дате тур (этап): тот, на который сейчас идёт регистрация или экзамен которого ещё не прошёл. Уже прошедшие туры не описывай. Ищи в новостях (asiaplus.news, khovar.tj, avesta.tj, vecherka.tj) и на ntc.tj. Ответ — РОВНО 3 строки: «📝 Регистрация: …» (даты подачи заявок на этот тур), «📅 Экзамен: …» (номер тура и дата проведения экзамена), «📊 Результаты: …» (когда объявят результаты этого тура). Не путай регистрацию с экзаменом. В каждой строке одно короткое простое предложение с датами и годом из источников. Если чего-то нет — после двоеточия напиши только «—». Ничего не придумывай.` },
@@ -194,10 +194,10 @@ const PORTAL_RULES = [
     { re: /^(?:кишт|посев|ekin)$/, mode: 'digest', kind: 'sowing',
       query: d => `Сегодня ${String(d.human).replace(/\.+$/, '')}. Найди в агро-источниках Таджикистана (khovar.tj, сайт Министерства сельского хозяйства, agro.tj, asiaplus.news, аграрные сайты) что сеять и сажать именно в этом месяце. Обязательно используй веб-поиск и опирайся на найденные страницы. Бери только то, что прямо написано в источниках про этот месяц или эту осень, с учётом климата Таджикистана. Ответ — РОВНО 3 строки, каждая в таком виде: эмодзи, пробел, название культуры (1–2 слова), двоеточие, пробел, одно простое предложение до 20 слов: когда сеять или сажать (месяц или декада) и один главный приём ухода с цифрой, если она есть в источнике (глубина, норма, срок полива). Без общих фраз вроде «регулярный полив». Нет данных — напиши меньше строк. Без вступления, без ссылок в тексте.` },
     { re: /чорводорӣ|животноводств|^chorva$/, mode: 'ads',
-      somon: { sources: [{ path: 'zhivotnyie-i-rasteniya/skot/' }, { path: 'zhivotnyie-i-rasteniya/ptitsyi/' }, { path: 'zhivotnyie-i-rasteniya/kroliki/' }], notWords: PET_BIRDS, facts: 'livestock', fixed: 'livestock' },
+      somon: { sources: [{ path: 'zhivotnyie-i-rasteniya/skot/' }, { path: 'zhivotnyie-i-rasteniya/ptitsyi/' }, { path: 'zhivotnyie-i-rasteniya/kroliki/' }], boards: [{ host: 'paydo.tj', path: 'zhivotnye', words: /коров|бык|тел[её]н|тёлк|телк|овц|баран|ягн|коз|лошад|конь|кур[ыиа]|птиц|бройлер|гус|утк|индюк|кролик|ишак|осл|верблюд|гов/i }],  notWords: PET_BIRDS, facts: 'livestock', fixed: 'livestock' },
       query: 'Найди актуальные объявления о продаже скота и птицы в Таджикистане (коровы, быки, овцы, козы, лошади, птица), сначала на somon.tj: что за животное, возраст, вес, цена, место, контакт продавца. Домашних питомцев (кошки, собаки) не показывай.' },
     { re: /^(?:ҳосил|урожай|hosil)$/, mode: 'ads',
-      somon: { sources: [{ path: 'vse-dlya-doma/pihevie-produkti/' }], facts: 'food', fixed: 'harvest' },
+      somon: { sources: [{ path: 'vse-dlya-doma/pihevie-produkti/' }], boards: [{ host: 'paydo.tj', path: 'eda' }, { host: 'ola.tj', path: 'produkty-pitaniya' }],  facts: 'food', fixed: 'harvest' },
       query: 'Найди актуальные объявления о продаже сельхозпродукции и продуктов (мёд, фрукты, овощи, сухофрукты, мясо, зерно) в Таджикистане, сначала на somon.tj: что продаётся, цена, количество, место, контакт продавца.' },
     { re: /^(?:сафарҳо|поездки|safar)$/, mode: 'digest', kind: 'tours',
       query: 'Найди актуальные предложения туров и поездок из Таджикистана: направление, цена, даты, контакт оператора.' },
@@ -205,48 +205,48 @@ const PORTAL_RULES = [
       query: 'Найди актуальные авиабилеты из Душанбе по популярным направлениям: цена, дата, авиакомпания, ссылка.' },
     // Недвижимость: у каждого подраздела свой запрос, иначе поиск смешивает продажу, аренду и участки.
     { re: /^(?:фурӯши\s+хона|продажа\s+жилья|uy\s+sotish)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/prodazha-kvartir/' }, { path: 'nedvizhimost/prodazha-domov-havli-i-dach/' }], fixed: 'estate' },
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-kvartir/' }, { path: 'nedvizhimost/prodazha-domov-havli-i-dach/' }], boards: [{ host: 'paydo.tj', path: 'kvartiry-prodazha' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-prodazha' }, { host: 'ola.tj', path: 'prodazha-kvartir' }, { host: 'ola.tj', path: 'doma-khavli-i-dachi' }],  fixed: 'estate' },
       query: 'Найди актуальные объявления о продаже квартир и домов в Таджикистане, сначала на somon.tj: что продаётся (квартира или дом, число комнат, площадь), цена, район или город, контакт продавца. Только жильё на продажу: аренду, участки и коммерческие помещения не показывай.' },
     { re: /^(?:иҷора|аренда|ijara)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }], fixed: 'estate' },
+      somon: { sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }], boards: [{ host: 'paydo.tj', path: 'kvartiry-arenda' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-arenda' }, { host: 'ola.tj', path: 'dolgosrochnaya-arenda-kvartir' }],  fixed: 'estate' },
       query: 'Найди актуальные объявления об аренде жилья в Таджикистане (квартиры, дома, комнаты), сначала на somon.tj: что сдаётся, число комнат, цена в месяц, район или город, контакт хозяина. Только аренда жилья: продажу, участки и коммерческие помещения не показывай.' },
     { re: /^(?:замин\s+ва\s+тиҷоратӣ|земля\s+и\s+коммерческая|yer\s+va\s+tijorat)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], fixed: 'land' },
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], boards: [{ host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-arenda' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }, { host: 'ola.tj', path: 'pomeshcheniya' }],  fixed: 'land' },
       query: 'Найди актуальные объявления о земельных участках под строительство и о коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: что это, площадь, цена, продажа или аренда, место, контакт. Жилые квартиры и дома не показывай.' },
     // Услуги: мастера и специалисты. Объявления берём с somon.tj (раздел «Услуги») и других сайтов.
     { re: /^(?:барқчӣ|электрик|elektrik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'электрик' }, { q: 'электромонтаж' }], cat: SOMON_SERVICES, words: /электр|барқ|розетк|проводк|светильник|люстр|освещени|elektr/i, fixed: 'service' },
+      somon: { sources: [{ q: 'электрик' }, { q: 'электромонтаж' }], boards: [{ host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'paydo.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'ustanovka-oborudovaniya' }],  cat: SOMON_SERVICES, words: /электр|барқ|розетк|проводк|светильник|люстр|освещени|elektr/i, fixed: 'service' },
       query: 'Найди актуальные объявления электриков в Таджикистане (электромонтаж, ремонт проводки, установка розеток, светильников и счётчиков), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Только электрики: другие услуги и товары не показывай.' },
     { re: /^(?:сантехник|santexnik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'сантехник' }, { q: 'сантехника услуги' }], cat: SOMON_SERVICES, words: /сантех|водопровод|труб|смесител|канализац|унитаз|отоплен|бойлер|водонагрев|насос|радиатор|santex/i, fixed: 'service' },
+      somon: { sources: [{ q: 'сантехник' }, { q: 'сантехника услуги' }], boards: [{ host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'paydo.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'ustanovka-oborudovaniya' }],  cat: SOMON_SERVICES, words: /сантех|водопровод|труб|смесител|канализац|унитаз|отоплен|бойлер|водонагрев|насос|радиатор|santex/i, fixed: 'service' },
       query: 'Найди актуальные объявления сантехников в Таджикистане (установка и ремонт труб, смесителей, унитазов, отопления, водонагревателей), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Только сантехники: другие услуги и товары не показывай.' },
     { re: /^(?:автомеханик|avtomexanik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'ремонт авто' }, { q: 'автосервис' }, { q: 'автомеханик' }], cat: SOMON_AUTO, notCat: SOMON_NOT_AUTO, words: /авто|машин|двигател|ходов|электромобил|кузов|шиномонтаж|вулканизац|моторист|эвакуатор/i, notWords: /сантех|водопровод|(?<![\p{L}])электрик|мастер на час|ремонт квартир|уборк|клининг|стиральн|посудомоеч|кофемашин|швейн/iu, fixed: 'service' },
+      somon: { sources: [{ q: 'ремонт авто' }, { q: 'автосервис' }, { q: 'автомеханик' }], boards: [{ host: 'paydo.tj', path: 'avtoservis' }, { host: 'ola.tj', path: 'avtoservis-i-remont' }],  cat: SOMON_AUTO, notCat: SOMON_NOT_AUTO, words: /авто|машин|двигател|ходов|электромобил|кузов|шиномонтаж|вулканизац|моторист|эвакуатор/i, notWords: /сантех|водопровод|(?<![\p{L}])электрик|мастер на час|ремонт квартир|уборк|клининг|стиральн|посудомоеч|кофемашин|швейн/iu, fixed: 'service' },
       query: 'Найди актуальные объявления автомехаников и автосервисов в Таджикистане (ремонт и диагностика легковых машин, выезд мастера), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера или название сервиса, контакт. Только ремонт машин: продажу машин и запчастей не показывай.' },
     { re: /^(?:усто|мастер|usta)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'мастер на час' }, { q: 'ремонт квартир' }, { q: 'сборка мебели' }], cat: SOMON_SERVICES, fixed: 'service' },
+      somon: { sources: [{ q: 'мастер на час' }, { q: 'ремонт квартир' }, { q: 'сборка мебели' }], boards: [{ host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'remont-bytovoy-tekhniki' }],  cat: SOMON_SERVICES, fixed: 'service' },
       query: 'Найди актуальные объявления мастеров на дом в Таджикистане (ремонт и отделка квартир, сборка мебели, мелкий бытовой ремонт, «мастер на час»), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Электриков, сантехников и автомехаников отдельно не выделяй: показывай мастеров общего профиля.' },
     // Остальные подразделы с объявлениями: тот же прямой список somon.tj, что и у недвижимости (фото, цена, место, контакт из текста объявления).
     { re: /^(?:мошинҳо|машины|mashinalar)$/, mode: 'ads',
-      somon: { sources: [{ path: 'transport/legkovyie-avtomobili/' }], facts: 'car', fixed: 'car' },
+      somon: { sources: [{ path: 'transport/legkovyie-avtomobili/' }], boards: [{ host: 'paydo.tj', path: 'legkovye-avto-prodazha' }, { host: 'ola.tj', path: 'legkovye-avto' }],  facts: 'car', fixed: 'car' },
       query: 'Найди актуальные объявления о продаже легковых автомобилей в Таджикистане, сначала на somon.tj: марка и модель, год, пробег, цена, город, контакт продавца. Только продажа машин: запчасти и услуги не показывай.' },
     { re: /^(?:қисмҳои\s+эҳтиётӣ|запчасти|qismlar)$/, mode: 'ads',
-      somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], facts: 'parts', fixed: 'parts' },
+      somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], boards: [{ host: 'paydo.tj', path: 'zapchasti-prodazha' }, { host: 'ola.tj', path: 'zapchasti-i-aksessuary' }],  facts: 'parts', fixed: 'parts' },
       query: 'Найди актуальные объявления о продаже автозапчастей, шин и дисков в Таджикистане, сначала на somon.tj: что за деталь, для какой машины, состояние, цена, город, контакт продавца.' },
     { re: /^(?:мебел|мебель|mebel)$/, mode: 'ads',
-      somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], facts: 'furniture', fixed: 'furniture' },
+      somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], boards: [{ host: 'paydo.tj', path: 'mebel-i-interer' }, { host: 'ola.tj', path: 'mebel' }],  facts: 'furniture', fixed: 'furniture' },
       query: 'Найди актуальные объявления о продаже мебели в Таджикистане, сначала на somon.tj: что за мебель, размер, материал, состояние, цена, город, контакт продавца.' },
     { re: /^(?:либос|одежда|kiyim)$/, mode: 'ads',
-      somon: { sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], facts: 'clothes', fixed: 'clothes' },
+      somon: { sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], boards: [{ host: 'paydo.tj', path: 'odezhda' }, { host: 'ola.tj', path: 'muzhskaya-odezhda' }, { host: 'ola.tj', path: 'zhenskaya-odezhda' }, { host: 'ola.tj', path: 'obuv' }],  facts: 'clothes', fixed: 'clothes' },
       query: 'Найди актуальные объявления о продаже одежды и обуви в Таджикистане, сначала на somon.tj: что за вещь, размер, состояние, цена, город, контакт продавца.' },
     { re: /^(?:техника|texnika)$/, mode: 'ads',
-      somon: { sources: [{ path: 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/' }, { path: 'kompyuteryi-i-orgtehnika/noutbuki/' }, { path: 'elektronika-i-tehnika/tv-dvd-video/televizoryi/' }, { path: 'kompyuteryi-i-orgtehnika/personalnyie-kompyuteryi/' }], facts: 'tech', fixed: 'tech' },
+      somon: { sources: [{ path: 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/' }, { path: 'kompyuteryi-i-orgtehnika/noutbuki/' }, { path: 'elektronika-i-tehnika/tv-dvd-video/televizoryi/' }, { path: 'kompyuteryi-i-orgtehnika/personalnyie-kompyuteryi/' }], boards: [{ host: 'paydo.tj', path: 'tekhnika-dlya-doma' }, { host: 'paydo.tj', path: 'noutbuki' }, { host: 'paydo.tj', path: 'audio-i-video' }, { host: 'ola.tj', path: 'tekhnika-dlya-doma-i-kukhni' }, { host: 'ola.tj', path: 'noutbuki' }, { host: 'ola.tj', path: 'tv-dvd-i-video' }],  facts: 'tech', fixed: 'tech' },
       query: 'Найди актуальные объявления о продаже бытовой техники, ноутбуков, компьютеров и телевизоров в Таджикистане, сначала на somon.tj: что за техника, характеристики, состояние, цена, город, контакт продавца.' },
     { re: /^(?:телефонҳо|телефоны|telefon)$/, mode: 'ads',
-      somon: { sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], facts: 'phone', fixed: 'phone' },
+      somon: { sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], boards: [{ host: 'paydo.tj', path: 'telefony' }],  facts: 'phone', fixed: 'phone' },
       query: 'Найди актуальные объявления о продаже мобильных телефонов в Таджикистане, сначала на somon.tj: модель, память, состояние, цена, город, контакт продавца.' },
     { re: /^(?:кор\s+ва\s+шуғл|вакансии|ish)$/, mode: 'jobs',
-      somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], notCat: /Banki-strahovanie-lizing/i, facts: 'job', fixed: 'job' },
+      somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], boards: [{ host: 'paydo.tj', path: 'vakansii' }, { host: 'ola.tj', path: 'vakansii' }],  notCat: /Banki-strahovanie-lizing/i, facts: 'job', fixed: 'job' },
       query: 'Найди актуальные вакансии в Таджикистане на сегодня, сначала на somon.tj: должность, зарплата, город, работодатель, график, контакт. ' + JOB_SKIP_TEXT },
     { re: /^(?:земли|заминҳои\s+кишт)$/, mode: 'ads', somon: SOMON_FARMLAND,
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане, сначала на somon.tj: площадь, цена, место, контакт владельца.' },
@@ -2715,54 +2715,165 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
         place: lang === 'tg' ? polishTg(a.location) : a.location,
         date: a.published,
         who: a.who,
-        url: `https://somon.tj${a.path}`,
+        url: a.url || `https://somon.tj${a.path}`,
         image: a.images[0] || a.thumb || null,
         points: pts
     }), contact: somonContacts(a.description), trusted: true, pub: parsePublished(a.published), pn: pp ? pp.n : 0, pc: pp ? pp.c : '',
     sphereSlug: ((/"slug":"([^"]+)"/.exec(a.cats || '') || [])[1] || '').slice(0, 60), det: { title: titleOk, price: priceOk }, note, listDesc: clip(a.description, 400), gallery0: a.images.slice(0, 16), photoCount: Math.min(a.imgCount || a.images.length || 0, 16) };
 }
 
-// Список объявлений для карточек: spec.sources — страницы (поиск q= или раздел path=), spec.cat/spec.words — что считать подходящим.
+// ---------- Другие сайты объявлений напрямую: ola.tj (он же arzon.tj) и paydo.tj ----------
+// Те же поля, что у списка somon.tj: { id, title, description, price, priceNote, thumb, imgCount, images, published, path, url, location, who, cats }.
+// Все сайты равны: ни один не ставится впереди других (см. somonListings).
+const BOARD_HOSTS = { 'ola.tj': 'https://ola.tj/category/', 'paydo.tj': 'https://paydo.tj/ru/all/' };
+const BOARD_WAIT_MS = 8000;           // дольше не ждём медленный сайт: покажем остальные, а его список ляжет в запас
+const BOARD_CACHE = new Map();        // адрес → { at, p }
+const BOARD_CACHE_MS = 5 * 60 * 1000, BOARD_CACHE_MAX = 60;
+const htmlText = s => decodeEntities(String(s || '').replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+
+// ola.tj: карточки <article class="ola-card"> прямо в странице раздела
+function parseOlaCards(html, max = 60) {
+    const out = [];
+    for (const m of String(html || '').matchAll(/<article class="ola-card[^"]*">([\s\S]*?)<\/article>/g)) {
+        const c = m[1];
+        const link = /class="ola-card__link"\s+href="(https:\/\/ola\.tj\/listing\/(\d+)\/[^"#?]*)"/.exec(c);
+        if (!link) continue;
+        const img = (/<div class="ola-card__media">\s*<img[^>]*?\ssrc="(https:\/\/[^"]+)"/.exec(c) || [])[1] || '';
+        const title = htmlText((/class="ola-card__title">([\s\S]*?)<\/div>/.exec(c) || [])[1]);
+        if (!title || title.length > 300) continue;
+        const price = htmlText((/class="ola-card__price">([\s\S]*?)<\/div>/.exec(c) || [])[1]);
+        const city = htmlText((/class="ola-meta__city">([\s\S]*?)<\/span>/.exec(c) || [])[1]);
+        const when = htmlText((/class="ola-meta__city">[\s\S]*?<\/span>\s*<span>[^<]*<\/span>\s*<span>([\s\S]*?)<\/span>/.exec(c) || [])[1]);
+        out.push({ id: 'ola' + link[2], title, description: '', price, priceNote: '', thumb: img, imgCount: img ? 1 : 0, images: img ? [img] : [], published: when, path: '', url: link[1], location: city, who: '', cats: '' });
+        if (out.length >= max) break;
+    }
+    return out;
+}
+
+// paydo.tj: объявления лежат в данных страницы (Nuxt); берём все списки объявлений, какие есть на странице
+function parsePaydoAds(html, max = 60) {
+    const data = nuxtData(html);
+    if (!data) return [];
+    const found = [], seen = new Set();
+    const walk = (o, dep) => {
+        if (!o || typeof o !== 'object' || dep > 14 || found.length >= max) return;
+        if (Array.isArray(o)) {
+            for (const x of o) {
+                if (x && typeof x === 'object' && !Array.isArray(x) && x.slug && x.title && x.id && (x.subtitle1 !== undefined || x.media)) {
+                    if (!seen.has(x.id)) { seen.add(x.id); found.push(x); }
+                } else walk(x, dep + 1);
+            }
+            return;
+        }
+        for (const v of Object.values(o)) walk(v, dep + 1);
+    };
+    walk(data, 0);
+    return found.slice(0, max).map(x => {
+        const images = (Array.isArray(x.media) ? x.media : Array.isArray(x.images) ? x.images : []).filter(m => m && /^https:\/\//.test(m.url || '') && (!m.type || m.type === 'IMAGE')).map(m => m.url);
+        const desc = Array.isArray(x.description_fields) ? x.description_fields.map(f => f && f.text).filter(Boolean).join('\n') : (x.description || '');
+        return {
+            id: 'paydo' + x.id, title: String(x.title || '').replace(/\s*•\s*/g, ', '), description: String(desc || ''),
+            price: String(x.subtitle1 || ''), priceNote: '', thumb: images[0] || '', imgCount: images.length, images: images.slice(0, 20),
+            published: String(x.created_at_str || ''), path: '', url: `https://paydo.tj/ru/advertisement/${encodeURIComponent(String(x.slug))}`,
+            location: String(x.subtitle2 || ''), who: String((x.publisher_info && x.publisher_info.name) || ''), cats: ''
+        };
+    }).filter(a => /^[\w\-%]+$/.test(a.url.split('/').pop()) && a.title.length <= 300);
+}
+
+function boardGet(host, url) {
+    const hit = BOARD_CACHE.get(url);
+    if (hit && Date.now() - hit.at < BOARD_CACHE_MS) return hit.p;
+    // ola.tj бывает медленным (до 12 с): ждём страницу до 15 с, но человек ждёт не дольше BOARD_WAIT_MS — остальное ляжет в запас
+    const p = fetchPage(url, { cap: 2500000, timeoutMs: 15000 }).then(r => {
+        const list = host === 'ola.tj' ? parseOlaCards(r.html) : parsePaydoAds(r.html);
+        if (!list.length) throw new Error('в странице нет списка');
+        return list;
+    });
+    p.catch(() => BOARD_CACHE.delete(url));
+    if (BOARD_CACHE.size >= BOARD_CACHE_MAX) BOARD_CACHE.delete(BOARD_CACHE.keys().next().value);
+    BOARD_CACHE.set(url, { at: Date.now(), p });
+    return p;
+}
+
+function boardUrl(b) {
+    const base = BOARD_HOSTS[b && b.host];
+    if (!base || !/^[a-z0-9\-]{2,80}$/i.test(b.path || '')) return null;
+    return base + b.path + (b.host === 'paydo.tj' ? '?sorting=date' : '');
+}
+
+// Список объявлений для карточек: spec.sources — страницы somon.tj (поиск q= или раздел path=), spec.boards — разделы ola.tj и paydo.tj,
+// spec.cat/spec.words — что считать подходящим. Сайты равны: в ленту по очереди идёт самое свежее объявление каждого сайта.
 async function somonListings(spec, kind, debug, lang = 'ru') {
-    const stat = { urls: 0, ok: 0, failed: [], parsed: 0, kept: 0, withPhoto: 0 };
+    const stat = { urls: 0, ok: 0, failed: [], parsed: 0, kept: 0, withPhoto: 0, hosts: {} };
     if (debug) debug.somon = stat;
-    const lists = await Promise.all((spec.sources || []).map(async src => {
-        const url = somonUrl(src);
-        if (!url) return [];
+    const boardsOn = process.env.BOARDS !== 'off';
+    const jobs = [
+        ...(spec.sources || []).map(src => ({ host: 'somon.tj', url: somonUrl(src), words: src.words, get: somonGet })),
+        ...(boardsOn ? spec.boards || [] : []).map(b => ({ host: b.host, url: boardUrl(b), words: b.words, get: u => boardGet(b.host, u) }))
+    ].filter(j => j.url);
+    const lists = await Promise.all(jobs.map(async j => {
         stat.urls++;
-        try { const l = await somonGet(url); stat.ok++; return l; }
-        catch (err) { if (stat.failed.length < 4) stat.failed.push(scrub(err && err.message || err).slice(0, 60)); return []; }
+        const h = stat.hosts[j.host] = stat.hosts[j.host] || { ok: 0, failed: 0, parsed: 0, kept: 0 };
+        try {
+            const l = await (j.host === 'somon.tj' ? j.get(j.url) : withTimeout(j.get(j.url), BOARD_WAIT_MS));
+            stat.ok++; h.ok++; h.parsed += l.length;
+            return l;
+        } catch (err) {
+            h.failed++;
+            if (stat.failed.length < 6) stat.failed.push(`${j.host}: ${scrub(err && err.message || err).slice(0, 50)}`);
+            return [];
+        }
     }));
-    const seenId = new Set(), seenPhoto = new Set(), seenText = new Set(), perWho = Object.create(null);
-    // Все источники вместе, самые свежие впереди; без понятной даты — в конец.
+    const seenId = new Set(), seenPhoto = new Set(), seenText = new Set(), seenNorm = new Map(), perWho = Object.create(null);
     const flat = [];
     for (const [li, list] of lists.entries()) {
         stat.parsed += list.length;
-        const words = ((spec.sources || [])[li] || {}).words || spec.words;
+        const j = jobs[li];
+        const words = j.words || spec.words;
+        const somon = j.host === 'somon.tj';
         for (const a of list) {
-            if ((spec.cat && !spec.cat.test(a.cats)) || (spec.notCat && spec.notCat.test(a.cats)) || (words && !words.test(`${a.title} ${a.description}`)) || (spec.notWords && spec.notWords.test(a.title)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
+            // рубрики (cat) есть только у somon.tj; ola.tj и paydo.tj и так берутся из нужного раздела
+            if ((somon && spec.cat && !spec.cat.test(a.cats)) || (somon && spec.notCat && spec.notCat.test(a.cats)) || (words && !words.test(`${a.title} ${a.description}`)) || (spec.notWords && spec.notWords.test(a.title)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
             // вакансии: работу, которой на iZamoN нет места, тихо пропускаем
             if (kind === 'jobs' && jobForbidden(a)) { stat.forbidden = (stat.forbidden || 0) + 1; continue; }
             const p = parsePublished(a.published);
-            flat.push({ a, age: p ? p.ageMin : Infinity, n: flat.length });
+            flat.push({ a, host: j.host, age: p ? p.ageMin : Infinity, n: flat.length });
         }
     }
     flat.sort((x, y) => (x.age - y.age) || (x.n - y.n));
     // Объявления с фото — вперёд; без фото берём, только если с фото слишком мало.
     const need = flat.filter(x => x.a.images[0] || x.a.thumb).length >= 3;
-    const out = [];
-    for (const { a } of flat) {
-        if (out.length >= 10) break;
+    const ok = x => {
+        const a = x.a;
         const photo = a.images[0] || a.thumb || '';
-        if (need && !photo) continue;
+        if (need && !photo) return false;
         const textKey = `${a.title.toLowerCase()}|${a.who.toLowerCase()}`;
-        // повтор одного и того же объявления или одной и той же фотографии не показываем; больше двух объявлений одного продавца тоже
-        const whoKey = a.who.toLowerCase();
-        if (seenId.has(a.id) || (photo && seenPhoto.has(photo)) || seenText.has(textKey) || (whoKey && (perWho[whoKey] || 0) >= 2)) continue;
-        seenId.add(a.id); seenText.add(textKey); if (photo) seenPhoto.add(photo);
-        perWho[whoKey] = (perWho[whoKey] || 0) + 1;
-        const it = somonItem(a, kind, lang, spec.facts || null);
-        if (it.title && it.url) out.push(it);
+        const whoKey = a.who ? `${x.host}|${a.who.toLowerCase()}` : '';
+        // повтор одного и того же объявления (в том числе на другом сайте) или одной и той же фотографии не показываем; больше двух объявлений одного продавца тоже
+        if (seenId.has(a.id) || (photo && seenPhoto.has(photo)) || seenText.has(textKey) || (whoKey && (perWho[whoKey] || 0) >= 2)) return false;
+        // одно объявление на двух сайтах: то же название и та же цена (цифрами) на другом сайте
+        const digits = String(a.price).replace(/\D/g, '');
+        const norm = digits ? `${a.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')}|${digits}` : '';
+        if (norm && seenNorm.has(norm) && seenNorm.get(norm) !== x.host) return false;
+        seenId.add(a.id); seenText.add(textKey); if (norm) seenNorm.set(norm, x.host); if (photo) seenPhoto.add(photo);
+        if (whoKey) perWho[whoKey] = (perWho[whoKey] || 0) + 1;
+        return true;
+    };
+    // По кругу: в каждом круге — по одному самому свежему подходящему объявлению с каждого сайта, внутри круга — по свежести
+    const queues = {};
+    for (const x of flat) (queues[x.host] = queues[x.host] || []).push(x);
+    const out = [];
+    while (out.length < 10 && Object.values(queues).some(q => q.length)) {
+        const round = [];
+        for (const q of Object.values(queues)) {
+            while (q.length) { const x = q.shift(); if (ok(x)) { round.push(x); break; } }
+        }
+        round.sort((x, y) => (x.age - y.age) || (x.n - y.n));
+        for (const x of round) {
+            if (out.length >= 10) break;
+            const it = somonItem(x.a, kind, lang, spec.facts || null);
+            if (it.title && it.url) { out.push(it); stat.hosts[x.host].kept++; }
+        }
     }
     stat.kept = out.length;
     stat.withPhoto = out.filter(x => x.image).length;
@@ -2937,7 +3048,6 @@ async function searchListings({ kind, lang, date, query, debug, somon }) {
         }
     }
     const items = await webListings({ kind, lang, date, query, debug });
-    items.sort((a, b) => (SOMON_HOST.test(hostOf(b.url)) ? 1 : 0) - (SOMON_HOST.test(hostOf(a.url)) ? 1 : 0));
     const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
     return kind === 'tickets' ? withTicketLinks(done, debug) : done;
 }
@@ -5569,5 +5679,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
