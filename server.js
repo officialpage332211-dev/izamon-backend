@@ -2867,13 +2867,14 @@ function webExtra({ kind, lang, date, query, somon }) {
 // Одна лента: карточка somon.tj, карточка другого сайта, и так далее (всего не больше 10). Повторы одного объявления убираем.
 function mixFeeds(main, extra, total = 10) {
     const norm = s => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
-    const seenUrl = new Set(main.map(x => x.url));
+    // Ссылка может вести на общую страницу списка, и тогда у разных карточек она одна: поэтому по ссылке сверяем только с somon.tj
+    const mainUrl = new Set(main.map(x => x.url));
     const seenTitle = new Set(main.map(x => `${norm(x.title)}|${norm(x.price)}`));
     const add = [];
     for (const x of extra || []) {
         const tk = `${norm(x.title)}|${norm(x.price)}`;
-        if (!x.url || seenUrl.has(x.url) || seenTitle.has(tk) || SOMON_HOST.test(hostOf(x.url))) continue;
-        seenUrl.add(x.url); seenTitle.add(tk); add.push(x);
+        if (!x.url || mainUrl.has(x.url) || seenTitle.has(tk) || SOMON_HOST.test(hostOf(x.url))) continue;
+        seenTitle.add(tk); add.push(x);
         if (add.length >= WEB_EXTRA_MAX) break;
     }
     const out = [];
@@ -2896,8 +2897,9 @@ async function searchListings({ kind, lang, date, query, debug, somon }) {
                 ? withTimeout(webExtra({ kind, lang, date, query, somon }), WEB_EXTRA_WAIT_MS).catch(() => ({ items: [], late: true }))
                 : null;
             const [main, extra] = await Promise.all([finishItems(direct, kind, lang, debug, somon.fixed || ''), extraP || { items: [] }]);
-            if (debug && extraP) debug.web = { n: extra.items.length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), ...(extra.dbg ? { err: extra.dbg.error, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
-            return extraP ? mixFeeds(main, extra.items) : main;
+            const mixed = extraP ? mixFeeds(main, extra.items) : main;
+            if (debug && extraP) debug.web = { n: extra.items.length, shown: mixed.filter(x => !SOMON_HOST.test(hostOf(x.url))).length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), list: extra.items.map(x => `${String(x.title).slice(0, 36)} | ${x.price || '-'} | ${hostOf(x.url)}${(() => { try { return new URL(x.url).pathname.slice(0, 28); } catch { return ''; } })()}`), ...(extra.dbg ? { err: extra.dbg.error, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
+            return mixed;
         }
     }
     const items = await webListings({ kind, lang, date, query, debug });
