@@ -4082,7 +4082,16 @@ async function handleDiag(req, res) {
                 // тот же путь, что и у настоящей кнопки «Советы»: готовые карточки и то, что услышит озвучка
                 const res = await compute({ mode: routed.mode, lang: diagLang, factual: true, fullMessage: query, date: todayTJ(), kind, somon: null, adsQuery: diagTopic });
                 const plain = String(res.body.answer || '').replace(/<\/(?:div)>|<br\s*\/?>/gi, '\n').replace(/<\/b>/gi, ': ').replace(/<[^>]*>/g, '').replace(/\n+/g, '\n').trim();
-                return { lang: diagLang, routed, provider: res.body.provider, view: res.body.view || null, tips: (String(res.body.answer || '').match(/class="iz-tip"/g) || []).length, plain, sources: (res.body.sources || []).length };
+                // по шагам: что вернул поиск и что осталось после каждого фильтра (только для проверки, /diag?…&trace=1)
+                let trace;
+                if (req.query?.trace === '1') {
+                    try {
+                        const raw = await askOpenAISearch(buildSystemPrompt({ mode: routed.mode, lang: diagLang, canSearch: true, date: todayTJ() }), query);
+                        const t0 = cleanModelText(raw.text);
+                        trace = { raw: t0.slice(0, 700), sources: raw.sources.map(x => hostOf(x.uri)).slice(0, 6), mixed: mixedLanguage(t0, diagLang), needsRewrite: needsRewrite(t0, diagLang), afterHaram: dropHaramLines(t0, true).slice(0, 500), afterMixed: dropMixedLines(dropHaramLines(t0, true), diagLang).slice(0, 500) };
+                    } catch (e) { trace = { error: String(e.message || e).slice(0, 160) }; }
+                }
+                return { lang: diagLang, routed, provider: res.body.provider, view: res.body.view || null, tips: (String(res.body.answer || '').match(/class="iz-tip"/g) || []).length, plain, sources: (res.body.sources || []).length, trace };
             }
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
             const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon });
