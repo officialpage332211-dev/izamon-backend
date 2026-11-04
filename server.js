@@ -172,7 +172,7 @@ const PORTAL_RULES = [
       somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/inostrannye-yazyki/' }], facts: 'languages', fixed: 'lang' },
       query: 'Найди актуальные курсы иностранных языков в Таджикистане: язык, цена, формат, сайт или контакт школы.' },
     { re: /^(?:ммт|mmt|мнт)$/, mode: 'digest', kind: 'mmt',
-      query: 'Найди свежие новости про централизованные вступительные экзамены (ЦВЭ) в вузы Таджикистана и Национальный центр тестирования (НЦТ, ММТ, Маркази миллии тестӣ). Нужен ближайший тур (этап): тот, на который идёт регистрация или который ещё не завершён. Ищи в новостях (asiaplus.news, khovar.tj, avesta.tj, vecherka.tj) и на ntc.tj. Ответ — РОВНО 3 строки: «📅 Сроки: …» (номер тура и дата экзамена), «📝 Регистрация: …» (даты регистрации), «📊 Результаты: …» (когда объявят). В каждой строке одно короткое простое предложение с датами из источников. Если в источниках чего-то нет — после двоеточия напиши только «—». Ничего не придумывай.' },
+      query: d => `Сегодня ${d.human}. Найди свежие новости про централизованные вступительные экзамены (ЦВЭ) в вузы Таджикистана и Национальный центр тестирования (НЦТ, ММТ, Маркази миллии тестӣ). Нужен только ближайший по сегодняшней дате тур (этап): тот, на который сейчас идёт регистрация или экзамен которого ещё не прошёл. Уже прошедшие туры не описывай. Ищи в новостях (asiaplus.news, khovar.tj, avesta.tj, vecherka.tj) и на ntc.tj. Ответ — РОВНО 3 строки: «📅 Сроки: …» (номер тура и дата экзамена), «📝 Регистрация: …» (даты регистрации), «📊 Результаты: …» (когда объявят). В каждой строке одно короткое простое предложение с датами и годом из источников. Если чего-то нет — после двоеточия напиши только «—». Ничего не придумывай.` },
     { re: /донишномаҳо|энциклопеди|^kitoblar$/, mode: 'digest', kind: 'facts',
       query: 'Дай 3 коротких проверенных факта ТОЛЬКО из энциклопедий (Википедия, Британника, Большая российская энциклопедия): один по науке, один по истории, один по природе. Факт вечный, без привязки к дате: не «в этот день в истории», не новости и не события сегодняшнего дня, сайты календарей и праздников не использовать. Формат каждой строки: эмодзи (🔬 наука, 🏛️ история, 🌿 природа), короткий заголовок из 2–4 слов, двоеточие, одно простое предложение до 18 слов. Для разнообразия выбери темы по номеру сегодняшнего дня в году.' },
     { re: /маслиҳатҳо|^советы$|^maslahat$/, mode: 'digest', kind: 'tips',
@@ -273,7 +273,7 @@ function routeRequest({ cleaned, topic, category = '' }) {
             kind: rule.kind || KIND_OF_MODE[rule.mode] || null,
             factual: true,
             somon: rule.somon || null,
-            userText: topic ? rule.query : `${rule.query} Запрос пользователя: «${cleaned}».`
+            userText: (q => topic ? q : `${q} Запрос пользователя: «${cleaned}».`)(typeof rule.query === 'function' ? rule.query(todayTJ()) : rule.query)
         };
     }
     const detectOn = topic || cleaned;
@@ -570,6 +570,29 @@ function mmtLines(text, lang) {
         return `${row.icon} **${row.label[lang]}**: ${body || '—'}`;
     });
     return found ? out.join('\n') : '';
+}
+// Дата в строке уже прошла — это не «сегодня». Русские даты («1–10 июля 2026», «2 марта – 28 апреля») разбираем сами; по самой поздней дате строки
+// решаем: старше трёх дней назад — после двоеточия ставим «—». Даты не нашли (или текст не на русском) — строку не трогаем.
+const RU_MONTHS = ['январ', 'феврал', 'март', 'апрел', 'ма[йя]', 'июн', 'июл', 'август', 'сентябр', 'октябр', 'ноябр', 'декабр'];
+const RU_DATE = new RegExp(`(?<![\\d.])(\\d{1,2})(?:\\s*[–—-]\\s*(\\d{1,2}))?\\s+(${RU_MONTHS.join('|')})[а-я]*(?:\\s+(20\\d\\d))?`, 'giu');
+function dropStaleDates(text, todayIso) {
+    const today = Date.parse(`${todayIso}T00:00:00Z`);
+    const year = +todayIso.slice(0, 4);
+    return String(text).split('\n').map(line => {
+        const k = line.indexOf(':');
+        if (k < 0) return line;
+        let latest = null;
+        const rest = line.slice(k + 1), ly = rest.match(/(?<!\d)(20\d\d)(?!\d)/);
+        for (const m of rest.matchAll(RU_DATE)) {
+            const mo = RU_MONTHS.findIndex(x => new RegExp(`^${x}`, 'i').test(m[3]));
+            const day = +(m[2] || m[1]);
+            // год у даты не написан: берём год из этой же строки, а если его нет совсем — «10 января» в ноябре это уже следующий год
+            let t = Date.UTC(m[4] ? +m[4] : ly ? +ly[1] : year, mo, day);
+            if (!m[4] && !ly && t < today - 180 * 864e5) t = Date.UTC(year + 1, mo, day);
+            if (latest === null || t > latest) latest = t;
+        }
+        return latest !== null && latest < today - 3 * 864e5 ? `${line.slice(0, k + 1)} —` : line;
+    }).join('\n');
 }
 // «Энциклопедии»: порядок один и тот же — наука, история, природа; остальное — после них
 const FACT_ORDER = ['🔬', '🏛', '🌿'];
@@ -2685,6 +2708,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                     if (TEXT_CARDS[kind]) {
                         // запретное убираем до перевода; переводим только если ответ не на языке человека
                         text = dropHaramLines(text, true);
+                        if (kind === 'mmt') text = dropStaleDates(text, date.iso);
                         if (text.trim() && mixedLanguage(text, lang)) text = (await translateTips(text, { lang })) || '';
                     } else if (needsRewrite(text, lang)) text = await rewriteForUser(text, { mode, lang, date });
                     // Последняя защита: чужой язык до человека не доходит. Не осталось строк — пробуем другой поиск.
@@ -4341,5 +4365,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, factLines, courseSlots, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, factLines, dropStaleDates, courseSlots, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
