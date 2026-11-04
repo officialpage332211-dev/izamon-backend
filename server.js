@@ -624,9 +624,11 @@ function tipsAnswer(text, sources, lang, key = 'tips') {
         const [title, body] = bold ? [bold[1], bold[2]] : plain && plain[1].split(/\s+/).length <= 7 ? [plain[1], plain[2]] : ['', rest];
         const clean = x => x.replace(/\*\*/g, '').replace(/\s*\((?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}[^)]*\)\s*$/i, '').trim();
         const b = clean(body);
+        // «**Звезды:**» — двоеточие внутри жирного: в заголовке карточки оно не нужно (у «**Звезды**:» его нет)
+        const head = clean(title).replace(/\s*[:：]+$/, '').trim();
         // только заголовок без текста («Звезды:») карточкой не считаем
-        if (!b || (!clean(title) && /^[^.!?]{0,60}:\s*$/.test(b))) return '';
-        return `<div class="iz-tip"><span class="iz-tip-ic">${escapeHtml(icon)}</span><div class="iz-tip-b">${clean(title) ? `<b>${escapeHtml(clean(title))}</b> ` : ''}<span>${linkify(escapeHtml(b))}</span></div></div>`;
+        if (!b || (!head && /^[^.!?]{0,60}:\s*$/.test(b))) return '';
+        return `<div class="iz-tip"><span class="iz-tip-ic">${escapeHtml(icon)}</span><div class="iz-tip-b">${head ? `<b>${escapeHtml(head)}</b> ` : ''}<span>${linkify(escapeHtml(b))}</span></div></div>`;
     }).filter(Boolean).join('');
     const links = sourceLinks(sources);
     return `<div class="iz-tips"><div class="iz-tips-h">${cfg.icon} ${cfg.head[lang]}</div>${cards}${links.length ? `<div class="iz-rt-src">🔎 ${SOURCES_LABEL[lang]}: ${links.join(', ')}</div>` : ''}</div>`;
