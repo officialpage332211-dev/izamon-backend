@@ -2832,6 +2832,23 @@ const OTHER_SITES_TASK = {
     services: 'Найди до 10 актуальных предложений в Таджикистане (школы, курсы, учебные центры, услуги, магазины): название, цена, город, контакт, сайт. Сайт somon.tj не используй: его предложения уже есть.'
 };
 
+// Карточка с другого сайта показывается, только если её страница открылась и на ней написаны это название и эта цена.
+// Иначе это выдумка модели: она подставляет правдоподобный адрес (…/объявления/1/2/3) к настоящему сайту.
+const stemsOf = s => String(s || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, ' ').split(' ').filter(w => w.length >= 4 && !/^\d+$/.test(w)).map(w => w.slice(0, 5));
+async function confirmOnPage(it) {
+    let html;
+    try { html = (await withTimeout(getPage(it.url), 7000)).html; } catch { return 'noPage'; }
+    // Текст страницы плюс заголовок и описание из шапки (в Telegram текст записи лежит там)
+    const metas = (String(html).match(/<meta\b[^>]*>/gi) || []).filter(t => /(?:og:title|og:description|twitter:description|name=["']description["'])/i.test(t)).map(t => (t.match(/content=["']([^"']*)["']/i) || [])[1] || '').join(' ');
+    const titleTag = (String(html).match(/<title[^>]*>([\s\S]*?)<\/title>/i) || [])[1] || '';
+    const text = `${decodeEntities(`${titleTag} ${metas}`)} ${visibleText(html)}`.toLowerCase().replace(/ё/g, 'е');
+    const stems = stemsOf(it.title);
+    if (stems.length && stems.filter(st => text.includes(st)).length < Math.ceil(stems.length * 0.6)) return 'noTitle';
+    const nums = [...String(it.price || '').replace(/(?<=\d)[\s\u00a0,.](?=\d{3}(?!\d))/g, '').matchAll(/\d{2,}/g)].map(m => m[0]);
+    if (nums.length && !nums.every(n => pageFacts(html).nums.has(n))) return 'noPrice';
+    return '';
+}
+
 // Запрос раздела для поиска по другим сайтам: «сначала на somon.tj» заменяем на «на других сайтах».
 function otherSitesQuery(q) {
     return String(q).replace(/,?\s*сначала на somon\.tj(?:\s+в разделе «Услуги»)?/i, ', на других сайтах объявлений, в Telegram-каналах и соцсетях Таджикистана (не на somon.tj)');
@@ -2849,10 +2866,19 @@ function webExtra({ kind, lang, date, query, somon }) {
         let items = [];
         let failed = false;
         try {
+            // Название берём так, как оно написано на странице (без перевода): по нему страницу и проверяем; на язык человека переведёт finishItems
             const run = d => webListings({ kind, lang, date, query: otherSitesQuery(query), debug: d, task: OTHER_SITES_TASK[kind] || KIND_TASK[kind], skip: SOMON_HOST });
-            let found = await run(dbg);
+            const sift = async list => {
+                const cand = list.slice(0, WEB_EXTRA_MAX + 4);
+                const verdict = await Promise.all(cand.map(confirmOnPage));
+                const stat = { checked: cand.length, noPage: 0, noTitle: 0, noPrice: 0 };
+                verdict.forEach(v => { if (v) stat[v]++; });
+                dbg.confirm = stat;
+                return cand.filter((_, i) => !verdict[i]);
+            };
+            let found = await sift(await run(dbg));
             // Поиск отвечает не всегда с первого раза (то пусто, то находит): одна повторная попытка
-            if (!found.length) { dbg.retry = { textStart: dbg.textStart, rawItems: dbg.rawItems, consulted: dbg.consulted }; found = await run(dbg); }
+            if (!found.length) { dbg.retry = { textStart: dbg.textStart, rawItems: dbg.rawItems, consulted: dbg.consulted, confirm: dbg.confirm }; found = await sift(await run(dbg)); }
             const top = found.slice(0, WEB_EXTRA_MAX);
             const fin = {};
             items = top.length ? await finishItems(top, kind, lang, fin, somon && somon.fixed || '') : [];
@@ -2902,7 +2928,7 @@ async function searchListings({ kind, lang, date, query, debug, somon }) {
                 : null;
             const [main, extra] = await Promise.all([finishItems(direct, kind, lang, debug, somon.fixed || ''), extraP || { items: [] }]);
             const mixed = extraP ? mixFeeds(main, extra.items) : main;
-            if (debug && extraP) debug.web = { n: extra.items.length, shown: mixed.filter(x => !SOMON_HOST.test(hostOf(x.url))).length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), list: extra.items.map(x => `${String(x.title).slice(0, 36)} | ${x.price || '-'} | ${hostOf(x.url)}${(() => { try { return new URL(x.url).pathname.slice(0, 28); } catch { return ''; } })()}`), ...(extra.dbg ? { err: extra.dbg.error, text: extra.dbg.textStart, parseError: extra.dbg.parseError, retry: extra.dbg.retry, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
+            if (debug && extraP) debug.web = { n: extra.items.length, shown: mixed.filter(x => !SOMON_HOST.test(hostOf(x.url))).length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), list: extra.items.map(x => `${String(x.title).slice(0, 36)} | ${x.price || '-'} | ${hostOf(x.url)}${(() => { try { return new URL(x.url).pathname.slice(0, 28); } catch { return ''; } })()}`), ...(extra.dbg ? { err: extra.dbg.error, text: extra.dbg.textStart, parseError: extra.dbg.parseError, retry: extra.dbg.retry, confirm: extra.dbg.confirm, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
             return mixed;
         }
     }
@@ -2916,7 +2942,7 @@ async function searchListings({ kind, lang, date, query, debug, somon }) {
 async function webListings({ kind, lang, date, query, debug, task, skip }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${task || KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
-title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
+${skip ? 'title — название пункта так, как оно написано на странице-источнике: дословно, без перевода и пересказа, коротко.' : `title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).`}
 price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — только то, что дословно написано в источнике (на странице объявления или в его описании): телефон, «WhatsApp: номер», «Telegram: @имя», «Instagram: @имя», электронная почта; через «; ». Каналы, которых в источнике нет, не добавляй. Номера, @имена и почту не придумывай и не достраивай (не делай @имя или почту из имени продавца). Нет контактов в источнике — пустая строка. Имя продавца сюда не пиши (оно в who). who — продавец/компания/авиакомпания.
 url — обычная ссылка https://… (без Markdown и скобок) на страницу этого пункта; если отдельной страницы нет — на страницу из результатов поиска, где он найден (например, страница списка). Не пропускай пункт только из-за отсутствия отдельной страницы. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 характеристик именно этого пункта в виде «Название: значение», только из источника. Название выбирай по смыслу пункта: у недвижимости — площадь, этаж, год; у машин — пробег, год; у вакансий — график, опыт; у услуг — вид услуги, опыт, выезд на дом, график. Значения не придумывай и не переноси с других пунктов; нет данных — такую характеристику пропусти. Ничего не выдумывай: нет данных — пустая строка (кроме url). Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
     const resp = await openaiSearchRaw(system, query, 2500);
@@ -5464,5 +5490,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, otherSitesQuery, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
