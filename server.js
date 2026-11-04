@@ -1747,7 +1747,7 @@ const JOB_SCHED = [
     [/(?<![а-яё])неполн\S*\s+(?:день|рабоч)|(?<![а-яё])частичн\S*|(?<![а-яё])подработк/iu, ['Неполный день', 'Рӯзи нопурра', 'Yarim kun']],
     [/(?<![а-яё])полн\S*\s+(?:день|рабоч)|(?<![а-яё])полная\s+занят/iu, ['Полный день', 'Рӯзи пурра', "To'liq kun"]],
     [/(?<![а-яё])свободн\S*/iu, ['Свободный', 'Озод', 'Erkin']],
-    [/(?<![а-яё])сменн\S*/iu, ['Сменный', 'Навбатӣ', 'Smenali']],
+    [/(?<![а-яё])(?:по)?сменн\S*/iu, ['Посменно', 'Навбатӣ', 'Smenali']],
     [/(?<![а-яё])гибк\S*/iu, ['Гибкий', 'Мутобиқшаванда', 'Moslashuvchan']],
     [/(?<![а-яё])удал[её]нн\S*|(?<![а-яё])дистанц\S*/iu, ['Удалённый', 'Фосилавӣ', 'Masofaviy']],
     [/(?<![а-яё])вахт\S*/iu, ['Вахтовый', 'Вахтавӣ', 'Vaxta usuli']]
@@ -3952,7 +3952,11 @@ async function handleDiag(req, res) {
             const dbgR = {};
             out.rates_test = await timed(async () => {
                 const r = await searchRates({ lang: 'ru', date: todayTJ(), debug: dbgR });
-                return { table: !!r, nbtRows: r ? r.nbt.length : 0, ...dbgR };
+                // что увидит человек: какие валюты и сколько строк банков в готовой таблице
+                const html = r ? ratesAnswer(r, 'ru') : '';
+                const shown = [...html.matchAll(/<tr><td>[^<]* ([A-Z]{3})<\/td><td>([^<]*)<\/td><\/tr>/g)].map(m => `${m[1]}=${m[2]}`).join(' ');
+                const bankRowsShown = (html.match(/<td>[^<]*<\/td><td>[^<]* [A-Z]{3}<\/td><td>/g) || []).length;
+                return { table: !!r, nbtRows: r ? r.nbt.length : 0, shown, bankRowsShown, ...dbgR };
             });
             if (!out.rates_test.ok) out.rates_test.debug = dbgR;
         }
@@ -3979,6 +3983,20 @@ async function handleDiag(req, res) {
                 ld: [...html.matchAll(/"@type"\s*:\s*"([A-Za-z]+)"/g)].map(m => m[1]).slice(0, 8),
                 ld2: null
             };
+        });
+    }
+    // Какие разделы (сферы) есть на странице списка somon.tj и какие из них ещё не внесены в таблицу: /diag?rubrics=vakansii/ (только чтение, только somon.tj)
+    if (/^[a-z0-9_\-/]{3,80}$/i.test(String(req.query?.rubrics || ''))) {
+        out.rubrics_test = await timed(async () => {
+            const page = await fetchPage(`https://somon.tj/${String(req.query.rubrics).replace(/^\/+/, '')}`, { cap: 1800000, timeoutMs: 9000 });
+            const text = somonText(String(page.html || ''));
+            const seen = new Set(), unknown = [];
+            for (const m of text.matchAll(/"slug":"([a-z0-9_\-]{3,80})"/g)) {
+                if (seen.has(m[1])) continue;
+                seen.add(m[1]);
+                if (!JOB_SPHERE[m[1]] && unknown.length < 40) unknown.push({ slug: m[1], ctx: text.slice(Math.max(0, m.index - 60), m.index + 140).replace(/\s+/g, ' ') });
+            }
+            return { slugs: seen.size, known: [...seen].filter(x => JOB_SPHERE[x]).length, unknown };
         });
     }
     // Проверка строки «Продавец на iZamoN» на настоящей базе: /diag?sellers=1 (только чтение, коды владельцев в ответ не попадают)
