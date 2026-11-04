@@ -580,6 +580,75 @@ function mmtLines(text, lang) {
     });
     return found ? out.join('\n') : '';
 }
+// «ММТ» без перевода: поиск возвращает только даты (ГГГГ-ММ-ДД), а текст карточек мы собираем сами на нужном языке.
+// Так нет смеси языков, нет путаницы «регистрация/экзамен» и не нужен переводчик. Тур уже закончился — данных нет (прошлое не показываем).
+const MMT_HOSTS = /(^|\.)(?:ntc\.tj|mmt\.tj|asiaplus\.(?:news|tj)|asiaplustj\.info|khovar\.tj|avesta\.tj|vecherka\.tj|sputnik\.tj|ozodi\.org)$/i;
+const MONTHS_L = {
+    ru: ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'],
+    tg: ['январи', 'феврали', 'марти', 'апрели', 'майи', 'июни', 'июли', 'августи', 'сентябри', 'октябри', 'ноябри', 'декабри'],
+    uz: ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr']
+};
+function isoDate(v) {
+    const m = String(v || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return null;
+    const t = Date.UTC(+m[1], +m[2] - 1, +m[3]), d = new Date(t);
+    return d.getUTCMonth() === +m[2] - 1 && d.getUTCDate() === +m[3] ? { y: +m[1], m: +m[2] - 1, d: +m[3], t } : null;
+}
+function fmtDay(a, lang, withYear = true) {
+    const mo = MONTHS_L[lang][a.m];
+    if (lang === 'tg') return `${a.d} ${mo}${withYear ? ` соли ${a.y}` : ''}`;
+    if (lang === 'uz') return `${withYear ? `${a.y}-yil ` : ''}${a.d}-${mo}`;
+    return `${a.d} ${mo}${withYear ? ` ${a.y}` : ''}`;
+}
+// «2–20 ноября 2026», «с 2 ноября 2026», «29 ноября 2026» на языке карточки
+function fmtRange(a, b, lang) {
+    if (a && b && a.t !== b.t) {
+        if (a.y === b.y && a.m === b.m) {
+            const mo = MONTHS_L[lang][a.m];
+            return lang === 'tg' ? `${a.d}–${b.d} ${mo} соли ${a.y}` : lang === 'uz' ? `${a.y}-yil ${a.d}–${b.d}-${mo}` : `${a.d}–${b.d} ${mo} ${a.y}`;
+        }
+        return `${fmtDay(a, lang, a.y !== b.y)} – ${fmtDay(b, lang)}`;
+    }
+    const one = a || b;
+    if (!one) return '';
+    if (a && !b) return lang === 'tg' ? `аз ${fmtDay(a, lang)}` : lang === 'uz' ? `${fmtDay(a, lang)}dan` : `с ${fmtDay(a, lang)}`;
+    if (!a && b) return lang === 'tg' ? `то ${fmtDay(b, lang)}` : lang === 'uz' ? `${fmtDay(b, lang)}gacha` : `до ${fmtDay(b, lang)}`;
+    return fmtDay(one, lang);
+}
+const MMT_ROUND = { ru: n => `${n}-й тур`, tg: n => `Даври ${n}-ум`, uz: n => `${n}-bosqich` };
+// data: { round, reg_from, reg_to, exam, results } → три строки карточек; today — ГГГГ-ММ-ДД (Душанбе). Тур уже закончился → пусто
+function mmtFromData(data, lang, todayIso) {
+    const d = data || {};
+    const rf = isoDate(d.reg_from), rt = isoDate(d.reg_to), ex = isoDate(d.exam), rs = isoDate(d.results);
+    const all = [rf, rt, ex, rs].filter(Boolean);
+    const today = Date.parse(`${todayIso}T00:00:00Z`), yr = +todayIso.slice(0, 4);
+    if (!all.length || all.some(x => x.y < yr - 1 || x.y > yr + 1)) return '';
+    // тур идёт, пока не прошёл экзамен или не объявлены результаты (самая поздняя дата — не раньше трёх дней назад)
+    if (Math.max(...all.map(x => x.t)) < today - 3 * 864e5) return '';
+    const round = Number.isInteger(+d.round) && +d.round >= 1 && +d.round <= 9 ? +d.round : 0;
+    const L = k => MMT_ROWS[k].label[lang];
+    const examTxt = [round ? MMT_ROUND[lang](round) : '', ex ? fmtDay(ex, lang) : ''].filter(Boolean).join(', ');
+    return [
+        `${MMT_ROWS[0].icon} **${L(0)}**: ${fmtRange(rf, rt, lang) || '—'}`,
+        `${MMT_ROWS[1].icon} **${L(1)}**: ${examTxt || '—'}`,
+        `${MMT_ROWS[2].icon} **${L(2)}**: ${rs ? fmtDay(rs, lang) : '—'}`
+    ].join('\n');
+}
+async function searchMmt({ date, trace }) {
+    const system = `Сегодня ${date.human}. Найди в новостях (asiaplus.news, khovar.tj, avesta.tj, vecherka.tj) и на ntc.tj сведения про ближайший тур (этап) централизованных вступительных экзаменов (ЦВЭ, Национальный центр тестирования, ММТ) в вузы Таджикистана: тот, на который сейчас идёт регистрация или экзамен которого ещё не прошёл или результаты ещё не объявлены.
+Верни ТОЛЬКО JSON: {"round":номер тура числом,"reg_from":"ГГГГ-ММ-ДД","reg_to":"ГГГГ-ММ-ДД","exam":"ГГГГ-ММ-ДД","results":"ГГГГ-ММ-ДД"}. reg_from и reg_to — даты подачи заявок на этот тур, exam — день экзамена этого тура, results — день объявления результатов этого тура. Чего в источниках нет — null. Даты только из источников, ничего не выдумывай, регистрацию, экзамен и результаты не путай.`;
+    const resp = await openaiSearchRaw(system, 'Ближайший тур вступительных экзаменов ЦВЭ в Таджикистане: регистрация, экзамен, результаты', 1200);
+    const { text, cites, consulted } = readSearch(resp);
+    let sources = uniqueSources(cites.filter(c => MMT_HOSTS.test(hostOf(c.uri))));
+    if (!sources.length) sources = uniqueSources(consulted.filter(c => MMT_HOSTS.test(hostOf(c.uri)))).slice(0, 3);
+    const step = trace ? { engine: 'json', sources: sources.length, raw: String(text).slice(0, 300) } : null;
+    if (step) trace.push(step);
+    if (!sources.length) return null;
+    let data;
+    try { data = parseJsonLoose(text); } catch { return null; }
+    return { data, sources };
+}
+
 // Дата в строке уже прошла — это не «сегодня». Русские даты («1–10 июля 2026», «2 марта – 28 апреля») разбираем сами; по самой поздней дате строки
 // решаем: старше трёх дней назад — после двоеточия ставим «—». Даты не нашли (или текст не на русском) — строку не трогаем.
 const RU_MONTHS = ['январ', 'феврал', 'март', 'апрел', 'ма[йя]', 'июн', 'июл', 'август', 'сентябр', 'октябр', 'ноябр', 'декабр'];
@@ -603,6 +672,7 @@ function dropStaleDates(text, todayIso) {
         return latest !== null && latest < today - 3 * 864e5 ? `${line.slice(0, k + 1)} —` : line;
     }).join('\n');
 }
+
 // «Энциклопедии»: порядок один и тот же — наука, история, природа; остальное — после них
 const FACT_ORDER = ['🔬', '🏛', '🌿'];
 function factLines(text) {
@@ -2696,6 +2766,16 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                     if (r) return { body: { answer: ratesAnswer(r, lang), provider: 'openai', grounded: true, sources: r.sources, view: 'rates' }, ttl: ttlFor(mode) };
                 } catch (err) { console.warn(`[rates Сбой]: ${err.status || ''} ${err.message}`); }
             }
+            if (openai && kind === 'mmt') {
+                for (let attempt = 0; attempt < 2; attempt++) {
+                    try {
+                        const r = await searchMmt({ date, trace });
+                        const lines = r && mmtFromData(r.data, lang, date.iso);
+                        if (trace) trace.push({ engine: 'json', attempt, lines: String(lines || '').slice(0, 300) });
+                        if (lines) return { body: { answer: tipsAnswer(lines, r.sources, lang, 'mmt'), provider: 'openai', grounded: true, sources: r.sources, view: 'tips' }, ttl: ttlFor(mode) };
+                    } catch (err) { console.warn(`[mmt Сбой]: ${err.status || ''} ${err.message}`); }
+                }
+            }
             if (openai && KIND_TASK[kind]) {
                 try {
                     const items = await searchListings({ kind, lang, date, query: fullMessage, somon });
@@ -4381,5 +4461,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, factLines, factTopics, dropStaleDates, courseSlots, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
