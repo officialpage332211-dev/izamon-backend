@@ -624,8 +624,9 @@ function tipsAnswer(text, sources, lang, key = 'tips') {
         const [title, body] = bold ? [bold[1], bold[2]] : plain && plain[1].split(/\s+/).length <= 7 ? [plain[1], plain[2]] : ['', rest];
         const clean = x => x.replace(/\*\*/g, '').replace(/\s*\((?:https?:\/\/)?(?:[a-z0-9-]+\.)+[a-z]{2,}[^)]*\)\s*$/i, '').trim();
         const b = clean(body);
-        if (!b && !clean(title)) return '';
-        return `<div class="iz-tip"><span class="iz-tip-ic">${escapeHtml(icon)}</span><div class="iz-tip-b">${clean(title) ? `<b>${escapeHtml(clean(title))}</b> ` : ''}<span>${linkify(escapeHtml(b || clean(title)))}</span></div></div>`;
+        // только заголовок без текста («Звезды:») карточкой не считаем
+        if (!b || (!clean(title) && /^[^.!?]{0,60}:\s*$/.test(b))) return '';
+        return `<div class="iz-tip"><span class="iz-tip-ic">${escapeHtml(icon)}</span><div class="iz-tip-b">${clean(title) ? `<b>${escapeHtml(clean(title))}</b> ` : ''}<span>${linkify(escapeHtml(b))}</span></div></div>`;
     }).filter(Boolean).join('');
     const links = sourceLinks(sources);
     return `<div class="iz-tips"><div class="iz-tips-h">${cfg.icon} ${cfg.head[lang]}</div>${cards}${links.length ? `<div class="iz-rt-src">🔎 ${SOURCES_LABEL[lang]}: ${links.join(', ')}</div>` : ''}</div>`;
@@ -3230,11 +3231,12 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                 } catch (err) { console.warn(`[listings Сбой]: ${err.status || ''} ${err.message}`); }
             }
             let errored = false;
+            let thin = null; // «Советы»/«Энциклопедии»: самый полный из неполных ответов (меньше двух карточек), если другой поиск не лучше
             const engines = [];
             if (geminiUp()) engines.push({ name: 'gemini', run: (sys, msg) => askGemini(sys, msg, true) });
             if (openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
-            // «ММТ» и «Посев»: поиск находит источники не с первого раза — даём второму поиску ещё одну попытку
-            if ((kind === 'mmt' || kind === 'sowing') && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
+            // «ММТ», «Посев», «Советы», «Энциклопедии»: поиск находит источники (или пишет карточки) не с первого раза — даём второму поиску ещё одну попытку
+            if ((kind === 'mmt' || kind === 'sowing' || kind === 'tips' || kind === 'facts') && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             for (const eng of engines) {
                 try {
                     const r = await eng.run(buildSystemPrompt({ mode, lang, canSearch: true, date }), fullMessage);
@@ -3262,13 +3264,19 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                     if (step) step.final = text.slice(0, 300);
                     if (!text.trim()) continue;
                     const web = TEXT_CARDS[kind] ? tipsAnswer(text, sources, lang, kind) : finalize(text, sources, lang);
-                    return { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(TEXT_CARDS[kind] ? { view: 'tips' } : {}) }, ttl: ttlFor(mode) };
+                    const made = { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(TEXT_CARDS[kind] ? { view: 'tips' } : {}) }, ttl: ttlFor(mode) };
+                    if (kind === 'tips' || kind === 'facts') {
+                        const n = (web.match(/class="iz-tip"/g) || []).length;
+                        if (n < 2) { if (n > 0 && (!thin || n > thin.n)) thin = { n, made }; if (step) step.thin = n; continue; }
+                    }
+                    return made;
                 } catch (err) {
                     errored = true;
                     if (trace) trace.push({ engine: eng.name, error: String(err.status || '') + ' ' + String(err.message).slice(0, 120) });
                     console.warn(`[${eng.name} поиск Сбой]: ${err.status || ''} ${err.message}`);
                 }
             }
+            if (thin) return thin.made;
             if (ownBlock) {
                 return { body: { answer: ownBlock, provider: 'izamon', grounded: true, sources: [] }, ttl: ttlFor(mode) };
             }
