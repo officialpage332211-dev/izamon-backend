@@ -220,16 +220,16 @@ const PORTAL_RULES = [
       somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], facts: 'parts', fixed: 'parts' },
       query: 'Найди актуальные объявления о продаже автозапчастей, шин и дисков в Таджикистане, сначала на somon.tj: что за деталь, для какой машины, состояние, цена, город, контакт продавца.' },
     { re: /^(?:мебел|мебель|mebel)$/, mode: 'ads',
-      somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], facts: 'furniture' },
+      somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], facts: 'furniture', fixed: 'furniture' },
       query: 'Найди актуальные объявления о продаже мебели в Таджикистане, сначала на somon.tj: что за мебель, размер, материал, состояние, цена, город, контакт продавца.' },
     { re: /^(?:либос|одежда|kiyim)$/, mode: 'ads',
-      somon: { sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], facts: 'clothes' },
+      somon: { sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], facts: 'clothes', fixed: 'clothes' },
       query: 'Найди актуальные объявления о продаже одежды и обуви в Таджикистане, сначала на somon.tj: что за вещь, размер, состояние, цена, город, контакт продавца.' },
     { re: /^(?:техника|texnika)$/, mode: 'ads',
-      somon: { sources: [{ path: 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/' }, { path: 'kompyuteryi-i-orgtehnika/noutbuki/' }, { path: 'elektronika-i-tehnika/tv-dvd-video/televizoryi/' }, { path: 'kompyuteryi-i-orgtehnika/personalnyie-kompyuteryi/' }], facts: 'tech' },
+      somon: { sources: [{ path: 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/' }, { path: 'kompyuteryi-i-orgtehnika/noutbuki/' }, { path: 'elektronika-i-tehnika/tv-dvd-video/televizoryi/' }, { path: 'kompyuteryi-i-orgtehnika/personalnyie-kompyuteryi/' }], facts: 'tech', fixed: 'tech' },
       query: 'Найди актуальные объявления о продаже бытовой техники, ноутбуков, компьютеров и телевизоров в Таджикистане, сначала на somon.tj: что за техника, характеристики, состояние, цена, город, контакт продавца.' },
     { re: /^(?:телефонҳо|телефоны|telefon)$/, mode: 'ads',
-      somon: { sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], facts: 'phone' },
+      somon: { sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], facts: 'phone', fixed: 'phone' },
       query: 'Найди актуальные объявления о продаже мобильных телефонов в Таджикистане, сначала на somon.tj: модель, память, состояние, цена, город, контакт продавца.' },
     { re: /^(?:кор\s+ва\s+шуғл|вакансии|ish)$/, mode: 'jobs',
       somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], notCat: /Banki-strahovanie-lizing/i, facts: 'job' },
@@ -1401,6 +1401,9 @@ const FX = {
         const t = factText(a);
         let m = t.match(/(?:размер\S*|андоза\S*)\s*[:\-–]?\s*(\d{2}(?:\s*[-–/]\s*\d{2})?)(?![\d])/iu) || t.match(/(?<![\d.,])(\d{2})\s*(?:-?\s*(?:й|го)\s*)?размер/iu);
         if (m) { const first = +m[1].slice(0, 2); if (first >= 20 && first <= 64) return `${L.size}: ${m[1].replace(/\s/g, '')}`; }
+        // буквенный размер после слова «размер»: «размер M», «Размер: S»
+        m = t.match(/(?:размер\S*|андоза\S*|razmer\S*|o['’‘ʻ]lcham\S*)\s*[:\-–]?\s*([2-5]?xl|xxs|xs|xxl|xxxl|s|m|l)(?![\p{L}\d])/iu);
+        if (m) return `${L.size}: ${m[1].toUpperCase()}`;
         m = t.match(/(?<![\p{L}\d])([2-5]?xl|xs|xxl|xxxl)(?![\p{L}\d])/iu);
         return m ? `${L.size}: ${m[1].toUpperCase()}` : '';
     },
@@ -1659,10 +1662,87 @@ function tourSlots(it, lang) {
         points: pts.filter((_, k) => !used.has(k))
     };
 }
+// ---------- «Товары»: одинаковые карточки у Мебели, Одежды, Техники и Телефонов ----------
+// Мебель: Состояние, Материал, Размер. Одежда: Состояние, Размер, Материал. Техника: Состояние, Марка, Диагональ.
+// Телефоны: Состояние, Марка, Память, ОЗУ. Чего нет — «—» (ничего не выдумываем). Лишние найденные характеристики идут после этих.
+// Данные: строка характеристик на странице объявления somon.tj («Состояние Новый, Марка ноутбука Apple, Диагональ экрана 15″…»),
+// название и текст продавца. Марку берём из страницы или из названия по списку известных брендов (названия брендов не переводятся).
+const GOODS_L = { ru: { brand: 'Марка' }, tg: { brand: 'Марка' }, uz: { brand: 'Marka' } };
+const BRAND_LIST = [
+    ['Apple', 'apple|iphone|macbook|ipad|imac|айфон|макбук'], ['Samsung', 'samsung|galaxy|самсунг'], ['Xiaomi', 'xiaomi|redmi|ксиоми|сяоми|редми'],
+    ['Poco', 'poco'], ['Honor', 'honor'], ['Huawei', 'huawei|хуавей'], ['Itel', 'itel'], ['Tecno', 'tecno'], ['Infinix', 'infinix'],
+    ['Oppo', 'oppo'], ['Vivo', 'vivo'], ['Realme', 'realme'], ['Nokia', 'nokia'], ['Motorola', 'motorola'], ['OnePlus', 'oneplus'], ['ZTE', 'zte'],
+    ['Google', 'pixel'], ['Sony', 'sony|xperia'], ['Dell', 'dell'], ['HP', 'hp'], ['Lenovo', 'lenovo'], ['Asus', 'asus'], ['Acer', 'acer'], ['MSI', 'msi'],
+    ['Toshiba', 'toshiba'], ['LG', 'lg'], ['Panasonic', 'panasonic'], ['Philips', 'philips'], ['Bosch', 'bosch'], ['Indesit', 'indesit'],
+    ['Ariston', 'ariston'], ['Beko', 'beko'], ['Haier', 'haier'], ['Hisense', 'hisense'], ['TCL', 'tcl'], ['Midea', 'midea'], ['Gorenje', 'gorenje'],
+    ['Tefal', 'tefal'], ['Artel', 'artel'], ['Shivaki', 'shivaki'], ['Zanussi', 'zanussi'], ['Electrolux', 'electrolux'], ['Whirlpool', 'whirlpool'],
+    ['Candy', 'candy'], ['Siemens', 'siemens'], ['Miele', 'miele'], ['Sharp', 'sharp'], ['Hitachi', 'hitachi'], ['Daewoo', 'daewoo'], ['Vitek', 'vitek'],
+    ['Polaris', 'polaris'], ['Redmond', 'redmond'], ['Scarlett', 'scarlett'], ['Braun', 'braun'], ['Moulinex', 'moulinex'], ['Kenwood', 'kenwood'],
+    ['Microsoft', 'microsoft'], ['Razer', 'razer'], ['Gigabyte', 'gigabyte']
+].map(([name, words]) => [new RegExp(`(?<![\\p{L}\\d])(?:${words})(?![\\p{L}\\d])`, 'iu'), name]);
+// самое раннее упоминание известного бренда в тексте
+function brandIn(text) {
+    const t = String(text || '');
+    let best = null;
+    for (const [re, name] of BRAND_LIST) { const m = re.exec(t); if (m && (!best || m.index < best.at)) best = { at: m.index, name }; }
+    return best ? best.name : '';
+}
+const GOODS_SETS = { furniture: ['state', 'material', 'dims'], clothes: ['state', 'csize', 'material'], tech: ['state', 'brand', 'diag'], phone: ['state', 'brand', 'rom', 'ram'] };
+function goodsSlots(it, lang, mode, extra = {}) {
+    const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru, G = GOODS_L[lang] || GOODS_L.ru;
+    const kw = (extra.specs && extra.specs.kw) || '';
+    const kwv = re => { const m = kw.match(re); return m ? m[1].trim() : ''; };
+    const art = { title: String(it.title || ''), description: [it.listDesc, extra.desc].filter(Boolean).join(' ') };
+    const val = fn => { const r = fn(art, L, V, lang); return r ? valueOf(r) : ''; };
+    const get = {
+        state: () => {
+            const raw = kwv(/(?:^|,\s)Состояние\s+([^,]+)/);
+            const s = /нов/i.test(raw) ? V.fresh : /б\s?\/\s?у|подерж|использ/i.test(raw) ? V.used : '';
+            return s || val(FX.state);
+        },
+        material: () => val(FX.material),
+        dims: () => val(FX.dims),
+        csize: () => val(FX.csize),
+        brand: () => {
+            const raw = kwv(/(?:^|,\s)(?:Марка(?:\s+[а-яё]+)?|Бренд|Производитель)\s+([^,]+)/i);
+            const known = brandIn(raw);
+            if (known) return known;
+            if (/^[A-Za-z0-9][A-Za-z0-9 &.+-]{1,23}$/.test(raw)) return raw;
+            if (lang === 'ru' && raw && raw.length <= 20 && !blankValue(raw) && !/друг/i.test(raw)) return raw;
+            return brandIn(art.title);
+        },
+        diag: () => {
+            const m = kw.match(/(?:^|,\s)Диагональ экрана\s+(\d{1,3}(?:[.,]\d)?)\s*(?:″|")(?:\s*[—–-]\s*(\d{1,3}(?:[.,]\d)?)\s*(?:″|"))?/);
+            if (m) return m[2] ? `${m[1].replace(',', '.')}"–${m[2].replace(',', '.')}"` : `${m[1].replace(',', '.')}"`;
+            return val(FX.diag);
+        },
+        rom: () => {
+            const m = kw.match(/(?:^|,\s)Встроенная память\s+(\d{2,4})\s*(gb|tb|гб|тб)/i);
+            if (m) return `${m[1]} ${/^(?:t|т)/i.test(m[2]) ? 'TB' : 'GB'}`;
+            const r = valueOf(FX.mem(art, L) || '');
+            const x = /\/(\d{2,4}) GB$/.exec(r);
+            return x ? `${x[1]} GB` : /^\d+ (?:GB|TB)$/.test(r) ? r : '';
+        },
+        ram: () => {
+            const r = valueOf(FX.mem(art, L) || '');
+            const x = /^(\d{1,2}(?:\+\d{1,2})?)\/\d{2,4} GB$/.exec(r);
+            return x ? `${x[1]} GB` : '';
+        }
+    };
+    const LABEL = { state: L.state, material: L.material, dims: L.size, csize: L.size, brand: G.brand, diag: L.diag, rom: L.rom, ram: L.ram };
+    const keys = GOODS_SETS[mode] || GOODS_SETS.tech;
+    const fixed = keys.map(k => { let v = ''; try { v = get[k]() || ''; } catch { v = ''; } return { label: LABEL[k], value: blankValue(v) ? '' : String(v).slice(0, 30) }; });
+    // найденные раньше характеристики, которые уже стоят в постоянных плитках, второй раз не пишем
+    const taken = new Set(fixed.map(f => f.label));
+    if (mode === 'phone') { taken.add(L.ramrom); taken.add(L.rom); taken.add(L.ram); }
+    const rest = (Array.isArray(it.points) ? it.points : []).filter(p => !taken.has(String(p).split(':')[0].trim()));
+    return { fixed, points: rest.slice(0, 3) };
+}
 function fixedSlots(it, lang, mode, extra) {
     if (mode === 'car') return carSlots(it, lang, extra);
     if (mode === 'parts') return partsSlots(it, lang, extra);
     if (mode === 'tour') return tourSlots(it, lang);
+    if (GOODS_SETS[mode]) return goodsSlots(it, lang, mode, extra);
     return estateSlots(it, lang, mode);
 }
 
@@ -3859,7 +3939,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
+    priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
