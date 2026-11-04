@@ -2817,10 +2817,10 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
 // Telegram-каналы, соцсети, сайты компаний) идёт одновременно с ним, а карточки встают одной лентой: somon.tj, другой сайт, somon.tj…
 const WEB_EXTRA_KINDS = new Set(['ads', 'jobs', 'services', 'masters']);
 const WEB_EXTRA_MAX = 5;                 // сколько карточек с других сайтов
-const WEB_EXTRA_WAIT_MS = Number(process.env.WEB_EXTRA_WAIT_MS) || 22000; // дольше не ждём: покажем список somon.tj, а найденное ляжет в запас для следующего раза
+const WEB_EXTRA_WAIT_MS = Number(process.env.WEB_EXTRA_WAIT_MS) || 8000; // человек не ждёт: не успели — покажем somon.tj, проверенное ляжет в запас для следующих; дольше не ждём: покажем список somon.tj, а найденное ляжет в запас для следующего раза
 const WEB_EXTRA_JOB_MS = 70000;          // самый долгий поиск вместе с переводом и проверкой страниц
 const WEB_EXTRA_TTL_MS = 15 * 60000;     // готовые карточки с других сайтов держим 15 минут
-const WEB_EXTRA_EMPTY_TTL_MS = 3 * 60000; // «ничего не нашлось» помним 3 минуты, чтобы не гонять поиск заново на каждое открытие
+const WEB_EXTRA_EMPTY_TTL_MS = 30 * 60000; // «ничего проверенного не нашлось» помним 30 минут, чтобы не гонять поиск заново на каждое открытие
 const WEB_EXTRA_FAIL_TTL_MS = 60000;
 const SOMON_HOST = /(^|\.)somon\.tj$/i;
 const webExtraCache = new Map();
