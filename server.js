@@ -166,15 +166,15 @@ const SOMON_NOT_AUTO = /legkovyie|gruzov|zapchast|shiny|shinyi|disk|moto|velo|va
 // Кнопки разделов: у каждой свой поисковый запрос, чтобы ответ сразу содержал данные, а не описание раздела.
 const PORTAL_RULES = [
     { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest', kind: 'services',
-      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/Kompyuter-i-internet/' }], facts: 'course' },
+      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/Kompyuter-i-internet/' }], facts: 'course', fixed: 'itc' },
       query: 'Найди актуальные IT-курсы в Таджикистане (программирование, дизайн, 1С и др.): название школы, цена, длительность, сайт или контакт.' },
     { re: /^(?:забонҳо|языки|tillar)$/, mode: 'digest', kind: 'services',
-      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/inostrannye-yazyki/' }], facts: 'languages' },
+      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/inostrannye-yazyki/' }], facts: 'languages', fixed: 'lang' },
       query: 'Найди актуальные курсы иностранных языков в Таджикистане: язык, цена, формат, сайт или контакт школы.' },
-    { re: /^(?:ммт|mmt|мнт)$/, mode: 'digest',
-      query: 'Найди актуальную информацию про вступительное тестирование ММТ (Маркази миллии тестӣ, Национальный центр тестирования Таджикистана): ближайшие сроки, регистрация, результаты. Если по источникам ММТ означает иное, опирайся на источники.' },
-    { re: /донишномаҳо|энциклопеди|^kitoblar$/, mode: 'digest',
-      query: 'Дай один интересный вечный факт из энциклопедии (например, Википедии) по науке, истории или природе. Это не новость и не событие сегодняшнего дня. Для разнообразия выбери тему по номеру сегодняшнего дня в году.' },
+    { re: /^(?:ммт|mmt|мнт)$/, mode: 'digest', kind: 'mmt',
+      query: 'Найди актуальную информацию про вступительное тестирование ММТ (Маркази миллии тестӣ, Национальный центр тестирования Таджикистана) по официальным источникам. Ответ — РОВНО 3 строки: «📅 Сроки: …», «📝 Регистрация: …», «📊 Результаты: …». В каждой строке одно короткое простое предложение с датами и фактами из источников. Если в источниках этого нет — после двоеточия напиши только «—». Ничего не придумывай.' },
+    { re: /донишномаҳо|энциклопеди|^kitoblar$/, mode: 'digest', kind: 'facts',
+      query: 'Дай 3 коротких проверенных факта из энциклопедий (например, Википедии): один по науке, один по истории, один по природе. Это не новости и не события сегодняшнего дня. Формат каждой строки: эмодзи (🔬 наука, 🏛️ история, 🌿 природа), короткий заголовок из 2–4 слов, двоеточие, одно простое предложение до 18 слов. Для разнообразия выбери темы по номеру сегодняшнего дня в году.' },
     { re: /маслиҳатҳо|^советы$|^maslahat$/, mode: 'digest', kind: 'tips',
       query: 'Найди 4 практичных, проверенных источниками совета для жителей Таджикистана по семейному бюджету, экономии при покупках, накоплениям и малой торговле. Без инвестиций и финансовых продуктов. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение с конкретикой из источника. Без вступительных слов.' },
     { re: /^(?:кишт|посев|ekin)$/, mode: 'digest',
@@ -518,11 +518,18 @@ function finalize(text, sources, lang) {
 
 // «Советы»: каждая строка «эмодзи, заголовок: предложение» — отдельная карточка. HTML без переносов строк (сайт меняет \n на <br>).
 const TIPS_HEAD = { tg: 'Маслиҳатҳо', ru: 'Советы', uz: 'Maslahatlar' };
+// Текстовые карточки разделов: заголовок, значок и число карточек. «Советы», «ММТ» и «Энциклопедии» собираются одним способом.
+const TEXT_CARDS = {
+    tips: { icon: '💡', head: TIPS_HEAD, max: 3 },
+    mmt: { icon: '🎓', head: { tg: 'ММТ', ru: 'ММТ', uz: 'MMT' }, max: 3 },
+    facts: { icon: '📚', head: { tg: 'Донишномаҳо', ru: 'Энциклопедии', uz: 'Kitoblar' }, max: 3 }
+};
 const TIP_LINE = /^(\p{Extended_Pictographic}(?:[\uFE0F\u200D]|\p{Extended_Pictographic})*)\s*(.*)$/su;
-function tipsAnswer(text, sources, lang) {
-    const cards = String(text).split('\n').map(l => l.trim()).filter(Boolean).slice(0, 3).map(line => {
+function tipsAnswer(text, sources, lang, key = 'tips') {
+    const cfg = TEXT_CARDS[key] || TEXT_CARDS.tips;
+    const cards = String(text).split('\n').map(l => l.trim()).filter(Boolean).slice(0, cfg.max).map(line => {
         const m = line.match(TIP_LINE);
-        const icon = m ? m[1] : '💡';
+        const icon = m ? m[1] : cfg.icon;
         const rest = (m ? m[2] : line).trim();
         const bold = rest.match(/^\*\*([^*]{2,60})\*\*\s*[:—–-]?\s*(.*)$/s);
         const plain = rest.match(/^([^:*]{2,50}?)\s*:\s+(.+)$/s);
@@ -533,7 +540,42 @@ function tipsAnswer(text, sources, lang) {
         return `<div class="iz-tip"><span class="iz-tip-ic">${escapeHtml(icon)}</span><div class="iz-tip-b">${clean(title) ? `<b>${escapeHtml(clean(title))}</b> ` : ''}<span>${linkify(escapeHtml(b || clean(title)))}</span></div></div>`;
     }).filter(Boolean).join('');
     const links = sourceLinks(sources);
-    return `<div class="iz-tips"><div class="iz-tips-h">💡 ${TIPS_HEAD[lang]}</div>${cards}${links.length ? `<div class="iz-rt-src">🔎 ${SOURCES_LABEL[lang]}: ${links.join(', ')}</div>` : ''}</div>`;
+    return `<div class="iz-tips"><div class="iz-tips-h">${cfg.icon} ${cfg.head[lang]}</div>${cards}${links.length ? `<div class="iz-rt-src">🔎 ${SOURCES_LABEL[lang]}: ${links.join(', ')}</div>` : ''}</div>`;
+}
+
+// «ММТ»: всегда три карточки в одном порядке — Сроки, Регистрация, Результаты. Чего в источниках нет — «—» (ничего не выдумываем).
+// Подписи ставим сами на языке сайта: модель их часто пишет по-своему или переводит неточно. Строку находим по подписи или по значку.
+const MMT_ROWS = [
+    { icon: '📅', re: /срок|дат[аы]|мӯҳлат|сана|muddat/iu, label: { ru: 'Сроки', tg: 'Мӯҳлатҳо', uz: 'Muddatlar' } },
+    { icon: '📝', re: /регистр|сабти\s*ном|қайд|ro.?yxat/iu, label: { ru: 'Регистрация', tg: 'Сабти ном', uz: "Ro'yxatdan o'tish" } },
+    { icon: '📊', re: /результат|натиҷа|natija/iu, label: { ru: 'Результаты', tg: 'Натиҷаҳо', uz: 'Natijalar' } }
+];
+const NOTHING = /^(?:[—–-]+|нет\s+(?:данных|информации)|не\s+найден\S*|данных\s+нет|маълумот\s+нест|ma.lumot\s+yo.q)\.?$/iu;
+function mmtLines(text, lang) {
+    const lines = String(text).split('\n').map(l => l.trim()).filter(Boolean);
+    let found = 0;
+    const out = MMT_ROWS.map(row => {
+        const line = lines.find(l => {
+            const head = l.replace(/^\p{Extended_Pictographic}[\uFE0F\u200D\p{Extended_Pictographic}]*\s*/u, '').replace(/\*\*/g, '').split(':')[0];
+            return l.includes(':') && head.split(/\s+/).length <= 4 && row.re.test(head);
+        }) || lines.find(l => l.startsWith(row.icon));
+        let body = '';
+        if (line) {
+            const noIcon = line.replace(/^\p{Extended_Pictographic}[\uFE0F\u200D\p{Extended_Pictographic}]*\s*/u, '').replace(/\*\*/g, '');
+            const k = noIcon.indexOf(':');
+            body = (k >= 0 && noIcon.slice(0, k).split(/\s+/).length <= 4 ? noIcon.slice(k + 1) : noIcon).trim();
+        }
+        if (!body || NOTHING.test(body)) body = '';
+        else found++;
+        return `${row.icon} **${row.label[lang]}**: ${body || '—'}`;
+    });
+    return found ? out.join('\n') : '';
+}
+// «Энциклопедии»: порядок один и тот же — наука, история, природа; остальное — после них
+const FACT_ORDER = ['🔬', '🏛', '🌿'];
+function factLines(text) {
+    const rank = l => { const i = FACT_ORDER.findIndex(e => l.startsWith(e)); return i < 0 ? 9 : i; };
+    return String(text).split('\n').map(l => l.trim()).filter(Boolean).map((l, k) => [l, k]).sort((a, b) => rank(a[0]) - rank(b[0]) || a[1] - b[1]).map(x => x[0]).join('\n');
 }
 
 // ---------------------------------------------------------------------------
@@ -1326,6 +1368,7 @@ const MATERIALS = [
     [/(?<![\p{L}])трикотаж\S*/iu, ['Трикотаж', 'Трикотаж', 'Trikotaj']],
     [/(?<![\p{L}])(?:шёлк|шелк)\S*/iu, ['Шёлк', 'Абрешим', 'Ipak']]
 ];
+const NUM_WORD = { один: 1, одну: 1, два: 2, две: 2, три: 3, четыре: 4, пять: 5, шесть: 6, семь: 7, восемь: 8, девять: 9, десять: 10, двенадцать: 12, ду: 2, се: 3, чор: 4, панҷ: 5, шаш: 6, ҳафт: 7, ҳашт: 8, нӯҳ: 9, даҳ: 10 };
 const LANG_WORDS = [
     [/английск|english|англисӣ/iu, ['Английский', 'Англисӣ', 'Ingliz tili']], [/русск|russian|русӣ/iu, ['Русский', 'Русӣ', 'Rus tili']],
     [/немецк|german|олмонӣ/iu, ['Немецкий', 'Олмонӣ', 'Nemis tili']], [/китайск|chinese|хитоӣ/iu, ['Китайский', 'Хитоӣ', 'Xitoy tili']],
@@ -1491,8 +1534,13 @@ const FX = {
         return `${u === 'l' ? L.volume : u === 'pcs' ? L.count : L.weight}: ${m[1].replace(',', '.')} ${V[u]}`;
     },
     dur: (a, L, V) => {
-        const m = factText(a).match(/(?<![\d.,])(\d{1,2}(?:\s*[-–]\s*\d{1,2})?)\s*(месяц\S*|мес\S*|недел\S*|моҳ\S*|ҳафта\S*)(?![\p{L}])/iu);
-        return m ? `${L.dur}: ${m[1].replace(/\s/g, '').replace('-', '–')} ${/^(?:мес|моҳ)/i.test(m[2]) ? V.mo : V.wk}` : '';
+        const t = factText(a);
+        const m = t.match(/(?<![\d.,])(\d{1,2}(?:\s*[-–]\s*\d{1,2})?|(?<![\p{L}])(?:один|одну|два|две|три|четыре|пять|шесть|семь|восемь|девять|десять|двенадцать|ду|се|чор|панҷ|шаш|ҳафт|ҳашт|нӯҳ|даҳ))\s*(месяц\S*|мес(?![\p{L}])|недел\S*|нед(?![\p{L}])|моҳ\S*|ҳафта\S*)(?![\p{L}])/iu);
+        if (!m) return '';
+        // «рассрочка на 3 месяца» — это не срок курса
+        if (/рассроч|тақсим/iu.test(t.slice(Math.max(0, m.index - 24), m.index))) return '';
+        const n = NUM_WORD[m[1].toLowerCase()] || m[1].replace(/\s/g, '').replace('-', '–');
+        return `${L.dur}: ${n} ${/^(?:мес|моҳ)/i.test(m[2]) ? V.mo : V.wk}`;
     },
     format: (a, L, V, lang) => {
         const t = factText(a), i = LI[lang];
@@ -1844,7 +1892,71 @@ function jobSlots(it, lang, extra = {}) {
         points: pts.filter((_, k) => !used.has(k))
     };
 }
+// ---------- «Образование»: одинаковые карточки у «Языков» и «IT-курсов» ----------
+// Языки: Язык, Формат, Срок + строка «Для кого». IT-курсы: Направление, Формат, Срок + «Для кого». Чего нет — «—» (ничего не выдумываем).
+// Всё берём из названия, текста продавца и строки характеристик страницы somon.tj (например «Язык Английский»).
+const COURSE_L = {
+    ru: { dir: 'Направление', aud: 'Для кого' },
+    tg: { dir: 'Самт', aud: 'Барои кӣ' },
+    uz: { dir: 'Soha', aud: 'Kim uchun' }
+};
+// порядок важен: сначала узкие темы, потом общие
+const COURSE_DIR = [
+    [/дизайн|photoshop|фотошоп|figma|фигма|corel|корел|illustrator|графическ|автокад|autocad|dizayn/iu, ['Дизайн', 'Дизайн', 'Dizayn']],
+    [/программир|python|питон|javascript|(?<![\p{L}])java(?![\p{L}])|c\+\+|(?<![\p{L}])php(?![\p{L}])|web\s*dev|веб|разработ|кодинг|coding|барномасоз|dasturlash/iu, ['Программирование', 'Барномасозӣ', 'Dasturlash']],
+    [/(?<![\p{L}])smm(?![\p{L}])|(?<![\p{L}])смм(?![\p{L}])|таргет|маркетинг|реклам|(?<![\p{L}])seo(?![\p{L}])|инстаграм|instagram/iu, ['SMM и маркетинг', 'SMM ва маркетинг', 'SMM va marketing']],
+    [/(?<![\p{L}\d])1\s?[сc](?![\p{L}\d])|бухгалтер|ҳисобдор|buxgalter/iu, ['1С и бухгалтерия', '1С ва ҳисобдорӣ', '1C va buxgalteriya']],
+    [/excel|эксел|word|ворд|powerpoint|пауэр\s?поинт|офис|office|ofis/iu, ['Офисные программы', 'Барномаҳои офисӣ', 'Ofis dasturlari']],
+    [/робот|arduino|ардуино/iu, ['Робототехника', 'Робототехника', 'Robototexnika']],
+    [/кибер|безопасн|сетев|cisco|сисадмин|network|linux/iu, ['Сети и безопасность', 'Шабака ва бехатарӣ', 'Tarmoq va xavfsizlik']],
+    [/аналитик|(?<![\p{L}])data(?![\p{L}])|(?<![\p{L}])sql(?![\p{L}])|искусственн|нейросет|machine\s+learning/iu, ['Данные и ИИ', 'Маълумот ва зеҳни сунъӣ', "Ma'lumotlar va sun'iy intellekt"]],
+    [/видеомонтаж|монтаж|premiere|capcut|after\s+effects/iu, ['Видеомонтаж', 'Видеомонтаж', 'Videomontaj']],
+    [/компьютер|компютер|компьют|информатик|computer|kompyuter/iu, ['Компьютерная грамотность', 'Саводнокии компютерӣ', 'Kompyuter savodxonligi']]
+];
+const COURSE_KIDS = /(?<![\p{L}])дет(?:ей|ям|ьми|ск\S*|и(?![\p{L}]))|школьник|кӯдак|кудак|bolalar|maktab\s*o.quvchi/iu;
+const COURSE_ADULTS = /взросл|калонсол|kattalar/iu;
+const COURSE_START = /с\s+нуля|начинающ|новичк|навомӯз|аз\s+сифр|noldan|boshlovchi/iu;
+const COURSE_AUD = {
+    kids: ['Дети', 'Кӯдакон', 'Bolalar'], adults: ['Взрослые', 'Калонсолон', 'Kattalar'],
+    both: ['Дети и взрослые', 'Кӯдакон ва калонсолон', 'Bolalar va kattalar'], start: ['Начинающие', 'Навомӯзон', 'Boshlovchilar']
+};
+function courseSlots(it, lang, mode, extra = {}) {
+    const L = FL[lang] || FL.ru, V = FV[lang] || FV.ru, C = COURSE_L[lang] || COURSE_L.ru, i = LI[lang] ?? 0;
+    const kw = (extra.specs && extra.specs.kw) || '';
+    const title = String(it.title || '');
+    const art = { title, description: [it.listDesc, extra.desc].filter(Boolean).join(' ') };
+    const text = factText(art);
+    const val = fn => { let r = ''; try { r = fn(art, L, V, lang) || ''; } catch { r = ''; } return r ? valueOf(r) : ''; };
+    // у предложений из поиска по сайтам характеристики приходят готовыми строками «Название: значение» на языке карточки
+    const pts = Array.isArray(it.points) ? it.points : [];
+    const take = lab => { const p = pts.find(x => /:/.test(String(x)) && String(x).split(':')[0].trim() === lab); const v = p ? valueOf(p) : ''; return v && !blankValue(v) ? v : ''; };
+    let first = '', label = '';
+    if (mode === 'lang') {
+        label = L.lang;
+        const inTitle = LANG_WORDS.filter(([re]) => re.test(title)).map(([, w]) => w[i]).slice(0, 2);
+        const rawKw = (kw.match(/(?:^|,\s)Язык\s+([^,]+)/) || [])[1] || '';
+        const hit = LANG_WORDS.find(([re]) => re.test(rawKw));
+        first = inTitle.length ? inTitle.join(', ') : hit ? hit[1][i] : val(FX.lang) || take(L.lang);
+    } else {
+        label = C.dir;
+        const d = COURSE_DIR.find(([re]) => re.test(title)) || COURSE_DIR.find(([re]) => re.test(text));
+        first = d ? d[1][i] : take(C.dir);
+    }
+    const kids = COURSE_KIDS.test(text), adults = COURSE_ADULTS.test(text);
+    const aud = kids && adults ? COURSE_AUD.both[i] : kids ? COURSE_AUD.kids[i] : adults ? COURSE_AUD.adults[i] : COURSE_START.test(text) ? COURSE_AUD.start[i] : take(C.aud);
+    const fixed = [
+        { label, value: blankValue(first) ? '' : clip(first, 30) },
+        { label: L.format, value: clip(val(FX.format) || take(L.format), 30) },
+        { label: L.dur, value: clip(val(FX.dur) || take(L.dur), 30) },
+        { label: C.aud, value: clip(aud, 40), row: true }
+    ];
+    // то, что уже стоит в постоянных плитках, второй раз не пишем
+    const taken = new Set([L.lang, L.format, L.dur, C.dir]);
+    const rest = pts.filter(p => !taken.has(String(p).split(':')[0].trim()));
+    return { fixed, points: rest.slice(0, 3) };
+}
 function fixedSlots(it, lang, mode, extra) {
+    if (mode === 'lang' || mode === 'itc') return courseSlots(it, lang, mode, extra);
     if (mode === 'car') return carSlots(it, lang, extra);
     if (mode === 'parts') return partsSlots(it, lang, extra);
     if (mode === 'tour') return tourSlots(it, lang);
@@ -2170,7 +2282,7 @@ url — обычная ссылка https://… (без Markdown и скобок
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
     if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
-    const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
+    const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
     return kind === 'tickets' ? withTicketLinks(done, debug) : done;
 }
 
@@ -2570,17 +2682,19 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                     const sources = orderSources(r.sources.length ? r.sources : sourcesFromText(r.text));
                     if (!sources.length) continue; // настоящих источников нет — пробуем следующий поиск
                     let text = cleanModelText(r.text);
-                    if (kind === 'tips') {
+                    if (TEXT_CARDS[kind]) {
                         // запретное убираем до перевода; переводим только если ответ не на языке человека
                         text = dropHaramLines(text, true);
                         if (text.trim() && mixedLanguage(text, lang)) text = (await translateTips(text, { lang })) || '';
                     } else if (needsRewrite(text, lang)) text = await rewriteForUser(text, { mode, lang, date });
                     // Последняя защита: чужой язык до человека не доходит. Не осталось строк — пробуем другой поиск.
                     if (mixedLanguage(text, lang)) text = dropMixedLines(text, lang);
-                    text = capLines(shapeLines(dropHaramLines(cleanModelText(text), true), mode), kind === 'tips' ? 3 : 10);
+                    text = capLines(shapeLines(dropHaramLines(cleanModelText(text), true), mode), kind === 'mmt' ? 12 : TEXT_CARDS[kind] ? TEXT_CARDS[kind].max : 10);
+                    if (kind === 'mmt') text = mmtLines(text, lang);
+                    else if (kind === 'facts') text = factLines(text);
                     if (!text.trim()) continue;
-                    const web = kind === 'tips' ? tipsAnswer(text, sources, lang) : finalize(text, sources, lang);
-                    return { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(kind === 'tips' ? { view: 'tips' } : {}) }, ttl: ttlFor(mode) };
+                    const web = TEXT_CARDS[kind] ? tipsAnswer(text, sources, lang, kind) : finalize(text, sources, lang);
+                    return { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(TEXT_CARDS[kind] ? { view: 'tips' } : {}) }, ttl: ttlFor(mode) };
                 } catch (err) {
                     errored = true;
                     console.warn(`[${eng.name} поиск Сбой]: ${err.status || ''} ${err.message}`);
@@ -4060,7 +4174,9 @@ const DIAG_TOPICS = {
     langs: '5. Маориф ва илм - Забонҳо',
     itcourses: '5. Маориф ва илм - Курсҳои IT',
     harvest: '6. Кишоварзӣ - Ҳосил',
-    tips: '4. Молия ва тиҷорат - Маслиҳатҳо'
+    tips: '4. Молия ва тиҷорат - Маслиҳатҳо',
+    mmt: '5. Маориф ва илм - ММТ',
+    encyc: '5. Маориф ва илм - Донишномаҳо'
 };
 
 async function handleDiag(req, res) {
@@ -4107,8 +4223,8 @@ async function handleDiag(req, res) {
                 somon = r.somon;
                 query = withDictionary(r.userText, diagTopic);
             }
-            if (kind === 'tips') {
-                // тот же путь, что и у настоящей кнопки «Советы»: готовые карточки и то, что услышит озвучка
+            if (TEXT_CARDS[kind]) {
+                // тот же путь, что и у настоящей кнопки «Советы», «ММТ», «Энциклопедии»: готовые карточки и то, что услышит озвучка
                 const res = await compute({ mode: routed.mode, lang: diagLang, factual: true, fullMessage: query, date: todayTJ(), kind, somon: null, adsQuery: diagTopic });
                 const plain = String(res.body.answer || '').replace(/<\/(?:div)>|<br\s*\/?>/gi, '\n').replace(/<\/b>/gi, ': ').replace(/<[^>]*>/g, '').replace(/\n+/g, '\n').trim();
                 // по шагам: что вернул поиск и что осталось после каждого фильтра (только для проверки, /diag?…&trace=1)
@@ -4225,5 +4341,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, factLines, courseSlots, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
