@@ -2818,6 +2818,7 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
 const WEB_EXTRA_KINDS = new Set(['ads', 'jobs', 'services', 'masters']);
 const WEB_EXTRA_MAX = 5;                 // сколько карточек с других сайтов
 const WEB_EXTRA_WAIT_MS = Number(process.env.WEB_EXTRA_WAIT_MS) || 22000; // дольше не ждём: покажем список somon.tj, а найденное ляжет в запас для следующего раза
+const WEB_EXTRA_JOB_MS = 70000;          // самый долгий поиск вместе с переводом и проверкой страниц
 const WEB_EXTRA_TTL_MS = 15 * 60000;     // готовые карточки с других сайтов держим 15 минут
 const WEB_EXTRA_EMPTY_TTL_MS = 3 * 60000; // «ничего не нашлось» помним 3 минуты, чтобы не гонять поиск заново на каждое открытие
 const WEB_EXTRA_FAIL_TTL_MS = 60000;
@@ -2825,7 +2826,7 @@ const SOMON_HOST = /(^|\.)somon\.tj$/i;
 const webExtraCache = new Map();
 const webExtraBusy = new Map();
 const OTHER_SITES_TASK = {
-    ads: 'Найди до 10 самых свежих объявлений на сайтах объявлений Таджикистана, в Telegram-каналах и соцсетях. Сайт somon.tj не используй: его объявления уже есть.',
+    ads: 'Найди до 10 самых свежих объявлений на сайтах объявлений, магазинов и компаний Таджикистана, в Telegram-каналах и соцсетях. Сайт somon.tj не используй: его объявления уже есть.',
     jobs: 'Найди до 10 самых свежих вакансий в Таджикистане: сайты вакансий, Telegram-каналы с вакансиями, соцсети, сайты компаний. Сайт somon.tj не используй: его вакансии уже есть. ' + JOB_SKIP_TEXT,
     masters: 'Найди до 10 самых свежих объявлений мастеров и специалистов по услугам (то, что просит запрос) на сайтах объявлений Таджикистана, в Telegram-каналах и соцсетях. Сайт somon.tj не используй: его объявления уже есть. Это услуги, а не недвижимость: площадь, этаж и год постройки в характеристики не пиши.',
     services: 'Найди до 10 актуальных предложений в Таджикистане (школы, курсы, учебные центры, услуги, магазины): название, цена, город, контакт, сайт. Сайт somon.tj не используй: его предложения уже есть.'
@@ -2842,13 +2843,16 @@ function webExtra({ kind, lang, date, query, somon }) {
     const hit = webExtraCache.get(key);
     if (hit && Date.now() - hit.at < hit.ttl) return Promise.resolve({ items: hit.items, cached: true });
     if (webExtraBusy.has(key)) return webExtraBusy.get(key);
-    const job = (async () => {
+    const job = withTimeout((async () => {
         const t0 = Date.now();
         const dbg = {};
         let items = [];
         let failed = false;
         try {
-            const found = await webListings({ kind, lang, date, query: otherSitesQuery(query), debug: dbg, task: OTHER_SITES_TASK[kind] || KIND_TASK[kind], skip: SOMON_HOST });
+            const run = d => webListings({ kind, lang, date, query: otherSitesQuery(query), debug: d, task: OTHER_SITES_TASK[kind] || KIND_TASK[kind], skip: SOMON_HOST });
+            let found = await run(dbg);
+            // Поиск отвечает не всегда с первого раза (то пусто, то находит): одна повторная попытка
+            if (!found.length) { dbg.retry = { textStart: dbg.textStart, rawItems: dbg.rawItems, consulted: dbg.consulted }; found = await run(dbg); }
             const top = found.slice(0, WEB_EXTRA_MAX);
             const fin = {};
             items = top.length ? await finishItems(top, kind, lang, fin, somon && somon.fixed || '') : [];
@@ -2859,7 +2863,7 @@ function webExtra({ kind, lang, date, query, somon }) {
         webExtraCache.set(key, { at: Date.now(), ttl: failed ? WEB_EXTRA_FAIL_TTL_MS : items.length ? WEB_EXTRA_TTL_MS : WEB_EXTRA_EMPTY_TTL_MS, items });
         if (webExtraCache.size > 120) webExtraCache.delete(webExtraCache.keys().next().value);
         return { items, ms: Date.now() - t0, dbg };
-    })().finally(() => webExtraBusy.delete(key));
+    })(), WEB_EXTRA_JOB_MS).catch(() => ({ items: [], late: true })).finally(() => webExtraBusy.delete(key)); // зависший поиск не должен занимать место вечно
     webExtraBusy.set(key, job);
     return job;
 }
@@ -2898,7 +2902,7 @@ async function searchListings({ kind, lang, date, query, debug, somon }) {
                 : null;
             const [main, extra] = await Promise.all([finishItems(direct, kind, lang, debug, somon.fixed || ''), extraP || { items: [] }]);
             const mixed = extraP ? mixFeeds(main, extra.items) : main;
-            if (debug && extraP) debug.web = { n: extra.items.length, shown: mixed.filter(x => !SOMON_HOST.test(hostOf(x.url))).length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), list: extra.items.map(x => `${String(x.title).slice(0, 36)} | ${x.price || '-'} | ${hostOf(x.url)}${(() => { try { return new URL(x.url).pathname.slice(0, 28); } catch { return ''; } })()}`), ...(extra.dbg ? { err: extra.dbg.error, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
+            if (debug && extraP) debug.web = { n: extra.items.length, shown: mixed.filter(x => !SOMON_HOST.test(hostOf(x.url))).length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), list: extra.items.map(x => `${String(x.title).slice(0, 36)} | ${x.price || '-'} | ${hostOf(x.url)}${(() => { try { return new URL(x.url).pathname.slice(0, 28); } catch { return ''; } })()}`), ...(extra.dbg ? { err: extra.dbg.error, text: extra.dbg.textStart, parseError: extra.dbg.parseError, retry: extra.dbg.retry, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
             return mixed;
         }
     }
@@ -5460,5 +5464,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, otherSitesQuery, webExtraCache, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, otherSitesQuery, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
