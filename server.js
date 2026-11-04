@@ -934,15 +934,19 @@ function readSearch(resp) {
 
 async function askOpenAISearch(system, userText) {
     let resp = await openaiSearchRaw(system, userText);
-    let { text, cites } = readSearch(resp);
+    let { text, cites, consulted } = readSearch(resp);
     if (!uniqueSources(cites).length) {
         // Источников нет — одна повторная попытка с прямым требованием ссылок.
         resp = await openaiSearchRaw(system, `${userText}\n\nОбязательно найди в интернете и дай ссылки на источники.`);
-        ({ text, cites } = readSearch(resp));
+        ({ text, cites, consulted } = readSearch(resp));
     }
     if (!text) throw new Error('Empty response');
-    return { text, sources: uniqueSources(cites) };
+    return { text, sources: uniqueSources(cites), consulted: consulted || [] };
 }
+
+// Энциклопедии, на страницах которых поиск мог найти факт. Для «Энциклопедий» открытая поиском страница такого сайта считается источником,
+// даже если модель не поставила ссылку-цитату.
+const ENCYC_HOST = /(^|\.)(?:wikipedia\.org|britannica\.com|bigenc\.ru|ruwiki\.ru|encyclopedia\.com|nationalgeographic\.com|kids\.britannica\.com)$/i;
 
 async function askChat(client, model, system, userText, maxTokens = 300) {
     const completion = await withTimeout(client.chat.completions.create({
@@ -3301,11 +3305,17 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
             if (openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             // «ММТ», «Посев», «Советы», «Энциклопедии»: поиск находит источники (или пишет карточки) не с первого раза — даём второму поиску ещё одну попытку
             if ((kind === 'mmt' || kind === 'sowing' || kind === 'tips' || kind === 'facts') && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
+            // «Энциклопедии»: поиск нередко отвечает фактами без единого источника (такой ответ не показываем) — даём ещё одну попытку
+            if (kind === 'facts' && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             for (const eng of engines) {
                 try {
                     const r = await eng.run(buildSystemPrompt({ mode, lang, canSearch: true, date }), fullMessage);
-                    const sources = orderSources(r.sources.length ? r.sources : sourcesFromText(r.text));
-                    const step = trace ? { engine: eng.name, sources: sources.length, raw: String(r.text).slice(0, 360) } : null;
+                    let sources = orderSources(r.sources.length ? r.sources : sourcesFromText(r.text));
+                    // «Энциклопедии»: цитат нет, но поиск открыл страницу энциклопедии — она и есть источник факта
+                    if (!sources.length && kind === 'facts' && Array.isArray(r.consulted)) {
+                        sources = uniqueSources(r.consulted.filter(c => { try { return ENCYC_HOST.test(new URL(c.uri).hostname); } catch { return false; } }));
+                    }
+                    const step = trace ? { engine: eng.name, sources: sources.length, consulted: Array.isArray(r.consulted) ? r.consulted.length : undefined, raw: String(r.text).slice(0, 360) } : null;
                     if (step) trace.push(step);
                     if (!sources.length) continue; // настоящих источников нет — пробуем следующий поиск
                     let text = cleanModelText(r.text);
