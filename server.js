@@ -3912,6 +3912,47 @@ const sameSite = (a, b) => {
     return !!a && !!b && tail(a) === tail(b);
 };
 
+// Разбор данных страницы Nuxt (__NUXT_DATA__, формат devalue): массив, где числа — ссылки на другие элементы.
+function nuxtData(html) {
+    const m = String(html || '').match(/<script[^>]*id=["']__NUXT_DATA__["'][^>]*>([\s\S]*?)<\/script>/i);
+    if (!m) return null;
+    let arr;
+    try { arr = JSON.parse(m[1]); } catch { return null; }
+    if (!Array.isArray(arr)) return null;
+    const memo = new Map();
+    const SPECIAL = { '-1': undefined, '-2': undefined, '-3': NaN, '-4': Infinity, '-5': -Infinity, '-6': -0 };
+    const get = (i, depth) => {
+        if (typeof i !== 'number') return i;
+        if (i < 0) return SPECIAL[String(i)];
+        if (memo.has(i)) return memo.get(i);
+        if (depth > 60) return null;
+        const v = arr[i];
+        let out;
+        if (Array.isArray(v)) {
+            if (typeof v[0] === 'string' && /^(ShallowReactive|Reactive|Ref|ShallowRef|EmptyRef|EmptyShallowRef|NuxtError|Island|Date|Set|Map|RegExp|null|BigInt)$/.test(v[0])) {
+                const t = v[0];
+                if (t === 'Date') out = v[1];
+                else if (t === 'Set') { out = []; memo.set(i, out); for (const x of v.slice(1)) out.push(get(x, depth + 1)); return out; }
+                else if (t === 'Map') { out = {}; memo.set(i, out); for (let k = 1; k + 1 < v.length; k += 2) out[String(get(v[k], depth + 1))] = get(v[k + 1], depth + 1); return out; }
+                else if (t === 'null') out = null;
+                else if (/^Empty/.test(t)) out = null;
+                else { memo.set(i, null); out = get(v[1], depth + 1); }
+                memo.set(i, out); return out;
+            }
+            out = []; memo.set(i, out);
+            for (const x of v) out.push(get(x, depth + 1));
+            return out;
+        }
+        if (v && typeof v === 'object') {
+            out = {}; memo.set(i, out);
+            for (const [k, x] of Object.entries(v)) out[k] = get(x, depth + 1);
+            return out;
+        }
+        out = v; memo.set(i, out); return out;
+    };
+    return get(0, 0);
+}
+
 // Страницы объявлений одним запросом: фото и проверка контактов берут одну и ту же страницу.
 const PAGE_CACHE = new Map(); // адрес → { at, p }
 const PAGE_CACHE_MS = 5 * 60 * 1000, PAGE_CACHE_MAX = 60;
@@ -5312,6 +5353,14 @@ async function handleDiag(req, res) {
                 markers: ['__NEXT_DATA__', '__NUXT__', 'self.__next_f', '__INITIAL_STATE__', 'application/ld+json', 'og:image', 'wire:', 'data-page', 'livewire', 'inertia'].filter(k => html.includes(k)),
                 ld: [...html.matchAll(/"@type"\s*:\s*"([A-Za-z]+)"/g)].map(m => m[1]).slice(0, 12),
                 links,
+                nuxt: req.query.nuxt ? (() => {
+                    const d = nuxtData(html);
+                    if (!d) return null;
+                    const pick = String(req.query.pick || '').split('.').filter(Boolean).reduce((o, k) => (o == null ? o : o[k]), d);
+                    // форма данных: ключи и длины массивов на 3 уровня
+                    const shape = (o, dep) => Array.isArray(o) ? `[${o.length}]${o.length && dep > 0 ? ' ' + JSON.stringify(shape(o[0], dep - 1)) : ''}` : o && typeof o === 'object' ? (dep > 0 ? Object.fromEntries(Object.entries(o).slice(0, 40).map(([k, v]) => [k, shape(v, dep - 1)])) : '{…}') : typeof o === 'string' ? o.slice(0, 40) : o;
+                    return { shape: shape(pick, Number(req.query.depth) || 3), json: JSON.stringify(pick === undefined ? null : pick).slice(0, len) };
+                })() : undefined,
                 findAt: at, findCtx: at >= 0 ? html.slice(Math.max(0, at - 300), at + len).replace(/\s+/g, ' ') : null,
                 slice: at >= 0 ? null : html.slice(from, from + len).replace(/\s+/g, ' ')
             };
@@ -5516,5 +5565,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
