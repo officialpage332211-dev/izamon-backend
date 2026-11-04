@@ -358,9 +358,19 @@ function keywordStems(q) {
         return [...new Set(alts)].join('|');
     }).filter(w => w.length >= 2);
 }
+// Слово «с отрицанием» не считается: «аренда авто без водителя», «бе ронанда», «haydovchisiz»
+function kwFound(t, x) {
+    for (let i = t.indexOf(x); i >= 0; i = t.indexOf(x, i + 1)) {
+        const before = t.slice(Math.max(0, i - 4), i);
+        const word = (t.slice(i).match(/^[\p{L}\d]+/u) || [''])[0];
+        if (/(?:^|[^\p{L}])бе[з]?\s$/u.test(before) || /siz$/.test(word)) continue;
+        return true;
+    }
+    return false;
+}
 function keywordHas(text, stems) {
     const t = kwNorm(text);
-    return stems.every(st => /^\d+$/.test(st) ? new RegExp(`(?<!\\d)${st}(?!\\d)`).test(t) : st.split('|').some(x => t.includes(kwNorm(x))));
+    return stems.every(st => /^\d+$/.test(st) ? new RegExp(`(?<!\\d)${st}(?!\\d)`).test(t) : st.split('|').some(x => kwFound(t, kwNorm(x))));
 }
 
 // Запросы про жильё и землю ведём сразу в свой раздел (там подключены все сайты): «сниму квартиру» → аренда, «куплю дом» → продажа.
