@@ -2860,7 +2860,17 @@ async function localizeItems(items, lang, debug) {
     });
 }
 
+// Карточки переводим по 5 штук одновременно: короткий ответ модели реже ломается (битый JSON, потерянные карточки)
+// и приходит быстрее. Сбой одной пятёрки не лишает перевода остальные.
+const LOCALIZE_CHUNK = 5;
 async function localizeItemsModel(items, lang, debug) {
+    if (items.length <= LOCALIZE_CHUNK) return localizeChunk(items, lang, debug);
+    const parts = [];
+    for (let i = 0; i < items.length; i += LOCALIZE_CHUNK) parts.push(items.slice(i, i + LOCALIZE_CHUNK));
+    return (await Promise.all(parts.map(p => localizeChunk(p, lang, debug)))).flat();
+}
+
+async function localizeChunk(items, lang, debug) {
     const note = extra => {
         if (!debug) return;
         Object.assign(debug, extra);
@@ -2899,6 +2909,7 @@ ${CARD_GLOSSARY[lang] || ''}
         items.forEach((it, i) => { chk(it.price, out[i].price); chk(it.date, out[i].date); (it.points || []).forEach((p, j) => chk(p, (out[i].points || [])[j])); });
         return total >= 2 ? same / total : 0;
     };
+    let parseFailed = false; // ответ модели пришёл, но JSON битый или карточек не столько, сколько отправили
     let best = null; // лучший из неидеальных переводов — на случай, если ни одна модель не справится чисто
     // Разбор ответа одной модели: форма, цифры, доля непереведённого. Возвращает { out, share } или бросает ошибку.
     const evaluate = r => {
@@ -2947,6 +2958,7 @@ ${CARD_GLOSSARY[lang] || ''}
             note({ localized: job.name, localizeMs: Date.now() - t0 });
             return ev.out;
         } catch (err) {
+            if (/bad shape|JSON|position|Unexpected|Expected/i.test(String(err && err.message))) parseFailed = true;
             note({ localizeError: `${job.name}: ${scrub(err.message)}` });
             return null;
         }
@@ -2967,8 +2979,16 @@ ${CARD_GLOSSARY[lang] || ''}
         if (best) { note({ localized: best.name + '*', localizeMs: Date.now() - t0 }); return best.out; }
         return items;
     };
-    try { return await withTimeout(attempt(), TRANSLATE_TIMEOUT_MS); }
-    catch (err) {
+    try {
+        const deadline = t0 + TRANSLATE_TIMEOUT_MS;
+        let out = await withTimeout(attempt(), TRANSLATE_TIMEOUT_MS);
+        // Модель ответила, но сломала JSON или потеряла карточки: такой сбой случайный, поэтому один повтор, если время ещё есть.
+        if (out === items && parseFailed && deadline - Date.now() > 9000) {
+            note({ localizeRetry: true });
+            out = await withTimeout(attempt(), deadline - Date.now());
+        }
+        return out;
+    } catch (err) {
         // Время вышло: берём лучший из полученных переводов, иначе исходные карточки.
         note({ localized: best ? best.name + '*' : false, localizeError: scrub(err.message) });
         return best ? best.out : items;
