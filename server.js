@@ -2967,8 +2967,11 @@ ${CARD_GLOSSARY[lang] || ''}
         const latin = s => (String(s || '').match(/[A-Za-z]{2,}/g) || []).map(x => x.toLowerCase());
         // Буквы другого письма (арабские, иврит, китайские и т.п.), которых не было в исходном тексте, — сбой модели: такой перевод не берём.
         const ALIEN = /[֐-ࣿ฀-๿぀-ヿ㐀-鿿가-힯]/;
+        // Слово, склеенное из латинских и кириллических букв («Sеmзи»), — тоже сбой модели (в самом тексте такого не было)
+        const MIXED = /[A-Za-z][Ѐ-ӿ]|[Ѐ-ӿ][A-Za-z]/;
         const invented = (orig, t) => {
             if (ALIEN.test(String(t || '')) && !ALIEN.test(String(orig || ''))) return true;
+            if (lang === 'uz' && MIXED.test(String(t || '')) && !MIXED.test(String(orig || ''))) return true;
             if (lang === 'uz') return false;
             const o = latin(orig); return latin(t).some(x => !o.includes(x));
         };
