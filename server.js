@@ -2676,7 +2676,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return fallback || text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind, somon }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind, somon, trace }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -2714,6 +2714,8 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                 try {
                     const r = await eng.run(buildSystemPrompt({ mode, lang, canSearch: true, date }), fullMessage);
                     const sources = orderSources(r.sources.length ? r.sources : sourcesFromText(r.text));
+                    const step = trace ? { engine: eng.name, sources: sources.length, raw: String(r.text).slice(0, 360) } : null;
+                    if (step) trace.push(step);
                     if (!sources.length) continue; // настоящих источников нет — пробуем следующий поиск
                     let text = cleanModelText(r.text);
                     if (TEXT_CARDS[kind]) {
@@ -2727,11 +2729,13 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                     text = capLines(shapeLines(dropHaramLines(cleanModelText(text), true), mode), kind === 'mmt' ? 12 : TEXT_CARDS[kind] ? TEXT_CARDS[kind].max : 10);
                     if (kind === 'mmt') text = mmtLines(text, lang);
                     else if (kind === 'facts') text = factLines(text);
+                    if (step) step.final = text.slice(0, 300);
                     if (!text.trim()) continue;
                     const web = TEXT_CARDS[kind] ? tipsAnswer(text, sources, lang, kind) : finalize(text, sources, lang);
                     return { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(TEXT_CARDS[kind] ? { view: 'tips' } : {}) }, ttl: ttlFor(mode) };
                 } catch (err) {
                     errored = true;
+                    if (trace) trace.push({ engine: eng.name, error: String(err.status || '') + ' ' + String(err.message).slice(0, 120) });
                     console.warn(`[${eng.name} поиск Сбой]: ${err.status || ''} ${err.message}`);
                 }
             }
@@ -4260,11 +4264,12 @@ async function handleDiag(req, res) {
             }
             if (TEXT_CARDS[kind]) {
                 // тот же путь, что и у настоящей кнопки «Советы», «ММТ», «Энциклопедии»: готовые карточки и то, что услышит озвучка
-                const res = await compute({ mode: routed.mode, lang: diagLang, factual: true, fullMessage: query, date: todayTJ(), kind, somon: null, adsQuery: diagTopic });
+                const steps = [];
+                const res = await compute({ mode: routed.mode, lang: diagLang, factual: true, fullMessage: query, date: todayTJ(), kind, somon: null, adsQuery: diagTopic, trace: steps });
                 const plain = String(res.body.answer || '').replace(/<\/(?:div)>|<br\s*\/?>/gi, '\n').replace(/<\/b>/gi, ': ').replace(/<[^>]*>/g, '').replace(/\n+/g, '\n').trim();
                 // по шагам: что вернул поиск и что осталось после каждого фильтра (только для проверки, /diag?…&trace=1)
                 let trace;
-                if (req.query?.trace === '1') {
+                if (req.query?.trace === '1' && kind === 'tips') {
                     try {
                         const raw = await askOpenAISearch(buildSystemPrompt({ mode: routed.mode, lang: diagLang, canSearch: true, date: todayTJ() }), query);
                         const t0 = cleanModelText(raw.text);
@@ -4273,7 +4278,7 @@ async function handleDiag(req, res) {
                         trace = { raw: t0.slice(0, 500), sources: raw.sources.map(x => hostOf(x.uri)).slice(0, 6), mixed: mixedLanguage(t0, diagLang), gemini: geminiUp(), rewritten: rw.slice(0, 600), rewrittenMixed: mixedLanguage(rw, diagLang), why: why(rw), afterHaram: dropHaramLines(rw, true).slice(0, 400) };
                     } catch (e) { trace = { error: String(e.message || e).slice(0, 160) }; }
                 }
-                return { lang: diagLang, routed, provider: res.body.provider, view: res.body.view || null, tips: (String(res.body.answer || '').match(/class="iz-tip"/g) || []).length, plain, sources: (res.body.sources || []).length, trace };
+                return { lang: diagLang, routed, steps: req.query?.trace === '1' ? steps : undefined, provider: res.body.provider, view: res.body.view || null, tips: (String(res.body.answer || '').match(/class="iz-tip"/g) || []).length, plain, sources: (res.body.sources || []).length, trace };
             }
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
             const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon });
