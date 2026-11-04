@@ -5553,6 +5553,17 @@ async function handleDiag(req, res) {
             };
         }) });
     }
+    // Набранный запрос так, как его пишет человек: /diag?ask=iphone%2013&lang=ru — что увидит человек (вид ответа, карточки, сайты)
+    if (typeof req.query?.ask === 'string' && req.query.ask.trim()) {
+        const askLang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'ru';
+        const t0 = Date.now();
+        let out = null;
+        await handleChat({ body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
+        const html = String(out && out.answer || '');
+        const urls = [...html.matchAll(/<a class="iz-lc-a" href="([^"]+)"/g)].map(m => m[1]);
+        const titles = [...html.matchAll(/<div class="iz-lc-t">([^<]*)<\/div>/g)].map(m => m[1]);
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
+    }
     // /diag?orders=1: проверка таблиц заявок на настоящей базе. Пишет одну пробную строку (заявка с номером 0 и продавцом «diag») и сразу её удаляет.
     if (req.query?.orders === '1') {
         const t = { version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ordersTable: await tableReady('orders'), sellerTgTable: await tableReady('seller_tg') };
