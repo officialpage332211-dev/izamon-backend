@@ -5301,7 +5301,7 @@ async function handleDiag(req, res) {
         return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), peek: await timed(async () => {
             const page = await fetchPage(String(req.query.peek), { cap: 2500000, timeoutMs: 12000 });
             const html = String(page.html || '');
-            const from = Math.max(0, Number(req.query.from) || 0), len = Math.min(3500, Number(req.query.len) || 1500);
+            const from = Math.max(0, Number(req.query.from) || 0), len = Math.min(60000, Number(req.query.len) || 1500);
             const find = String(req.query.find || '');
             const at = find ? html.indexOf(find) : -1;
             const links = [...new Set([...html.matchAll(/href=["']([^"']+)["']/g)].map(m => m[1]).filter(h => /\d{4,}/.test(h)))].slice(0, 25);
