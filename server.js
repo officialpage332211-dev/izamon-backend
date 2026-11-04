@@ -1045,7 +1045,38 @@ function parseJsonLoose(text) {
     const start = raw.indexOf('{');
     const end = raw.lastIndexOf('}');
     if (start < 0 || end <= start) throw new Error('no json');
-    return JSON.parse(raw.slice(start, end + 1));
+    try { return JSON.parse(raw.slice(start, end + 1)); }
+    catch (err) {
+        // Модель дописала что-то со скобками до или после JSON («Примечание: {…}», второй объект): берём самый длинный целый объект, который читается.
+        let best = null;
+        for (const c of topLevelObjects(raw)) {
+            try { const v = JSON.parse(c); if (!best || c.length > best.len) best = { v, len: c.length }; } catch { /* не JSON */ }
+        }
+        if (best) return best.v;
+        throw err;
+    }
+}
+
+// Целые объекты {…} верхнего уровня в тексте (скобки внутри строк не считаются)
+function topLevelObjects(raw) {
+    const out = [];
+    let depth = 0, start = -1, inStr = false, esc = false;
+    for (let i = 0; i < raw.length; i++) {
+        const ch = raw[i];
+        if (inStr) {
+            if (esc) esc = false;
+            else if (ch === '\\') esc = true;
+            else if (ch === '"') inStr = false;
+            continue;
+        }
+        if (ch === '"') { if (depth > 0) inStr = true; }
+        else if (ch === '{') { if (depth === 0) start = i; depth++; }
+        else if (ch === '}' && depth > 0) {
+            depth--;
+            if (depth === 0 && start >= 0) { out.push(raw.slice(start, i + 1)); start = -1; }
+        }
+    }
+    return out;
 }
 
 // Достаёт целые объекты из обрезанного JSON вида {"items":[{...},{...},{"title":"обор
