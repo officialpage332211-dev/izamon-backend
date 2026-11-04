@@ -288,6 +288,8 @@ const KW_STOP = new Set(('найди найти найдите ищу ищем �
 const KW_ASK = /[?？]|(?<![\p{L}])(?:что|чем|как|почему|зачем|кто|когда|какой|какая|какие|каков|сколько\s+лет|расскажи|объясни|что\s+такое|чӣ|чаро|кай|кӣ|чӣ\s+тавр|чанд|nima|nega|qanday|qachon|kim)(?![\p{L}])/iu;
 // справки, а не объявления: погода, новости, законы, курсы, расписания
 const KW_INFO = /(?<![\p{L}])(?:погод|новост|хабар|закон|қонун|налог|андоз|расписани|курс\s+(?:валют|доллар|рубл)|ob-havo|yangilik|qonun|soliq|рецепт|тарих|история)/iu;
+// разговор о самом помощнике и вежливость — не справка
+const KW_SMALL = /(?<![\p{L}])(?:как\s+(?:дела|ты|вы|жизнь|поживаешь|тебя\s+зовут|вас\s+зовут)|кто\s+ты|кто\s+вы|что\s+ты\s+умеешь|чӣ\s+хел|чӣ\s+ҳол|ту\s+кистӣ|qalaysan|qalaysiz|kimsan|isming\s+nima)(?![\p{L}])/iu;
 const KW_TALK = /^(?:привет|здравствуй(?:те)?|салом|салам|ассалому|assalomu|salom|спасибо|рахмат|раҳмат|rahmat|ташаккур|ок|ok|да|нет|ҳа|не|ha|yo['’]?q|пока|хайр|хорошо|понятно|ладно|хуб|xo['’]?p|тест|test)[!.\s]*$/iu;
 
 // Общие слова раздела («машина», «телефон»): убираем, только если рядом есть марка или модель («мошин toyota» → «toyota»)
@@ -3787,6 +3789,8 @@ async function handleChat(req, res) {
             if (found.length >= 3) { mode = 'ads'; kind = 'ads'; factual = true; somon = kw; }
         }
     }
+    // Вопрос о деле («как получить ИНН?», «где оформить загранпаспорт?») — ответ с поиском и источником, а не по памяти
+    if (!topic && !factual && mode === 'general' && cleaned.length <= 250 && KW_ASK.test(cleaned) && !KW_TALK.test(cleaned) && !KW_SMALL.test(cleaned)) factual = true;
     const userText = withHistory(followUp ? cleaned : routed.userText, history);
     const detectOn = topic || cleaned;
     const fullMessage = category ? `[Подраздел: ${category}] ${userText}` : userText;
