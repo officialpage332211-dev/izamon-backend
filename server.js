@@ -191,13 +191,13 @@ const PORTAL_RULES = [
       query: 'Найди актуальные авиабилеты из Душанбе по популярным направлениям: цена, дата, авиакомпания, ссылка.' },
     // Недвижимость: у каждого подраздела свой запрос, иначе поиск смешивает продажу, аренду и участки.
     { re: /^(?:фурӯши\s+хона|продажа\s+жилья|uy\s+sotish)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/prodazha-kvartir/' }, { path: 'nedvizhimost/prodazha-domov-havli-i-dach/' }] },
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-kvartir/' }, { path: 'nedvizhimost/prodazha-domov-havli-i-dach/' }], fixed: 'estate' },
       query: 'Найди актуальные объявления о продаже квартир и домов в Таджикистане, сначала на somon.tj: что продаётся (квартира или дом, число комнат, площадь), цена, район или город, контакт продавца. Только жильё на продажу: аренду, участки и коммерческие помещения не показывай.' },
     { re: /^(?:иҷора|аренда|ijara)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }] },
+      somon: { sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }], fixed: 'estate' },
       query: 'Найди актуальные объявления об аренде жилья в Таджикистане (квартиры, дома, комнаты), сначала на somon.tj: что сдаётся, число комнат, цена в месяц, район или город, контакт хозяина. Только аренда жилья: продажу, участки и коммерческие помещения не показывай.' },
     { re: /^(?:замин\s+ва\s+тиҷоратӣ|земля\s+и\s+коммерческая|yer\s+va\s+tijorat)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }] },
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], fixed: 'land' },
       query: 'Найди актуальные объявления о земельных участках под строительство и о коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: что это, площадь, цена, продажа или аренда, место, контакт. Жилые квартиры и дома не показывай.' },
     // Услуги: мастера и специалисты. Объявления берём с somon.tj (раздел «Услуги») и других сайтов.
     { re: /^(?:барқчӣ|электрик|elektrik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
@@ -902,7 +902,11 @@ function cardHtml(it, kind, lang) {
     const callable = !!phone;
     const badges = `<div class="iz-badges"><span class="iz-badge iz-b-g">✔ ${escapeHtml(host)}</span><span class="iz-badge iz-b-b">${KIND_BADGE[kind] ? KIND_BADGE[kind][lang] : ''}</span>${it.date ? `<span class="iz-badge">🗓️ ${escapeHtml(it.date)}</span>` : ''}</div>`;
     // характеристики плитками 2×2, как в образце: «Ключ: значение» → подпись + значение
-    const tiles = (it.points || []).map(x => {
+    // fixed — одинаковый для всех карточек раздела набор плиток (пустая показывается как «—»)
+    const fixedTiles = (it.fixed || []).map(f => f.value
+        ? `<div class="iz-tile"><span>${escapeHtml(f.label)}</span><b>${escapeHtml(f.value)}</b></div>`
+        : `<div class="iz-tile iz-empty"><span>${escapeHtml(f.label)}</span><b>—</b></div>`).join('');
+    const tiles = fixedTiles + (it.points || []).map(x => {
         const m = String(x).match(/^([^:]{2,25}):\s*(.+)$/);
         return m ? `<div class="iz-tile"><span>${escapeHtml(m[1])}</span><b>${escapeHtml(m[2])}</b></div>` : `<div class="iz-tile"><b>${escapeHtml(x)}</b></div>`;
     }).join('');
@@ -958,9 +962,10 @@ function ownItems(rows, lang) {
             age,
             sellerSince: a.seller_since && Number.isFinite(Date.parse(a.seller_since)) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dushanbe' }).format(new Date(a.seller_since)).split('-').reverse().join('.') : '',
             sellerCount: Number(a.seller_count) || 0,
-            points: adPoints(a.description)
+            points: adPoints(a.description),
+            _estate: String(a.category || '') === 'estate'
         };
-    });
+    }).map(it => { const e = it._estate; delete it._estate; return e ? { ...it, ...estateSlots(it, lang || 'ru', 'estate') } : it; });
 }
 
 function ownCards(rows, lang) {
@@ -1488,7 +1493,8 @@ function somonPoints(a, kind, lang = 'ru', facts = null) {
         let m;
         if (fam === 'estate') {
             if ((m = t.match(/(\d{1,2})\s*-\s*х?\s*-?\s*комн/i))) pts.push(`${L.rooms}: ${m[1]}`);
-            if ((m = t.match(/(\d{1,2})\s*этаж(?!н)/i))) pts.push(`${L.floor}: ${m[1]}`);
+            if ((m = t.match(/(\d{1,2}\s*\/\s*\d{1,2})\s*этаж(?!н)/i))) pts.push(`${L.floor}: ${m[1].replace(/\s+/g, '')}`);
+            else if ((m = t.match(/(\d{1,2})\s*этаж(?!н)/i))) pts.push(`${L.floor}: ${m[1]}`);
             if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*(?:м²|м2|кв\.?\s*м)/i))) pts.push(`${L.area}: ${m[1]} ${L.m2}`);
             if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*сот/i))) pts.push(`${L.plot}: ${m[1]} ${L.sot}`);
         } else {
@@ -1509,6 +1515,47 @@ function somonPoints(a, kind, lang = 'ru', facts = null) {
     }
     return pts.slice(0, 3);
 }
+// «Одинаковые карточки» раздела «Недвижимость»: у каждой карточки одни и те же плитки в одном порядке.
+// estate — Площадь, Комнаты, Этаж; land («Земля и коммерческая») — Площадь или Участок. Чего в объявлении нет — «—» (ничего не выдумываем).
+// Значения берём из названия и из уже готовых характеристик карточки (на любом из трёх языков); остальные характеристики остаются как были.
+const SLOT_RE = {
+    rooms: /^\s*(?:комнат|ҳуҷр|xona)/i,
+    floor: /^\s*(?:этаж|ошёна|qavat)/i,
+    area: /^\s*(?:площад|масоҳат|maydon)/i,
+    plot: /^\s*(?:участ|қитъа|yer\s)/i
+};
+function estateSlots(it, lang, mode) {
+    const L = SOMON_L[lang] || SOMON_L.ru;
+    const pts = Array.isArray(it.points) ? it.points : [];
+    const val = key => {
+        for (const p of pts) {
+            if (!SLOT_RE[key].test(p)) continue;
+            const v = String(p).replace(/^[^:]*:\s*/, '').trim();
+            if (v && !blankValue(v)) return { v, p };
+        }
+        return null;
+    };
+    const title = String(it.title || '');
+    let m;
+    let area = val('area'), rooms = val('rooms'), floor = val('floor'), plot = val('plot');
+    if (!area && (m = title.match(/(\d{1,4}(?:[.,]\d+)?)\s*(?:м²|м2|кв\.?\s*м|m²)/i))) area = { v: `${m[1]} ${L.m2}`, p: null };
+    if (!plot && (m = title.match(/(\d{1,4}(?:[.,]\d+)?)\s*(?:сот|сотих|sotix)/i))) plot = { v: `${m[1]} ${L.sot}`, p: null };
+    if (!rooms && (m = title.match(/(\d{1,2})\s*-\s*х?\s*-?\s*комн/i))) rooms = { v: m[1], p: null };
+    if (!floor) {
+        if ((m = title.match(/(\d{1,2}\s*\/\s*\d{1,2})\s*этаж(?!н)/i))) floor = { v: m[1].replace(/\s+/g, ''), p: null };
+        else if ((m = title.match(/(\d{1,2})\s*этаж(?!н)/i))) floor = { v: m[1], p: null };
+    }
+    const first = area || plot;
+    const firstLabel = area ? L.area : L.plot;
+    const slots = mode === 'land'
+        ? [{ label: first ? firstLabel : L.area, value: first ? first.v : '' }]
+        : [{ label: first ? firstLabel : L.area, value: first ? first.v : '' }, { label: L.rooms, value: rooms ? rooms.v : '' }, { label: L.floor, value: floor ? floor.v : '' }];
+    const used = new Set([area, plot, rooms, floor].filter(x => x && x.p).map(x => x.p));
+    // в «земле» комнаты и этаж не нужны — но если они есть в тексте, остаются обычными плитками
+    const rest = pts.filter(p => !used.has(p) || (mode === 'land' && (SLOT_RE.rooms.test(p) || SLOT_RE.floor.test(p))));
+    return { fixed: slots, points: rest.slice(0, 3) };
+}
+
 function somonNote(a, nPts) {
     // Текст продавца режем по целому слову и ставим «…» — не посреди слова и не посреди числа.
     const full = clip(a.description, 2000);
@@ -1724,7 +1771,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
 }
 
 // Перевод, фото и сверка со страницами — общий хвост для обоих источников.
-async function finishItems(top, kind, lang, debug) {
+async function finishItems(top, kind, lang, debug, fixed = '') {
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
     const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug)]);
     // Контакты из полного текста объявления на странице (в списке текст бывает пустым): только то, что продавец написал сам
@@ -1758,8 +1805,9 @@ async function finishItems(top, kind, lang, debug) {
         if (count) gal = gal.slice(0, count);
         // Возраст объявления; у билетов и туров дата — это день вылета/поездки, а не публикации, поэтому возраста у них нет
         const age = kind === 'tickets' || kind === 'tours' ? null : (t.pub ? t.pub.ageMin : ageFromDate(it.date));
-        return { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
+        const base = { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
+        return fixed ? { ...base, ...estateSlots(base, lang, fixed) } : base;
     });
 }
 
@@ -1768,7 +1816,7 @@ async function searchListings({ kind, lang, date, query, debug, somon }) {
     if (somon) {
         try {
             const direct = await somonListings(somon, kind, debug, lang);
-            if (direct.length >= 3) return finishItems(direct, kind, lang, debug);
+            if (direct.length >= 3) return finishItems(direct, kind, lang, debug, somon.fixed || '');
         } catch (err) { if (debug) debug.somonError = scrub(err && err.message || err); }
     }
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${KIND_TASK[kind]}
@@ -1824,7 +1872,7 @@ url — обычная ссылка https://… (без Markdown и скобок
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
     if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
-    const done = await finishItems(items.slice(0, 10), kind, lang, debug);
+    const done = await finishItems(items.slice(0, 10), kind, lang, debug, kind === 'ads' && somon && somon.fixed || '');
     return kind === 'tickets' ? withTicketLinks(done, debug) : done;
 }
 
@@ -3623,7 +3671,7 @@ async function handleDiag(req, res) {
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
             const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon });
             const f = items[0];
-            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points } : null, sort: { priced: items.filter(x => x.pn > 0).length, aged: items.filter(x => Number.isFinite(x.age)).length, cheap: cheapFlags(items).filter(Boolean).length, prices: items.map(x => x.pn > 0 ? x.pn + x.pc : '-').join(' '), ages: items.map(x => Number.isFinite(x.age) ? x.age : '-').join(' ') }, ...dbgL };
+            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points, fixed: f.fixed } : null, fixedAll: items.map(x => x.fixed ? x.fixed.map(y => y.value || '—').join('/') : null).slice(0, 10), sort: { priced: items.filter(x => x.pn > 0).length, aged: items.filter(x => Number.isFinite(x.age)).length, cheap: cheapFlags(items).filter(Boolean).length, prices: items.map(x => x.pn > 0 ? x.pn + x.pc : '-').join(' '), ages: items.map(x => Number.isFinite(x.age) ? x.age : '-').join(' ') }, ...dbgL };
         });
         if (!out.cards_test.ok) out.cards_test.debug = dbgL;
         if (!diagTopic) {
@@ -3685,7 +3733,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    priceParts, cheapFlags, ownItems, adPoints, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
+    priceParts, cheapFlags, ownItems, adPoints, estateSlots, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
