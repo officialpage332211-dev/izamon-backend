@@ -1573,9 +1573,11 @@ function pageSpecs(html) {
         engine: pick(/(?:^|,\s)Объем двигателя\s+(\d[.,]\d)\s*л/),
         state: pick(/(?:^|,\s)Состояние\s+([^,]+)/),
         brand: pick(/(?:^|,\s)Марка автомобиля\s+([^,]+)/),
-        radius: pick(/(?:^|,\s)Радиус\s+(R\s?\d{2}(?:[.,]\d)?)(?=,|$)/i)
+        radius: pick(/(?:^|,\s)Радиус\s+(R\s?\d{2}(?:[.,]\d)?)(?=,|$)/i),
+        // вся строка характеристик целиком: из неё берут свои плитки «Товары» (подписи у каждой категории свои)
+        kw: kw.slice(0, 600)
     };
-    return Object.values(out).some(Boolean) ? out : null;
+    return out.kw ? out : null;
 }
 const FUEL_ALL = FUEL_WORDS.concat([[/(?<![\p{L}])(?:газ|метан|пропан)(?![\p{L}])/iu, ['Газ', 'Газ', 'Gaz']]]);
 const GEAR_ALL = GEAR_WORDS.concat([[/(?<![\p{L}])робот\S*/iu, ['Робот', 'Робот', 'Robot']]]);
@@ -1882,6 +1884,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
 async function finishItems(top, kind, lang, debug, fixed = '') {
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
     const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug)]);
+    if (debug && photos.specs) debug.kwAll = photos.specs.slice(0, 10).map(x => x && x.kw ? x.kw.replace(/, sell, buy, ads on Somon\.tj$/i, '').slice(0, 180) : null);
     // Контакты из полного текста объявления на странице (в списке текст бывает пустым): только то, что продавец написал сам
     top.forEach((t, i) => {
         const pd = photos.descs && photos.descs[i];
