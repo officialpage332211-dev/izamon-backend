@@ -1118,7 +1118,9 @@ function cardHtml(it, kind, lang) {
     const sortAttrs = (it.pn > 0 && /^[A-Z]{3}$/.test(it.pc || '') && ['ads', 'services', 'masters'].includes(kind) ? ` data-pn="${Number(it.pn)}" data-pc="${it.pc}"` : '') +
         (Number.isFinite(it.age) && it.age >= 0 ? ` data-age="${Math.round(it.age)}"` : '');
     const fullAttr = it.full ? ` data-full="${escapeAttr(it.full)}"` : '';
-    return `<div class="iz-lc"${sortAttrs}${fullAttr}>${parts.join('')}</div>`;
+    // Номер объявления iZamoN: по нему сайт показывает кнопку заявки (только у объявлений, которые лежат у нас)
+    const adAttr = it.adId && /^\d{1,15}$/.test(it.adId) ? ` data-ad="${it.adId}"` : '';
+    return `<div class="iz-lc"${sortAttrs}${fullAttr}${adAttr}>${parts.join('')}</div>`;
 }
 
 // Характеристики своего объявления: строки «• Подпись: значение» из описания (форма «Гузоштани эълон» кладёт их в начало). Максимум 4 плитки.
@@ -1155,6 +1157,7 @@ function ownItems(rows, lang) {
             sellerCount: Number(a.seller_count) || 0,
             points: adPoints(a.description),
             full: fullText(String(a.description || '').split(/\n/).filter(l => !/^\s*[•·\-*]\s*[^:\n]{2,25}:\s*\S/.test(l)).join('\n')),
+            adId: /^\d{1,15}$/.test(String(a.id == null ? '' : a.id)) ? String(a.id) : '',
             _cat: String(a.category || '')
         };
     }).map(it => { const c = it._cat; delete it._cat; return c === 'estate' ? { ...it, ...estateSlots(it, lang || 'ru', 'estate') } : c === 'transport' ? { ...it, ...carSlots(it, lang || 'ru') } : it; });
@@ -4333,6 +4336,15 @@ async function diagChannel() {
         out.canPost = m.status === 'creator' || (m.status === 'administrator' && m.can_post_messages !== false);
         out.ok = out.chatType === 'channel' && out.canPost;
     } catch (err) { out.error = scrub(err.message); }
+    // Приём заявок: таблицы в базе и вебхук бота (без адреса и кодов)
+    try {
+        out.ordersTable = await tableReady('orders');
+        out.sellerTgTable = await tableReady('seller_tg');
+        const info = await tgCall('getWebhookInfo', {});
+        out.hook = !info || !info.url ? 'none' : info.url === `${publicBase()}${TG_HOOK_PATH}` ? 'ours' : 'foreign';
+        if (info && info.last_error_message) out.hookError = scrub(String(info.last_error_message)).slice(0, 120);
+        out.hookPending = info && Number(info.pending_update_count) || 0;
+    } catch (err) { out.hookError = scrub(err.message); }
     return out;
 }
 
@@ -4369,11 +4381,36 @@ async function getSeller(userId) {
     return rows && rows[0] ? rows[0] : null;
 }
 
-function handleConfig(req, res) {
+// Таблица есть в базе? Ответ помним: «да» — 5 минут, «нет» — 20 секунд (пока владелец не создал таблицу, кнопок на сайте нет).
+const TABLE_CACHE = {};
+async function tableReady(name) {
+    if (!adsOn()) return false;
+    const e = TABLE_CACHE[name] || (TABLE_CACHE[name] = { at: 0, ok: false, p: null });
+    if (e.p) return e.p;
+    if (Date.now() - e.at < (e.ok ? 5 * MIN : 20000)) return e.ok;
+    e.p = (async () => {
+        try { await sb(`${name}?select=*&limit=1`); e.ok = true; } catch (err) { e.ok = false; }
+        e.at = Date.now();
+        e.p = null;
+        return e.ok;
+    })();
+    return e.p;
+}
+
+async function handleConfig(req, res) {
+    // orders — приём заявок включён (таблица orders создана); sellerTg — продавец может подключить Telegram (бот и таблица seller_tg готовы)
+    let orders = false, sellerTg = false;
+    if (adsOn()) {
+        try {
+            [orders, sellerTg] = await withTimeout(Promise.all([tableReady('orders'), tgOn() ? tableReady('seller_tg') : false]), 2500);
+        } catch (err) { orders = false; sellerTg = false; }
+    }
     res.json({
         supabaseUrl: SB_URL() || null,
         anonKey: process.env.SUPABASE_ANON_KEY || null,
-        channel: tgOn() ? (tgChannel().startsWith('@') ? tgChannel() : 'on') : null
+        channel: tgOn() ? (tgChannel().startsWith('@') ? tgChannel() : 'on') : null,
+        orders: !!orders,
+        sellerTg: !!(orders && sellerTg)
     });
 }
 
@@ -4381,7 +4418,15 @@ async function handleMe(req, res) {
     const user = await getUser(req);
     if (!user) return res.json({ ok: true, user: null, seller: null });
     try {
-        return res.json({ ok: true, user, seller: await getSeller(user.id) });
+        const seller = await getSeller(user.id);
+        let tgLinked = false;
+        if (seller && tgOn() && await tableReady('seller_tg')) {
+            try {
+                const rows = await sb(`seller_tg?select=chat_id&user_id=eq.${encodeURIComponent(user.id)}&limit=1`);
+                tgLinked = !!(rows && rows[0] && rows[0].chat_id);
+            } catch (err) { tgLinked = false; }
+        }
+        return res.json({ ok: true, user, seller, tgLinked });
     } catch (err) {
         return res.json({ ok: true, user, seller: null });
     }
@@ -4523,6 +4568,248 @@ async function handleFavDelete(req, res) {
         return res.status(503).json({ ok: false, error: 'store_failed' });
     }
 }
+
+// ---------------------------------------------------------------------------
+// Заявки покупателей к объявлениям iZamoN: заказать, забронировать или задать вопрос. Деньги здесь не принимаются.
+// Заявка пишется в таблицу orders. Продавцу уходит сообщение в Telegram, если он подключил бота (таблица seller_tg),
+// и в любом случае заявка видна ему на сайте в «Мой аккаунт». Покупателю аккаунт не нужен: имя и телефон видит только продавец.
+// Пока владелец не создал таблицы в Supabase, приём заявок выключен и на сайте кнопок нет.
+// ---------------------------------------------------------------------------
+const ORDER_KINDS = ['order', 'booking', 'other'];
+const ORDER_PHONE = /^[+\d][\d\s()-]{6,}$/;
+const orderLimited = makeLimiter(4, 10 * MIN);
+const linkLimited = makeLimiter(10);
+const ORDER_TX = {
+    tg: { head: '🛒 Ариза нав дар iZamoN', kinds: { order: 'Харидан / фармоиш', booking: 'Брон кардан', other: 'Дигар' }, tail: 'Ҳамаи аризаҳо дар «Ҳисоби ман»' },
+    ru: { head: '🛒 Новая заявка на iZamoN', kinds: { order: 'Купить / заказать', booking: 'Забронировать', other: 'Другое' }, tail: 'Все заявки — в разделе «Мой аккаунт»' },
+    uz: { head: "🛒 iZamoN'da yangi ariza", kinds: { order: 'Sotib olish / buyurtma', booking: 'Bron qilish', other: 'Boshqa' }, tail: "Barcha arizalar — «Mening hisobim» bo'limida" }
+};
+
+function orderText(o, lang) {
+    const t = ORDER_TX[lang] || ORDER_TX.ru;
+    const lines = [t.head, `🏷️ ${cutAtWord(o.ad_title, 120)}`, `📋 ${t.kinds[o.kind] || t.kinds.order}`, `👤 ${o.buyer_name}`, `📞 ${o.buyer_phone}`];
+    if (o.note) lines.push(`💬 ${cutAtWord(o.note, 300)}`);
+    lines.push(`🔗 ${t.tail}: ${SITE_URL}`);
+    return lines.join('\n');
+}
+
+// Сообщение продавцу в личный чат с ботом. false — не подключён, бот выключен или Telegram не принял (заявка от этого не пропадает).
+async function notifySeller(sellerId, text) {
+    if (!tgOn() || !(await tableReady('seller_tg'))) return false;
+    try {
+        const rows = await sb(`seller_tg?select=chat_id&user_id=eq.${encodeURIComponent(sellerId)}&limit=1`);
+        const chat = rows && rows[0] && rows[0].chat_id;
+        if (!chat) return false;
+        await tgCall('sendMessage', { chat_id: chat, text, disable_web_page_preview: true });
+        return true;
+    } catch (err) {
+        console.warn(`[заявка → Telegram Сбой]: ${scrub(err.message)}`);
+        // Продавец остановил бота: отвязываем, чтобы не стучаться впустую. Заявка всё равно видна на сайте.
+        if (err.code === 403) { try { await sb(`seller_tg?user_id=eq.${encodeURIComponent(sellerId)}`, { method: 'PATCH', body: { chat_id: null }, prefer: 'return=minimal' }); } catch (e) { /* не страшно */ } }
+        return false;
+    }
+}
+
+async function handleOrderCreate(req, res) {
+    if (orderLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    if (!adsOn() || !(await tableReady('orders'))) return res.status(503).json({ ok: false, error: 'orders_off' });
+    const b = req.body && typeof req.body === 'object' ? req.body : {};
+    const adId = String(b.ad == null ? '' : b.ad);
+    if (!/^\d{1,15}$/.test(adId)) return res.status(400).json({ ok: false, error: 'bad_ad' });
+    // Ссылки из имени и комментария убираем: через заявку нельзя прислать продавцу чужой сайт (его бот пишет продавцу от имени iZamoN)
+    const noLinks = v => clip(v, 600).replace(/(?:https?:\/\/|www\.|(?:t|telegram)\.me\/|wa\.me\/|bit\.ly\/)\S*/gi, ' ').replace(/\s{2,}/g, ' ').trim();
+    const name = noLinks(b.name).slice(0, 60), phone = clip(b.phone, 30), note = noLinks(b.note).slice(0, 300);
+    if (name.length < 2 || !ORDER_PHONE.test(phone)) return res.status(400).json({ ok: false, error: 'name_phone_required' });
+    const kind = ORDER_KINDS.includes(b.kind) ? b.kind : 'order';
+    try {
+        let rows;
+        try { rows = await sb(`ads?select=id,title,owner,lang&id=eq.${adId}&status=eq.active&limit=1`); }
+        catch (e) { if (e.status !== 400) throw e; rows = await sb(`ads?select=id,title,owner&id=eq.${adId}&status=eq.active&limit=1`); } // в таблице нет столбца lang — язык возьмём из заявки
+        const ad = rows && rows[0];
+        if (!ad || !ad.owner) return res.status(404).json({ ok: false, error: 'ad_not_found' });
+        const since10 = new Date(Date.now() - 10 * MIN).toISOString();
+        const dup = await sb(`orders?select=id&ad_id=eq.${adId}&buyer_phone=eq.${encodeURIComponent(phone)}&created_at=gte.${encodeURIComponent(since10)}&limit=1`);
+        if (dup && dup.length) return res.json({ ok: true, duplicate: true, notified: false });
+        const day = await sb(`orders?select=id&ad_id=eq.${adId}&created_at=gte.${encodeURIComponent(new Date(Date.now() - 24 * 60 * MIN).toISOString())}&limit=30`);
+        if (day && day.length >= 30) return res.status(429).json({ ok: false, error: 'too_many' });
+        const lang = ['tg', 'ru', 'uz'].includes(ad.lang) ? ad.lang : 'ru';
+        const row = { ad_id: Number(adId), seller_id: String(ad.owner), ad_title: clip(ad.title, 120), kind, buyer_name: name, buyer_phone: phone, note: note || null, lang: ['tg', 'ru', 'uz'].includes(b.lang) ? b.lang : lang, status: 'new', notified: false };
+        const made = await sb('orders', { method: 'POST', body: row, prefer: 'return=representation' });
+        const id = made && made[0] ? made[0].id : null;
+        // Уведомление не должно задерживать ответ покупателю дольше 10 секунд и не ломает заявку
+        const notified = await Promise.race([notifySeller(row.seller_id, orderText(row, lang)), new Promise(r => setTimeout(() => r(false), 10000))]).catch(() => false);
+        if (notified && id) { try { await sb(`orders?id=eq.${id}`, { method: 'PATCH', body: { notified: true }, prefer: 'return=minimal' }); } catch (e) { /* не страшно */ } }
+        return res.json({ ok: true, id, notified: !!notified });
+    } catch (err) {
+        console.warn(`[orders create Сбой]: ${scrub(err.message)}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+const ORDER_FIELDS = 'id,created_at,ad_id,ad_title,kind,buyer_name,buyer_phone,note,status';
+async function handleOrdersMine(req, res) {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required', items: [] });
+    if (!(await tableReady('orders'))) return res.json({ ok: true, items: [] });
+    try {
+        const rows = await sb(`orders?select=${ORDER_FIELDS}&seller_id=eq.${encodeURIComponent(user.id)}&order=created_at.desc&limit=100`);
+        return res.json({ ok: true, items: rows || [] });
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+async function handleOrderStatus(req, res) {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    const id = String(req.params?.id || '');
+    const status = req.body && req.body.status;
+    if (!/^\d{1,15}$/.test(id) || !['new', 'done'].includes(status)) return res.status(400).json({ ok: false, error: 'bad_request' });
+    try {
+        await sb(`orders?id=eq.${id}&seller_id=eq.${encodeURIComponent(user.id)}`, { method: 'PATCH', body: { status }, prefer: 'return=minimal' });
+        return res.json({ ok: true });
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+// ---- Подключение Telegram продавца: ссылка с одноразовым кодом → бот получает /start КОД → запоминает чат ----
+const tgSecret = () => crypto.createHmac('sha256', tgToken()).update('izamon-seller-hook').digest('hex').slice(0, 48);
+const TG_HOOK_PATH = '/api/tg/hook';
+let tgBotUser = null;
+async function tgBotName() {
+    if (tgBotUser) return tgBotUser;
+    const me = await tgCall('getMe', {});
+    tgBotUser = me && me.username && /^\w{4,64}$/.test(me.username) ? me.username : null;
+    return tgBotUser;
+}
+
+// Бот получает сообщения через вебхук на нашем сервере. Если у бота уже стоит чужой вебхук — его не трогаем.
+let hookState = '';
+async function setupTgHook(force) {
+    if (!tgOn() || !adsOn()) return 'off';
+    if (hookState === 'ok' && !force) return 'ok';
+    try {
+        const url = `${publicBase()}${TG_HOOK_PATH}`;
+        const info = await tgCall('getWebhookInfo', {});
+        if (info && info.url && info.url !== url) { hookState = 'foreign'; console.warn('[tg hook]: у бота уже свой вебхук, не меняем'); return hookState; }
+        await tgCall('setWebhook', { url, secret_token: tgSecret(), allowed_updates: ['message'] });
+        hookState = 'ok';
+    } catch (err) {
+        hookState = 'failed';
+        console.warn(`[tg hook Сбой]: ${scrub(err.message)}`);
+    }
+    return hookState;
+}
+
+const BOT_TX = {
+    tg: {
+        linked: '✅ Telegram пайваст шуд. Аризаҳои нави iZamoN ба ин ҷо меоянд.',
+        already: '✅ Telegram аллакай пайваст аст.',
+        bad: 'Истинод кӯҳна шудааст. Дар iZamoN, дар «Ҳисоби ман», дубора «Пайваст кардани Telegram»-ро пахш кунед.',
+        stopped: 'Тайёр: аризаҳо дигар ба ин ҷо намеоянд.',
+        help: 'Салом! Ин боти аризаҳои iZamoN аст. Барои гирифтани аризаҳо дар сомона, дар «Ҳисоби ман», «Пайваст кардани Telegram»-ро пахш кунед.'
+    },
+    ru: {
+        linked: '✅ Telegram подключён. Новые заявки с iZamoN будут приходить сюда.',
+        already: '✅ Telegram уже подключён.',
+        bad: 'Ссылка устарела. На iZamoN в разделе «Мой аккаунт» нажмите «Подключить Telegram» ещё раз.',
+        stopped: 'Готово: заявки сюда больше не приходят.',
+        help: 'Здравствуйте! Это бот заявок iZamoN. Чтобы получать заявки, на сайте в разделе «Мой аккаунт» нажмите «Подключить Telegram».'
+    },
+    uz: {
+        linked: "✅ Telegram ulandi. iZamoN'dagi yangi arizalar shu yerga keladi.",
+        already: '✅ Telegram allaqachon ulangan.',
+        bad: "Havola eskirgan. iZamoN'da «Mening hisobim» bo'limida «Telegramni ulash» tugmasini qayta bosing.",
+        stopped: 'Tayyor: arizalar endi bu yerga kelmaydi.',
+        help: "Salom! Bu iZamoN arizalar boti. Arizalarni olish uchun saytda «Mening hisobim» bo'limida «Telegramni ulash» tugmasini bosing."
+    }
+};
+
+async function processTgUpdate(update) {
+    const m = update && update.message;
+    if (!m || !m.chat || m.chat.type !== 'private' || typeof m.text !== 'string' || !Number.isSafeInteger(m.chat.id)) return 'ignored';
+    const chat_id = m.chat.id;
+    const code0 = String((m.from && m.from.language_code) || '').toLowerCase().slice(0, 2);
+    const tx = BOT_TX[code0 === 'uz' ? 'uz' : code0 === 'tg' ? 'tg' : 'ru'];
+    const say = text => tgCall('sendMessage', { chat_id, text }).catch(err => console.warn(`[tg ответ Сбой]: ${scrub(err.message)}`));
+    const text = m.text.trim().slice(0, 200);
+    if (/^\/stop(?:@\w+)?$/i.test(text)) {
+        if (await tableReady('seller_tg')) { try { await sb(`seller_tg?chat_id=eq.${chat_id}`, { method: 'PATCH', body: { chat_id: null }, prefer: 'return=minimal' }); } catch (e) { /* не страшно */ } }
+        await say(tx.stopped);
+        return 'stopped';
+    }
+    const start = text.match(/^\/start(?:@\w+)?(?:\s+([\w-]{8,64}))?$/i);
+    if (!start || !start[1]) { await say(tx.help); return 'help'; }
+    if (!(await tableReady('seller_tg'))) { await say(tx.help); return 'off'; }
+    try {
+        const rows = await sb(`seller_tg?select=user_id,code_at&code=eq.${encodeURIComponent(start[1])}&limit=1`);
+        const row = rows && rows[0];
+        const fresh = row && Date.parse(row.code_at) > Date.now() - 30 * MIN;
+        if (!fresh) {
+            // Тот же чат уже подключён (например, Telegram повторил доставку): ошибкой это не считаем
+            const mine = await sb(`seller_tg?select=user_id&chat_id=eq.${chat_id}&limit=1`);
+            await say(mine && mine[0] ? tx.already : tx.bad);
+            return mine && mine[0] ? 'already' : 'bad_code';
+        }
+        // Один чат Telegram — один продавец: у других этот чат отвязываем
+        await sb(`seller_tg?chat_id=eq.${chat_id}&user_id=neq.${encodeURIComponent(row.user_id)}`, { method: 'PATCH', body: { chat_id: null }, prefer: 'return=minimal' });
+        await sb(`seller_tg?user_id=eq.${encodeURIComponent(row.user_id)}`, { method: 'PATCH', body: { chat_id, code: null, code_at: null, linked_at: new Date().toISOString() }, prefer: 'return=minimal' });
+        await say(tx.linked);
+        return 'linked';
+    } catch (err) {
+        console.warn(`[tg link Сбой]: ${scrub(err.message)}`);
+        return 'failed';
+    }
+}
+
+async function handleTgHook(req, res) {
+    const got = Buffer.from(String(req.headers['x-telegram-bot-api-secret-token'] || ''));
+    const want = Buffer.from(tgOn() ? tgSecret() : '-');
+    if (!tgOn() || got.length !== want.length || !crypto.timingSafeEqual(got, want)) return res.status(403).json({ ok: false });
+    res.json({ ok: true }); // Telegram ждёт быстрый ответ: отвечаем сразу, дальше работаем
+    try { await processTgUpdate(req.body); } catch (err) { console.warn(`[tg hook Сбой]: ${scrub(err.message)}`); }
+}
+
+async function handleTgLink(req, res) {
+    if (linkLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    if (!tgOn() || !(await tableReady('seller_tg'))) return res.status(503).json({ ok: false, error: 'tg_off' });
+    try {
+        const seller = await getSeller(user.id);
+        if (!seller) return res.status(403).json({ ok: false, error: 'seller_required' });
+        const hook = await setupTgHook();
+        if (hook !== 'ok') return res.status(503).json({ ok: false, error: 'hook_' + hook });
+        const code = crypto.randomBytes(12).toString('base64url');
+        await sb('seller_tg?on_conflict=user_id', { method: 'POST', body: { user_id: user.id, code, code_at: new Date().toISOString() }, prefer: 'resolution=merge-duplicates,return=minimal' });
+        const bot = await tgBotName();
+        if (!bot) return res.status(503).json({ ok: false, error: 'tg_off' });
+        return res.json({ ok: true, url: `https://t.me/${bot}?start=${code}` });
+    } catch (err) {
+        console.warn(`[tg link Сбой]: ${scrub(err.message)}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+async function handleTgUnlink(req, res) {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    if (!(await tableReady('seller_tg'))) return res.json({ ok: true });
+    try {
+        await sb(`seller_tg?user_id=eq.${encodeURIComponent(user.id)}`, { method: 'PATCH', body: { chat_id: null, code: null, code_at: null, linked_at: null }, prefer: 'return=minimal' });
+        return res.json({ ok: true });
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+app.post('/api/orders', handleOrderCreate);
+app.get('/api/orders/mine', handleOrdersMine);
+app.post('/api/orders/:id/status', handleOrderStatus);
+app.post('/api/tg/link', handleTgLink);
+app.post('/api/tg/unlink', handleTgUnlink);
+app.post(TG_HOOK_PATH, handleTgHook);
 
 app.get('/api/config', handleConfig);
 app.get('/api/me', handleMe);
@@ -4719,6 +5006,32 @@ async function handleDiag(req, res) {
     if (process.env.DIAG_KEY && req.query?.k !== process.env.DIAG_KEY) return res.status(403).json({ error: 'forbidden' });
     if (diagLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
     if (req.query?.channel === '1') return res.json({ date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), channel_test: await diagChannel() });
+    // /diag?orders=1: проверка таблиц заявок на настоящей базе. Пишет одну пробную строку (заявка с номером 0 и продавцом «diag») и сразу её удаляет.
+    if (req.query?.orders === '1') {
+        const t = { version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ordersTable: await tableReady('orders'), sellerTgTable: await tableReady('seller_tg') };
+        if (t.ordersTable) {
+            try {
+                const made = await sb('orders', { method: 'POST', body: { ad_id: 0, seller_id: 'diag', ad_title: 'diag', kind: 'other', buyer_name: 'diag', buyer_phone: '+000000000', note: null, lang: 'ru', status: 'new', notified: false }, prefer: 'return=representation' });
+                const id = made && made[0] && made[0].id;
+                t.insert = !!id;
+                const back = id ? await sb(`orders?select=${ORDER_FIELDS}&id=eq.${id}&seller_id=eq.diag`) : [];
+                t.select = !!(back && back[0] && back[0].buyer_name === 'diag');
+                if (id) await sb(`orders?id=eq.${id}&seller_id=eq.diag`, { method: 'DELETE', prefer: 'return=minimal' });
+                t.cleanup = true;
+            } catch (err) { t.error = scrub(err.message); }
+        }
+        if (t.sellerTgTable) {
+            try {
+                await sb('seller_tg?on_conflict=user_id', { method: 'POST', body: { user_id: 'diag', code: 'diagcode', code_at: new Date().toISOString() }, prefer: 'resolution=merge-duplicates,return=minimal' });
+                const row = await sb('seller_tg?select=user_id,chat_id,code,code_at,linked_at&user_id=eq.diag&limit=1');
+                t.tgRow = !!(row && row[0] && row[0].code === 'diagcode');
+                await sb('seller_tg?user_id=eq.diag', { method: 'DELETE', prefer: 'return=minimal' });
+                t.tgCleanup = true;
+            } catch (err) { t.tgError = scrub(err.message); }
+        }
+        t.ok = !!(t.ordersTable && t.insert && t.select && t.cleanup && t.sellerTgTable && t.tgRow && t.tgCleanup);
+        return res.json({ date: todayTJ().iso, orders_test: t });
+    }
     const question = 'Какой сегодня курс доллара к сомони в Таджикистане?';
     const out = { date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), geminiModels: GEMINI_MODELS, geminiPauseSec: Math.max(0, Math.round((geminiDownUntil - Date.now()) / 1000)) };
     const diagTopic = DIAG_TOPICS[req.query?.item] || null;
@@ -4871,6 +5184,8 @@ if (require.main === module) {
     const PORT = process.env.PORT || 10000;
     app.listen(PORT, () => {
         console.log(`🚀 iZamoN бэкенд запущен на порту ${PORT}`);
+        // Вебхук бота для подключения Telegram продавцов: ставим, когда таблица в базе уже создана
+        setTimeout(() => { tableReady('seller_tg').then(ok => ok ? setupTgHook() : null).then(r => { if (r) console.log(`[tg hook]: ${r}`); }).catch(() => {}); }, 8000).unref();
     });
 }
 
@@ -4879,5 +5194,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
