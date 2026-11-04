@@ -636,7 +636,7 @@ function mmtFromData(data, lang, todayIso) {
 }
 async function searchMmt({ date, trace }) {
     const system = `Сегодня ${date.human}. Найди в новостях (asiaplus.news, khovar.tj, avesta.tj, vecherka.tj) и на ntc.tj сведения про ближайший тур (этап) централизованных вступительных экзаменов (ЦВЭ, Национальный центр тестирования, ММТ) в вузы Таджикистана: тот, на который сейчас идёт регистрация или экзамен которого ещё не прошёл или результаты ещё не объявлены.
-Верни ТОЛЬКО JSON: {"round":номер тура числом,"reg_from":"ГГГГ-ММ-ДД","reg_to":"ГГГГ-ММ-ДД","exam":"ГГГГ-ММ-ДД","results":"ГГГГ-ММ-ДД"}. reg_from и reg_to — даты подачи заявок на этот тур, exam — день экзамена этого тура, results — день объявления результатов этого тура. Чего в источниках нет — null. Даты только из источников, ничего не выдумывай, регистрацию, экзамен и результаты не путай.`;
+Верни ТОЛЬКО JSON: {"round":номер тура числом,"reg_from":"ГГГГ-ММ-ДД","reg_to":"ГГГГ-ММ-ДД","exam":"ГГГГ-ММ-ДД","results":"ГГГГ-ММ-ДД"}. reg_from и reg_to — даты подачи заявок на этот тур, exam — день экзамена этого тура, results — день объявления результатов этого тура. Туры идут по порядку (1, 2, 3, 4…): если последний найденный тур уже завершён, ищи следующий по номеру — его регистрацию объявляют заранее. Чего в источниках нет — null. Даты только из источников, ничего не выдумывай, регистрацию, экзамен и результаты не путай. Даже если ничего не нашёл, верни JSON с null, без другого текста.`;
     const resp = await openaiSearchRaw(system, 'Ближайший тур вступительных экзаменов ЦВЭ в Таджикистане: регистрация, экзамен, результаты', 1200);
     const { text, cites, consulted } = readSearch(resp);
     let sources = uniqueSources(cites.filter(c => MMT_HOSTS.test(hostOf(c.uri))));
@@ -2775,6 +2775,8 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
                         if (lines) return { body: { answer: tipsAnswer(lines, r.sources, lang, 'mmt'), provider: 'openai', grounded: true, sources: r.sources, view: 'tips' }, ttl: ttlFor(mode) };
                     } catch (err) { console.warn(`[mmt Сбой]: ${err.status || ''} ${err.message}`); }
                 }
+                // Текстовым поиском «ММТ» не отвечаем: он путал даты (регистрацию принимал за экзамен). Нет дат — честное «данных нет».
+                return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             }
             if (openai && KIND_TASK[kind]) {
                 try {
