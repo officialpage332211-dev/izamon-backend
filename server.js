@@ -2708,6 +2708,8 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, kind,
             const engines = [];
             if (geminiUp()) engines.push({ name: 'gemini', run: (sys, msg) => askGemini(sys, msg, true) });
             if (openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
+            // «ММТ»: новости поиск находит не с первого раза — даём второму поиску ещё одну попытку
+            if (kind === 'mmt' && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             for (const eng of engines) {
                 try {
                     const r = await eng.run(buildSystemPrompt({ mode, lang, canSearch: true, date }), fullMessage);
