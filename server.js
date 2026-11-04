@@ -2911,7 +2911,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             return [];
         }
     }));
-    const seenId = new Set(), seenPhoto = new Set(), seenText = new Set(), seenNorm = new Map(), perWho = Object.create(null);
+    const seenId = new Set(), seenPhoto = new Set(), seenText = new Set(), seenNorm = new Map(), titleCount = Object.create(null), perWho = Object.create(null);
     // поиск по ключевым словам: все слова — в названии; если так набралось меньше трёх — в названии или тексте объявления
     let kwLoose = false;
     if (spec.stems && spec.stems.length) {
@@ -2952,11 +2952,16 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
         const digits = String(a.price).replace(/\D/g, '');
         const norm = digits ? `${a.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '')}|${digits}` : '';
         if (norm && seenNorm.has(norm) && seenNorm.get(norm) !== x.host) return false;
+        // одно и то же название («Курсы Corel Draw», «Услуги электрика») — не больше двух раз: остальные места другим объявлениям
+        const tKey = a.title.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+        if (tKey && (titleCount[tKey] || 0) >= 2 && !x.late) { overflow.push(x); return false; }
         seenId.add(a.id); seenText.add(textKey); if (norm) seenNorm.set(norm, x.host); if (photo) seenPhoto.add(photo);
+        if (tKey) titleCount[tKey] = (titleCount[tKey] || 0) + 1;
         if (whoKey) perWho[whoKey] = (perWho[whoKey] || 0) + 1;
         return true;
     };
     // По кругу: в каждом круге — по одному самому свежему подходящему объявлению с каждого сайта, внутри круга — по свежести
+    const overflow = []; // повторы названий: в конец ленты, если других объявлений не хватило
     const queues = {};
     for (const x of flat) (queues[x.host] = queues[x.host] || []).push(x);
     const out = [];
@@ -2971,6 +2976,13 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             const it = somonItem(x.a, kind, lang, spec.facts || null);
             if (it.title && it.url) { out.push(it); stat.hosts[x.host].kept++; }
         }
+    }
+    for (const x of overflow) {
+        if (out.length >= 10) break;
+        x.late = true;
+        if (!ok(x)) continue;
+        const it = somonItem(x.a, kind, lang, spec.facts || null);
+        if (it.title && it.url) { out.push(it); stat.hosts[x.host].kept++; }
     }
     stat.kept = out.length;
     stat.withPhoto = out.filter(x => x.image).length;
