@@ -213,16 +213,16 @@ const PORTAL_RULES = [
       query: 'Найди актуальные объявления о земельных участках под строительство и о коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: что это, площадь, цена, продажа или аренда, место, контакт. Жилые квартиры и дома не показывай.' },
     // Услуги: мастера и специалисты. Объявления берём с somon.tj (раздел «Услуги») и других сайтов.
     { re: /^(?:барқчӣ|электрик|elektrik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'электрик' }, { q: 'электромонтаж' }], cat: SOMON_SERVICES, words: /электр|барқ|розетк|проводк|светильник|люстр|освещени|elektr/i },
+      somon: { sources: [{ q: 'электрик' }, { q: 'электромонтаж' }], cat: SOMON_SERVICES, words: /электр|барқ|розетк|проводк|светильник|люстр|освещени|elektr/i, fixed: 'service' },
       query: 'Найди актуальные объявления электриков в Таджикистане (электромонтаж, ремонт проводки, установка розеток, светильников и счётчиков), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Только электрики: другие услуги и товары не показывай.' },
     { re: /^(?:сантехник|santexnik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'сантехник' }, { q: 'сантехника услуги' }], cat: SOMON_SERVICES, words: /сантех|водопровод|труб|смесител|канализац|унитаз|отоплен|бойлер|водонагрев|насос|радиатор|santex/i },
+      somon: { sources: [{ q: 'сантехник' }, { q: 'сантехника услуги' }], cat: SOMON_SERVICES, words: /сантех|водопровод|труб|смесител|канализац|унитаз|отоплен|бойлер|водонагрев|насос|радиатор|santex/i, fixed: 'service' },
       query: 'Найди актуальные объявления сантехников в Таджикистане (установка и ремонт труб, смесителей, унитазов, отопления, водонагревателей), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Только сантехники: другие услуги и товары не показывай.' },
     { re: /^(?:автомеханик|avtomexanik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'ремонт авто' }, { q: 'автосервис' }, { q: 'автомеханик' }], cat: SOMON_AUTO, notCat: SOMON_NOT_AUTO, words: /авто|машин|двигател|ходов|электромобил|кузов|шиномонтаж|вулканизац|моторист|эвакуатор/i },
+      somon: { sources: [{ q: 'ремонт авто' }, { q: 'автосервис' }, { q: 'автомеханик' }], cat: SOMON_AUTO, notCat: SOMON_NOT_AUTO, words: /авто|машин|двигател|ходов|электромобил|кузов|шиномонтаж|вулканизац|моторист|эвакуатор/i, notWords: /сантех|водопровод|(?<![\p{L}])электрик|мастер на час|ремонт квартир|уборк|клининг|стиральн|посудомоеч|кофемашин|швейн/iu, fixed: 'service' },
       query: 'Найди актуальные объявления автомехаников и автосервисов в Таджикистане (ремонт и диагностика легковых машин, выезд мастера), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера или название сервиса, контакт. Только ремонт машин: продажу машин и запчастей не показывай.' },
     { re: /^(?:усто|мастер|usta)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'мастер на час' }, { q: 'ремонт квартир' }, { q: 'сборка мебели' }], cat: SOMON_SERVICES },
+      somon: { sources: [{ q: 'мастер на час' }, { q: 'ремонт квартир' }, { q: 'сборка мебели' }], cat: SOMON_SERVICES, fixed: 'service' },
       query: 'Найди актуальные объявления мастеров на дом в Таджикистане (ремонт и отделка квартир, сборка мебели, мелкий бытовой ремонт, «мастер на час»), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Электриков, сантехников и автомехаников отдельно не выделяй: показывай мастеров общего профиля.' },
     // Остальные подразделы с объявлениями: тот же прямой список somon.tj, что и у недвижимости (фото, цена, место, контакт из текста объявления).
     { re: /^(?:мошинҳо|машины|mashinalar)$/, mode: 'ads',
@@ -2271,7 +2271,134 @@ function harvestSlots(it, lang, extra = {}) {
         points: pts.filter(p => !new Set([F.kind, L.count, L.per, L.volume, L.weight]).has(String(p).split(':')[0].trim())).slice(0, 3)
     };
 }
+// ---------- «Услуги»: одинаковые карточки у Электрика, Сантехника, Автомеханика и Мастера ----------
+// Плитки: Услуга, Выезд, Опыт, Гарантия. Чего продавец не написал — «—» (ничего не выдумываем).
+// Услугу берём из слов продавца: название объявления и строка «Вид услуги …» на странице somon.tj.
+const SVC_L = {
+    ru: { svc: 'Услуга', visit: 'Выезд', warr: 'Гарантия' },
+    tg: { svc: 'Хизмат', visit: 'Рафтан', warr: 'Кафолат' },
+    uz: { svc: 'Xizmat', visit: 'Borish', warr: 'Kafolat' }
+};
+const SVC_V = { ru: { home: 'На дом', round: '24/7' }, tg: { home: 'Ба хона', round: '24/7' }, uz: { home: 'Uyga', round: '24/7' } };
+// порядок важен: сначала узкие названия, потом общие; названия — [русский, таджикский, узбекский]
+const SERVICE_KINDS = [
+    [nw('эвакуатор\\S*|evakuator\\S*'), ['Эвакуатор', 'Эвакуатор', 'Evakuator']],
+    [nw('заряд\\S*[^.]{0,40}электромоб\\S*|электромоб\\S*[^.]{0,40}заряд\\S*'), ['Зарядка электромобиля', 'Пуркунии электромобил', 'Elektromobil zaryadkasi']],
+    [nw('автоэлектр\\S*[^.]{0,40}двигател\\S*'), ['Автоэлектрика, двигатель', 'Автобарқчӣ, муҳаррик', 'Avtoelektrika, dvigatel']],
+    [nw('автоэлектр\\S*|автобарқчӣ'), ['Автоэлектрика', 'Автобарқчӣ', 'Avtoelektrika']],
+    [nw('автозвук\\S*|сигнализац\\S*|тонировк\\S*'), ['Автозвук, сигнализация', 'Автозвук, сигнализатсия', 'Avtotovush, signalizatsiya']],
+    [nw('вскрыт\\S*|кушодани'), ['Вскрытие авто', 'Кушодани мошин', 'Avtomobil ochish']],
+    [nw('слесар\\S*'), ['Слесарные работы', 'Кори челонгарӣ', 'Chilangarlik']],
+    [nw('шиномонтаж\\S*|вулканизац\\S*'), ['Шиномонтаж', 'Шиномонтаж', 'Shinomontaj']],
+    [nw('кузов\\S*|рихтовк\\S*|покраск\\S*\\s+авто\\S*'), ['Кузовной ремонт', 'Таъмири кузов', "Kuzov ta'miri"]],
+    [nw('двигател\\S*|акпп|кпп(?![\\p{L}])|коробк\\S*|моторист\\S*'), ['Двигатель и КПП', 'Муҳаррик ва КПП', 'Dvigatel va KPP']],
+    [nw('ходов\\S*|подвеск\\S*'), ['Ходовая часть', 'Қисми ҳаракат', 'Yurish qismi']],
+    [nw('диагностик\\S*'), ['Диагностика', 'Ташхис', 'Diagnostika']],
+    [nw('автосервис\\S*|ремонт\\S*\\s+(?:авто|машин|легков)\\S*|техобслуживан\\S*'), ['Ремонт авто', 'Таъмири мошин', "Avto ta'miri"]],
+    [nw('ремонт\\S*[^а-яёa-z]{1,3}монтаж\\S*\\s+электр\\S*'), ['Ремонт и монтаж электрики', 'Таъмир ва насби барқ', "Elektr ta'miri va montaji"]],
+    [nw('монтаж\\S*\\s+электр\\S*|электромонтаж\\S*|проводк\\S*|монтажи\\s+барқ\\S*'), ['Электромонтаж', 'Электромонтаж', 'Elektr montaji']],
+    [nw('ремонт\\S*\\s+электр\\S*|электрооборудован\\S*|таъмири\\s+барқ\\S*'), ['Ремонт электрики', 'Таъмири барқ', "Elektr ta'miri"]],
+    [nw('электрик\\S*|электричеств\\S*|барқчӣ|elektrik\\S*'), ['Электрика', 'Барқ', 'Elektr']],
+    [nw('отоплен\\S*|кот[её]л\\S*|котл\\S*|радиатор\\S*|гармдиҳӣ|isitish\\S*'), ['Отопление', 'Гармдиҳӣ', 'Isitish']],
+    [nw('канализац\\S*|прочистк\\S*|засор\\S*'), ['Канализация', 'Канализатсия', 'Kanalizatsiya']],
+    [nw('водонагреват\\S*|бойлер\\S*'), ['Водонагреватели', 'Обгармкунакҳо', 'Suv isitgichlar']],
+    [nw('сантех\\S*|водопровод\\S*|смесител\\S*|унитаз\\S*|santexnik\\S*'), ['Сантехника', 'Сантехника', 'Santexnika']],
+    [nw('сборк\\S*\\s+мебел\\S*|мебел\\S*\\s+(?:сборк\\S*|ремонт\\S*)|ҷамъкунии\\s+мебел'), ['Сборка мебели', 'Ҷамъкунии мебел', "Mebel yig'ish"]],
+    [nw('ремонт\\S*\\s+(?:квартир|дом)\\S*|отделк\\S*|евроремонт\\S*|шпатл\\S*|штукатур\\S*|плиточ\\S*|поклейк\\S*|таъмири\\s+хона|pardozlash'), ['Ремонт и отделка', 'Таъмир ва ороиш', "Ta'mirlash va pardozlash"]],
+    [nw('натяжн\\S*|потол\\S*'), ['Потолки', 'Шифт', 'Shiftlar']],
+    [nw('окн[аоу]?(?![\\p{L}])|стеклопакет\\S*|роллет\\S*|жалюзи'), ['Окна', 'Тиреза', 'Oynalar']],
+    [nw('двер\\S*|замк[аиу]?(?![\\p{L}])|замок'), ['Двери и замки', 'Дар ва қулф', 'Eshik va qulf']],
+    [nw('кондиционер\\S*|стиральн\\S*|холодильник\\S*|посудомоеч\\S*|бытов\\S*\\s+техник\\S*'), ['Бытовая техника', 'Техникаи рӯзгор', 'Maishiy texnika']],
+    [nw('сварк\\S*|сварщик\\S*|ворот\\S*|навес\\S*'), ['Сварочные работы', 'Кори кафшер', 'Payvandlash']],
+    [nw('кровл\\S*|крыш\\S*|шифер\\S*'), ['Кровля', 'Бомпӯш', 'Tom yopish']],
+    [nw('демонтаж\\S*'), ['Демонтаж', 'Демонтаж', 'Demontaj']],
+    [nw('мастер\\S*\\s+на\\s+час|муж\\S*\\s+на\\s+час'), ['Мастер на час', 'Уста барои як соат', 'Soatbay usta']]
+];
+// До двух разных услуг по порядку в тексте; более общее слово не повторяет уже найденное узкое.
+function serviceKinds(text, i, max = 2) {
+    const t = String(text || '');
+    const taken = [];
+    for (const [re, names] of SERVICE_KINDS) {
+        const m = re.exec(t);
+        if (!m) continue;
+        const a = m.index, b = a + m[0].length;
+        if (taken.some(x => a < x.b && b > x.a)) continue;
+        taken.push({ a, b, name: names[i] });
+    }
+    return [...new Set(taken.sort((x, y) => x.a - y.a).map(x => x.name))].slice(0, max);
+}
+// Строка характеристик страницы: «название, Вид услуги …, Раздел, Город». Значение может содержать запятые, поэтому режем по названию раздела.
+function svcKw(kw) {
+    const segs = String(kw || '').replace(/,\s*sell,\s*buy,\s*ads on Somon\.tj\s*$/i, '').split(/,\s+/).map(s => s.trim()).filter(Boolean);
+    const n = segs.length;
+    const tail = n > 2 ? segs.slice(-3, -1).join(', ') : '';
+    const k = segs.findIndex((s, j) => j > 0 && j < n - 1 && /^(?:Вид услуг[иа]?|Услуги)\s+\S/.test(s));
+    if (k < 0) return { label: '', value: '', tail };
+    const out = [segs[k].replace(/^(?:Вид услуг[иа]?|Услуги)\s+/, '')];
+    for (let j = k + 1; j < n - 1; j++) {
+        if (/^(?:Услуги\s|Автосервис и ремонт$)/.test(segs[j])) break; // это уже название раздела, а не значение
+        out.push(segs[j]);
+    }
+    return { label: /^Вид услуг/.test(segs[k]) ? 'type' : 'svc', value: out.join(', ').slice(0, 120), tail };
+}
+const SVC_VISIT = /(?<![\p{L}])(?:выезд\S*|выезжа\S*|на\s+дом(?![\p{L}])|приед\S*|приезжа\S*|ба\s+хон[аи]\S*|ба\s+манзил\S*|меоем|меравем|uyga\s+bor\S*|uyingizga)/iu;
+const SVC_NO_VISIT = /без\s+выезд|выезд\S*\s+не(?![\p{L}])|не\s+выезжа|выезда\s+нет|нет\s+выезд/iu;
+const SVC_ROUND = /24\s*\/\s*7|(?<![\d])24\s*(?:часа|ч(?![\p{L}])|соат|soat)|круглосуточ\S*|шабонарӯз\S*/iu;
+const SVC_NO_WARR = /без\s+гаранти|гаранти\S*\s+(?:нет|не(?![\p{L}])|отсутств)|нет\s+гаранти|не\s+даем?\s+гаранти|бе\s+кафолат|кафолат\S*\s+нест|kafolatsiz|kafolat\s+yo.q/iu;
+// «опыт 5 лет», «опытом работы: более 25 лет», «стаж 3 года», «10 лет опыта», «таҷрибаи 5 сол», «5 yillik tajriba»
+const SVC_EXP = [
+    /опыт\p{L}*(?:\s+работы)?\s*[:\-–]?\s*(?:составляет\s*)?(?<mn>более|свыше|больше|от)?\s*(?<n>\d{1,2})\s*(?:\+\s*)?(?:лет|года|год)(?![\p{L}])/iu,
+    /(?<mn>более|свыше|больше|от)?\s*(?<n>\d{1,2})\s*(?:лет|года|год)(?![\p{L}])\s+(?:опыта|стажа|практики)/iu,
+    /стаж\p{L}*\s*[:\-–]?\s*(?<mn>более|свыше|от)?\s*(?<n>\d{1,2})\s*(?:лет|года|год)(?![\p{L}])/iu,
+    /таҷриба\p{L}*(?:\s+корӣ)?\s*[:\-–]?\s*(?<mn>зиёда\s+аз|аз)?\s*(?<n>\d{1,2})\s*сол/iu,
+    /(?<mn>зиёда\s+аз|аз)?\s*(?<n>\d{1,2})\s*(?:сола|солаи|солӣ|сол)\s+таҷриба/iu,
+    /tajriba\p{L}*\s*[:\-–]?\s*(?<n>\d{1,2})\s*yil/iu,
+    /(?<n>\d{1,2})\s*yil(?:lik)?\s+tajriba/iu
+];
+function serviceExp(text, lang) {
+    for (const re of SVC_EXP) {
+        const m = re.exec(text);
+        const n = m ? +m.groups.n : 0;
+        if (!m || n < 1 || n > 50) continue;
+        return `${n}${m.groups.mn ? '+' : ''} ${yearsWord(lang, n, !!m.groups.mn)}`;
+    }
+    return '';
+}
+function serviceWarranty(text, lang) {
+    const V = FV[lang] || FV.ru;
+    if (SVC_NO_WARR.test(text)) return '';
+    const m = text.match(/(?:гаранти|кафолат|kafolat)\p{L}*[^.\n]{0,24}?(?<![\d.,])(\d{1,2})\s*(лет|года|год|мес\S*|сол|моҳ\S*|yil|oy(?![\p{L}]))/iu);
+    if (m) {
+        const n = +m[1], u = m[2];
+        if (n >= 1 && n <= 60) return `${n} ${/^(?:лет|год|сол|yil)/i.test(u) ? yearsWord(lang, n) : V.mo}`;
+    }
+    return /гаранти|кафолат|kafolat/iu.test(text) ? V.has : '';
+}
+function serviceSlots(it, lang, extra = {}) {
+    const L = FL[lang] || FL.ru, S = SVC_L[lang] || SVC_L.ru, SV = SVC_V[lang] || SVC_V.ru, i = LI[lang] ?? 0;
+    const kw = (extra.specs && extra.specs.kw) || '';
+    const title = String(extra.title0 || it.title || '');
+    const text = `${title} ${String([it.listDesc, extra.desc].filter(Boolean).join(' ')).replace(/\s+/g, ' ').slice(0, 1500)}`;
+    const k = svcKw(kw);
+    let kinds = [];
+    if (k.label === 'type') kinds = serviceKinds(k.value, i);
+    if (!kinds.length) kinds = serviceKinds(title, i);
+    if (!kinds.length && k.value) kinds = serviceKinds(k.value, i);
+    if (!kinds.length && k.tail) kinds = serviceKinds(k.tail, i);
+    const home = SVC_VISIT.test(text) && !SVC_NO_VISIT.test(text);
+    const visit = [home ? SV.home : '', SVC_ROUND.test(text) ? SV.round : ''].filter(Boolean).join(', ');
+    return {
+        fixed: [
+            { label: S.svc, value: clip(kinds.join(', '), 40) },
+            { label: S.visit, value: clip(visit, 24) },
+            { label: L.exp, value: clip(serviceExp(text, lang), 20) },
+            { label: S.warr, value: clip(serviceWarranty(text, lang), 24) }
+        ],
+        points: Array.isArray(it.points) ? it.points : []
+    };
+}
 function fixedSlots(it, lang, mode, extra) {
+    if (mode === 'service') return serviceSlots(it, lang, extra);
     if (mode === 'livestock') return livestockSlots(it, lang, extra);
     if (mode === 'farm') return landSlots(it, lang, extra);
     if (mode === 'harvest') return harvestSlots(it, lang, extra);
@@ -2601,7 +2728,7 @@ url — обычная ссылка https://… (без Markdown и скобок
     if (!citedHosts.size) items = [];
     items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
     if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
-    const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
+    const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
     return kind === 'tickets' ? withTicketLinks(done, debug) : done;
 }
 
@@ -4726,5 +4853,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
