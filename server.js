@@ -4143,7 +4143,8 @@ async function sb(path, { method = 'GET', body, prefer } = {}) {
         body: body ? JSON.stringify(body) : undefined
     }), 8000);
     if (!r.ok) { const e = new Error(`Supabase ${r.status}`); e.status = r.status; throw e; }
-    return r.status === 204 ? null : r.json();
+    // Запись с «return=minimal» может вернуться кодом 201 без тела: это не ошибка
+    return r.status === 204 ? null : await r.json().catch(() => null);
 }
 
 const AD_FIELDS = 'id,created_at,title,price,currency,description,category,location,contact,condition,image_url,source_url,seller_name';
