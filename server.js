@@ -2812,15 +2812,103 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
     });
 }
 
+// ---------- Другие сайты рядом с somon.tj ----------
+// Список somon.tj быстрый (точные ссылки, фото), но он один. Поиск по остальному интернету (другие сайты объявлений и вакансий,
+// Telegram-каналы, соцсети, сайты компаний) идёт одновременно с ним, а карточки встают одной лентой: somon.tj, другой сайт, somon.tj…
+const WEB_EXTRA_KINDS = new Set(['ads', 'jobs', 'services', 'masters']);
+const WEB_EXTRA_MAX = 5;                 // сколько карточек с других сайтов
+const WEB_EXTRA_WAIT_MS = Number(process.env.WEB_EXTRA_WAIT_MS) || 22000; // дольше не ждём: покажем список somon.tj, а найденное ляжет в запас для следующего раза
+const WEB_EXTRA_TTL_MS = 15 * 60000;     // готовые карточки с других сайтов держим 15 минут
+const WEB_EXTRA_EMPTY_TTL_MS = 3 * 60000; // «ничего не нашлось» помним 3 минуты, чтобы не гонять поиск заново на каждое открытие
+const WEB_EXTRA_FAIL_TTL_MS = 60000;
+const SOMON_HOST = /(^|\.)somon\.tj$/i;
+const webExtraCache = new Map();
+const webExtraBusy = new Map();
+const OTHER_SITES_TASK = {
+    ads: 'Найди до 10 самых свежих объявлений на сайтах объявлений Таджикистана, в Telegram-каналах и соцсетях. Сайт somon.tj не используй: его объявления уже есть.',
+    jobs: 'Найди до 10 самых свежих вакансий в Таджикистане: сайты вакансий, Telegram-каналы с вакансиями, соцсети, сайты компаний. Сайт somon.tj не используй: его вакансии уже есть. ' + JOB_SKIP_TEXT,
+    masters: 'Найди до 10 самых свежих объявлений мастеров и специалистов по услугам (то, что просит запрос) на сайтах объявлений Таджикистана, в Telegram-каналах и соцсетях. Сайт somon.tj не используй: его объявления уже есть. Это услуги, а не недвижимость: площадь, этаж и год постройки в характеристики не пиши.',
+    services: 'Найди до 10 актуальных предложений в Таджикистане (школы, курсы, учебные центры, услуги, магазины): название, цена, город, контакт, сайт. Сайт somon.tj не используй: его предложения уже есть.'
+};
+
+// Запрос раздела для поиска по другим сайтам: «сначала на somon.tj» заменяем на «на других сайтах».
+function otherSitesQuery(q) {
+    return String(q).replace(/,?\s*сначала на somon\.tj(?:\s+в разделе «Услуги»)?/i, ', на других сайтах объявлений, в Telegram-каналах и соцсетях Таджикистана (не на somon.tj)');
+}
+
+// Карточки с других сайтов уже переведены и со всеми проверками. Поиск не отменяем по таймеру ожидания: он дойдёт и ляжет в запас.
+function webExtra({ kind, lang, date, query, somon }) {
+    const key = `${kind}|${lang}|${query}`;
+    const hit = webExtraCache.get(key);
+    if (hit && Date.now() - hit.at < hit.ttl) return Promise.resolve({ items: hit.items, cached: true });
+    if (webExtraBusy.has(key)) return webExtraBusy.get(key);
+    const job = (async () => {
+        const t0 = Date.now();
+        const dbg = {};
+        let items = [];
+        let failed = false;
+        try {
+            const found = await webListings({ kind, lang, date, query: otherSitesQuery(query), debug: dbg, task: OTHER_SITES_TASK[kind] || KIND_TASK[kind], skip: SOMON_HOST });
+            const top = found.slice(0, WEB_EXTRA_MAX);
+            const fin = {};
+            items = top.length ? await finishItems(top, kind, lang, fin, somon && somon.fixed || '') : [];
+            // Карточка с одним названием и ссылкой ничего не даёт человеку: нужна хотя бы цена, контакт или одна характеристика
+            items = items.filter(x => x.price || x.contact || (x.points || []).length);
+            dbg.finish = { loc: fin.localized || fin.localizeError || null };
+        } catch (err) { failed = true; dbg.error = scrub(err && err.message || err).slice(0, 100); }
+        webExtraCache.set(key, { at: Date.now(), ttl: failed ? WEB_EXTRA_FAIL_TTL_MS : items.length ? WEB_EXTRA_TTL_MS : WEB_EXTRA_EMPTY_TTL_MS, items });
+        if (webExtraCache.size > 120) webExtraCache.delete(webExtraCache.keys().next().value);
+        return { items, ms: Date.now() - t0, dbg };
+    })().finally(() => webExtraBusy.delete(key));
+    webExtraBusy.set(key, job);
+    return job;
+}
+
+// Одна лента: карточка somon.tj, карточка другого сайта, и так далее (всего не больше 10). Повторы одного объявления убираем.
+function mixFeeds(main, extra, total = 10) {
+    const norm = s => String(s || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+    const seenUrl = new Set(main.map(x => x.url));
+    const seenTitle = new Set(main.map(x => `${norm(x.title)}|${norm(x.price)}`));
+    const add = [];
+    for (const x of extra || []) {
+        const tk = `${norm(x.title)}|${norm(x.price)}`;
+        if (!x.url || seenUrl.has(x.url) || seenTitle.has(tk) || SOMON_HOST.test(hostOf(x.url))) continue;
+        seenUrl.add(x.url); seenTitle.add(tk); add.push(x);
+        if (add.length >= WEB_EXTRA_MAX) break;
+    }
+    const out = [];
+    for (let i = 0; out.length < total && (i < main.length || i < add.length); i++) {
+        if (i < main.length) out.push(main[i]);
+        if (out.length < total && i < add.length) out.push(add[i]);
+    }
+    return out;
+}
+
 async function searchListings({ kind, lang, date, query, debug, somon }) {
     // Сначала готовый список somon.tj: точные ссылки и фото. Мало найдено или сайт не ответил — ищем через модель, как раньше.
     if (somon) {
-        try {
-            const direct = await somonListings(somon, kind, debug, lang);
-            if (direct.length >= 3) return finishItems(direct, kind, lang, debug, somon.fixed || '');
-        } catch (err) { if (debug) debug.somonError = scrub(err && err.message || err); }
+        let direct = [];
+        try { direct = await somonListings(somon, kind, debug, lang); }
+        catch (err) { if (debug) debug.somonError = scrub(err && err.message || err); }
+        if (direct.length >= 3) {
+            // Список есть: другие сайты, Telegram-каналы и соцсети ищем одновременно с переводом и фото карточек somon.tj
+            const extraP = WEB_EXTRA_KINDS.has(kind) && openai && process.env.WEB_EXTRA !== 'off'
+                ? withTimeout(webExtra({ kind, lang, date, query, somon }), WEB_EXTRA_WAIT_MS).catch(() => ({ items: [], late: true }))
+                : null;
+            const [main, extra] = await Promise.all([finishItems(direct, kind, lang, debug, somon.fixed || ''), extraP || { items: [] }]);
+            if (debug && extraP) debug.web = { n: extra.items.length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), ...(extra.dbg ? { err: extra.dbg.error, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
+            return extraP ? mixFeeds(main, extra.items) : main;
+        }
     }
-    const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${KIND_TASK[kind]}
+    const items = await webListings({ kind, lang, date, query, debug });
+    items.sort((a, b) => (SOMON_HOST.test(hostOf(b.url)) ? 1 : 0) - (SOMON_HOST.test(hostOf(a.url)) ? 1 : 0));
+    const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
+    return kind === 'tickets' ? withTicketLinks(done, debug) : done;
+}
+
+// Поиск по интернету: карточки с настоящими ссылками на страницы, которые поиск действительно открыл. task — что искать, skip — какие сайты не брать.
+async function webListings({ kind, lang, date, query, debug, task, skip }) {
+    const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${task || KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).
 price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — только то, что дословно написано в источнике (на странице объявления или в его описании): телефон, «WhatsApp: номер», «Telegram: @имя», «Instagram: @имя», электронная почта; через «; ». Каналы, которых в источнике нет, не добавляй. Номера, @имена и почту не придумывай и не достраивай (не делай @имя или почту из имени продавца). Нет контактов в источнике — пустая строка. Имя продавца сюда не пиши (оно в who). who — продавец/компания/авиакомпания.
@@ -2860,6 +2948,7 @@ url — обычная ссылка https://… (без Markdown и скобок
         const h = hostOf(it.url);
         // Ссылка должна вести на сайт, который поиск действительно открыл, — выдуманные адреса отсекаются.
         if (!h || BAD_SOURCES.test(h) || (citedHosts.size && !citedHosts.has(h))) { drop.notOpened++; return false; }
+        if (skip && skip.test(h)) { drop.skipped = (drop.skipped || 0) + 1; return false; }
         if (HARAM_LINE.test(`${it.title} ${it.who}`)) { drop.forbidden++; return false; }
         if (kind === 'jobs' && jobForbidden({ title: it.title, who: it.who, description: (it.points || []).join(' ') })) { drop.forbidden++; return false; }
         // Одну и ту же страницу объявления дважды не показываем. Если ссылка ведёт на общую страницу списка
@@ -2872,10 +2961,8 @@ url — обычная ссылка https://… (без Markdown и скобок
         return true;
     });
     if (!citedHosts.size) items = [];
-    items.sort((a, b) => (/somon\.tj$/.test(hostOf(b.url)) ? 1 : 0) - (/somon\.tj$/.test(hostOf(a.url)) ? 1 : 0));
     if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
-    const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
-    return kind === 'tickets' ? withTicketLinks(done, debug) : done;
+    return items;
 }
 
 // Поиск отдаёт текст на языке сайта-источника (чаще русском). Карточку переводим на язык сайта одним
@@ -5371,5 +5458,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, otherSitesQuery, webExtraCache, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
