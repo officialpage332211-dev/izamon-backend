@@ -2939,6 +2939,14 @@ const BOARD_CACHE_MS = 20 * 60 * 1000, BOARD_CACHE_MAX = 60; // списки д�
 const htmlText = s => decodeEntities(String(s || '').replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
 
 // ola.tj: карточки <article class="ola-card"> прямо в странице раздела
+// ola.tj: в поле цены иногда попадает начало описания («Договорная 🇩🇪 ХОЧЕШЬ ЗАГОВОРИТЬ…»). Оставляем только саму цену.
+const OLA_PRICE = /^(?:цена\s+)?(?:договорная|торг|бесплатно|даром|обмен|\d[\d\s\u00a0.,]*(?:\s*(?:TJS|сомони|сом\.?|смн|\$|USD|долл\.?|руб\.?|₽|€|EUR))?(?:\s+(?:в|за)\s+(?:месяц|сутки|день|час|м²|кв\.?\s*м|сотку))?)/i;
+function olaPrice(t) {
+    const s = String(t || '').replace(/\s+/g, ' ').trim();
+    const m = OLA_PRICE.exec(s);
+    return m ? m[0].trim() : s.length <= 30 ? s : '';
+}
+
 function parseOlaCards(html, max = 60) {
     const out = [];
     for (const m of String(html || '').matchAll(/<article class="ola-card[^"]*">([\s\S]*?)<\/article>/g)) {
@@ -2948,7 +2956,7 @@ function parseOlaCards(html, max = 60) {
         const img = (/<div class="ola-card__media">\s*<img[^>]*?\ssrc="(https:\/\/[^"]+)"/.exec(c) || [])[1] || '';
         const title = htmlText((/class="ola-card__title">([\s\S]*?)<\/div>/.exec(c) || [])[1]);
         if (!title || title.length > 300) continue;
-        const price = htmlText((/class="ola-card__price">([\s\S]*?)<\/div>/.exec(c) || [])[1]);
+        const price = olaPrice(htmlText((/class="ola-card__price">([\s\S]*?)<\/div>/.exec(c) || [])[1]));
         const city = htmlText((/class="ola-meta__city">([\s\S]*?)<\/span>/.exec(c) || [])[1]);
         const when = htmlText((/class="ola-meta__city">[\s\S]*?<\/span>\s*<span>[^<]*<\/span>\s*<span>([\s\S]*?)<\/span>/.exec(c) || [])[1]);
         out.push({ id: 'ola' + link[2], title, description: '', price, priceNote: '', thumb: img, imgCount: img ? 1 : 0, images: img ? [img] : [], published: when, path: '', url: link[1], location: city, who: '', cats: '' });
@@ -2965,7 +2973,7 @@ function parseOlaCards(html, max = 60) {
         const images = [...new Set([...c.matchAll(/data-zzload-source-img="(https:\/\/ola\.tj\/storage\/[^"]+)"/g)].map(m => m[1]))].slice(0, 16);
         const title = htmlText((/class="items-element__title\s*">([\s\S]*?)<\/(?:div|a)>/.exec(c) || [])[1]);
         if (!title || title.length > 300) continue;
-        const price = htmlText((/class="item-info__price">([\s\S]*?)<\/span>/.exec(c) || [])[1]);
+        const price = olaPrice(htmlText((/class="item-info__price">([\s\S]*?)<\/span>/.exec(c) || [])[1]));
         const desc = htmlText(((/class="item-element__descrr">([\s\S]*?)<span>/.exec(c) || [])[1] || '').replace(/\.\.\.\s*$/, ''));
         const city = htmlText((/class="item-info__address">[\s\S]*?<span>([\s\S]*?)<\/span>/.exec(c) || [])[1]);
         const when = htmlText((/class="item-info__date">\s*<span>([\s\S]*?)<\/span>/.exec(c) || [])[1]);
