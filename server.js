@@ -213,7 +213,7 @@ const PORTAL_RULES = [
       somon: { sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }], boards: [{ host: 'paydo.tj', path: 'kvartiry-arenda' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-arenda' }, { host: 'ola.tj', path: 'dolgosrochnaya-arenda-kvartir' }],  fixed: 'estate' },
       query: 'Найди актуальные объявления об аренде жилья в Таджикистане (квартиры, дома, комнаты), сначала на somon.tj: что сдаётся, число комнат, цена в месяц, район или город, контакт хозяина. Только аренда жилья: продажу, участки и коммерческие помещения не показывай.' },
     { re: /^(?:замин\s+ва\s+тиҷоратӣ|земля\s+и\s+коммерческая|yer\s+va\s+tijorat)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], boards: [{ host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-arenda' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }, { host: 'ola.tj', path: 'pomeshcheniya' }],  fixed: 'land' },
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], boards: [{ host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-arenda' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }, { host: 'ola.tj', path: 'pomeshcheniya' }],  mix: true, fixed: 'land' },
       query: 'Найди актуальные объявления о земельных участках под строительство и о коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: что это, площадь, цена, продажа или аренда, место, контакт. Жилые квартиры и дома не показывай.' },
     // Услуги: мастера и специалисты. Объявления берём с somon.tj (раздел «Услуги») и других сайтов.
     { re: /^(?:барқчӣ|электрик|elektrik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
@@ -3088,7 +3088,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             // вакансии: работу, которой на iZamoN нет места, тихо пропускаем
             if (kind === 'jobs' && jobForbidden(a)) { stat.forbidden = (stat.forbidden || 0) + 1; continue; }
             const p = parsePublished(a.published);
-            flat.push({ a, host: j.host, age: p ? p.ageMin : Infinity, n: flat.length });
+            flat.push({ a, host: j.host, li, age: p ? p.ageMin : Infinity, n: flat.length });
         }
     }
     flat.sort((x, y) => (x.age - y.age) || (x.n - y.n));
@@ -3119,7 +3119,8 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
     // По кругу: в каждом круге — по одному самому свежему подходящему объявлению с каждого сайта, внутри круга — по свежести
     const overflow = []; // повторы названий: в конец ленты, если других объявлений не хватило
     const queues = {};
-    for (const x of flat) (queues[x.host] = queues[x.host] || []).push(x);
+    // spec.mix: у каждого раздела сайта своя очередь («Земля и коммерческая»: участки не тонут среди помещений, которых больше)
+    for (const x of flat) { const qk = spec.mix ? `${x.host}#${x.li}` : x.host; (queues[qk] = queues[qk] || []).push(x); }
     const out = [];
     while (out.length < 10 && Object.values(queues).some(q => q.length)) {
         const round = [];
