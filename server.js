@@ -5761,10 +5761,20 @@ async function handleWatchCmd(req, res) {
 // ---------------------------------------------------------------------------
 const SITE_BASE = 'https://izamon.vercel.app/';
 const TG_SEC_TX = {
-    tg: { wait: '⏳ Ҷустуҷӯ…', more: 'Боз дар сомона', back: '⬅️ Бахшҳо', open: 'Кушодан', none: 'Ҳоло чизе ёфт нашуд. Каме баъдтар кӯшиш кунед.', err: 'Хатогӣ шуд. Каме баъдтар кӯшиш кунед.' },
-    ru: { wait: '⏳ Ищу…', more: 'Ещё на сайте', back: '⬅️ Разделы', open: 'Открыть', none: 'Сейчас ничего не нашлось. Попробуйте чуть позже.', err: 'Произошла ошибка. Попробуйте чуть позже.' },
-    uz: { wait: '⏳ Qidirilmoqda…', more: 'Saytda yana', back: "⬅️ Bo'limlar", open: 'Ochish', none: "Hozircha hech narsa topilmadi. Birozdan keyin urinib ko'ring.", err: "Xatolik yuz berdi. Birozdan keyin urinib ko'ring." }
+    tg: { wait: '⏳ Ҷустуҷӯ…', more: 'Боз дар сомона', back: '⬅️ Бахшҳо', open: 'Кушодан', city: 'Шаҳр', price: 'Нарх', any: 'ҳама', none: 'Ҳоло чизе ёфт нашуд. Каме баъдтар кӯшиш кунед.', err: 'Хатогӣ шуд. Каме баъдтар кӯшиш кунед.' },
+    ru: { wait: '⏳ Ищу…', more: 'Ещё на сайте', back: '⬅️ Разделы', open: 'Открыть', city: 'Город', price: 'Цена', any: 'все', none: 'Сейчас ничего не нашлось. Попробуйте чуть позже.', err: 'Произошла ошибка. Попробуйте чуть позже.' },
+    uz: { wait: '⏳ Qidirilmoqda…', more: 'Saytda yana', back: "⬅️ Bo'limlar", open: 'Ochish', city: 'Shahar', price: 'Narx', any: 'barchasi', none: "Hozircha hech narsa topilmadi. Birozdan keyin urinib ko'ring.", err: "Xatolik yuz berdi. Birozdan keyin urinib ko'ring." }
 };
+// Цена в боте — готовые промежутки (сомони); номер промежутка ходит в кнопках. Тот же список — в программе бота (api/telegram.js).
+const TG_CITY_NAMES = {
+    dushanbe: { tg: 'Душанбе', ru: 'Душанбе', uz: 'Dushanbe' }, khujand: { tg: 'Хуҷанд', ru: 'Худжанд', uz: "Xo'jand" }, bokhtar: { tg: 'Бохтар', ru: 'Бохтар', uz: "Bo'xtar" },
+    kulob: { tg: 'Кӯлоб', ru: 'Куляб', uz: "Ko'lob" }, istaravshan: { tg: 'Истаравшан', ru: 'Истаравшан', uz: 'Istaravshan' }, panjakent: { tg: 'Панҷакент', ru: 'Пенджикент', uz: 'Panjakent' },
+    tursunzoda: { tg: 'Турсунзода', ru: 'Турсунзаде', uz: 'Tursunzoda' }, vahdat: { tg: 'Ваҳдат', ru: 'Вахдат', uz: 'Vahdat' }, hisor: { tg: 'Ҳисор', ru: 'Гиссар', uz: 'Hisor' },
+    isfara: { tg: 'Исфара', ru: 'Исфара', uz: 'Isfara' }, konibodom: { tg: 'Конибодом', ru: 'Канибадам', uz: 'Konibodom' }, buston: { tg: 'Бӯстон', ru: 'Бустон', uz: "Bo'ston" },
+    gafurov: { tg: 'Ғафуров', ru: 'Гафуров', uz: "G'afurov" }, khorog: { tg: 'Хоруғ', ru: 'Хорог', uz: "Xorug'" }, nurek: { tg: 'Норак', ru: 'Нурек', uz: 'Norak' }, yovon: { tg: 'Ёвон', ru: 'Яван', uz: 'Yovon' }
+};
+const TG_PRICES = [null, [0, 1000], [1000, 5000], [5000, 20000], [20000, 100000], [100000, 0]];
+const tgPriceLabel = i => { const p = TG_PRICES[i]; if (!p) return ''; const f = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); return p[1] ? `${f(p[0])}–${f(p[1])}` : `${f(p[0])}+`; };
 // Текст из нашей HTML-карточки → безопасный для Telegram (parse_mode HTML)
 const tgDecode = x => String(x || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
 const tgEsc = x => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -5780,32 +5790,50 @@ function tgCards(html) {
             contact: pick(/<div class="iz-lc-m">📞 ([^<]*)<\/div>/),
             url: pick(/<a class="iz-lc-a" href="([^"]+)"/),
             image: pick(/<img src="[^"]*" data-d="([^"]+)"/) || pick(/<img src="([^"]+)"/),
-            proxy: pick(/<img src="([^"]+)" data-d=/)
+            proxy: pick(/<img src="([^"]+)" data-d=/),
+            gallery: pick(/ data-gd="([^"]*)"/).split(/\s+/).filter(u => /^https:\/\//.test(u)),
+            galleryProxy: pick(/ data-g="([^"]*)"/).split(/\s+/).filter(u => /^https:\/\//.test(u))
         };
     }).filter(x => x.title && /^https:\/\//.test(x.url));
 }
-async function tgSectionRun({ chat_id, lang, s, portal, item }) {
+async function tgSectionRun({ chat_id, lang, s, portal, item, city = '', price = 0 }) {
     const tx = TG_SEC_TX[lang] || TG_SEC_TX.tg;
     const send = (method, payload) => tgCall(method, { chat_id, ...payload }, watchBotToken());
-    const tail = { reply_markup: { inline_keyboard: [[{ text: `🌐 ${tx.more}`, url: `${SITE_BASE}?lang=${lang}&s=${s}` }, { text: tx.back, callback_data: `m:${lang}` }]] } };
+    const cid = cityById(city) ? city : '-';
+    const pr = TG_PRICES[price] ? price : 0;
+    // фильтры: кнопки «📍 Город» и «💰 Цена» помнят текущий выбор (город и номер промежутка цены)
+    const tail = { reply_markup: { inline_keyboard: [
+        [{ text: `📍 ${tx.city}: ${cid === '-' ? tx.any : (TG_CITY_NAMES[cid] || {})[lang] || cid}`, callback_data: `fc:${lang}:${s}:${cid}:${pr}` },
+         { text: `💰 ${tx.price}: ${pr ? tgPriceLabel(pr) : tx.any}`, callback_data: `fp:${lang}:${s}:${cid}:${pr}` }],
+        [{ text: `🌐 ${tx.more}`, url: `${SITE_BASE}?lang=${lang}&s=${s}` }, { text: tx.back, callback_data: `m:${lang}` }]
+    ] } };
     await send('sendChatAction', { action: 'typing' }).catch(() => {});
     let out = null;
     const prompt = `[Lang: ${lang}] [MODULE: LOCAL_SERVICE_CARD] Выдай предложения по запросу "${portal} - ${item}".`;
-    await handleChat({ body: { prompt, lang }, ip: `tg-${chat_id}`, headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
+    const body = { prompt, lang, ...(cid !== '-' ? { city: cid } : {}), ...(pr ? { pmin: TG_PRICES[pr][0], pmax: TG_PRICES[pr][1] } : {}) };
+    await handleChat({ body, ip: `tg-${chat_id}`, headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
     const html = String(out && out.answer || '');
     const cards = tgCards(html).slice(0, 6);
     if (cards.length) {
         for (const c of cards) {
             const caption = [`<b>${tgEsc(c.title)}</b>`, c.price ? `💰 ${tgEsc(c.price)}` : '', c.place ? `📍 ${tgEsc(c.place)}` : '', c.contact ? `📞 ${tgEsc(c.contact)}` : ''].filter(Boolean).join('\n').slice(0, 1000);
             const btn = { reply_markup: { inline_keyboard: [[{ text: `🔗 ${tx.open} — ${hostOf(c.url)}`, url: c.url }]] } };
-            // фото: прямая ссылка, если Telegram её не взял (формат webp и т.п.) — через наш прокси, иначе — текстом
+            // все фото объявления — альбомом (до 10); у альбома нет кнопок, поэтому ссылка — в подписи
             let done = false;
-            for (const photo of [c.image, c.proxy].filter(u => u && /^https:\/\//.test(u))) {
+            for (const set of [c.gallery, c.galleryProxy].filter(g => g && g.length > 1)) {
+                try {
+                    const link = `\n🔗 <a href="${tgEsc(c.url)}">${tx.open} — ${tgEsc(hostOf(c.url))}</a>`;
+                    await send('sendMediaGroup', { media: set.slice(0, 10).map((u, k) => k === 0 ? { type: 'photo', media: u, caption: (caption + link).slice(0, 1024), parse_mode: 'HTML' } : { type: 'photo', media: u }) });
+                    done = true; break;
+                } catch { /* следующий вариант */ }
+            }
+            // одно фото: прямая ссылка, если Telegram её не взял (формат webp и т.п.) — через наш прокси, иначе — текстом
+            for (const photo of done ? [] : [c.image, c.proxy].filter(u => u && /^https:\/\//.test(u))) {
                 try { await send('sendPhoto', { photo, caption, parse_mode: 'HTML', ...btn }); done = true; break; } catch { /* следующий вариант */ }
             }
             if (!done) await send('sendMessage', { text: caption, parse_mode: 'HTML', disable_web_page_preview: true, ...btn }).catch(() => {});
         }
-        await send('sendMessage', { text: `${portal.replace(/^\d+\.\s*/, '')} → ${item}`, ...tail });
+        await send('sendMessage', { text: `${portal.replace(/^\d+\.\s*/, '')} → ${item}${cid !== '-' ? ` · 📍 ${(TG_CITY_NAMES[cid] || {})[lang] || cid}` : ''}${pr ? ` · 💰 ${tgPriceLabel(pr)}` : ''}`, ...tail });
         return 'cards';
     }
     const text = tgText(html);
@@ -5821,9 +5849,11 @@ async function handleTgSection(req, res) {
     const lang = ['tg', 'ru', 'uz'].includes(b.lang) ? b.lang : 'tg';
     const s = /^\d{1,2}\.\d{1,2}$/.test(String(b.s || '')) ? String(b.s) : '';
     const portal = String(b.portal || '').slice(0, 80), item = String(b.item || '').slice(0, 80);
+    const city = cityById(b.city) ? String(b.city) : '';
+    const price = Math.max(0, Math.min(TG_PRICES.length - 1, Math.floor(Number(b.price) || 0)));
     if (!Number.isSafeInteger(chat_id) || !s || !portal || !item) return res.status(400).json({ ok: false });
     res.json({ ok: true }); // отвечаем сразу, дальше работаем сами
-    try { await tgSectionRun({ chat_id, lang, s, portal, item }); }
+    try { await tgSectionRun({ chat_id, lang, s, portal, item, city, price }); }
     catch (err) {
         console.warn(`[tg раздел Сбой]: ${scrub(err && err.message || err)}`);
         tgCall('sendMessage', { chat_id, text: (TG_SEC_TX[lang] || TG_SEC_TX.tg).err }, watchBotToken()).catch(() => {});
