@@ -5067,6 +5067,17 @@ async function diagChannel() {
         if (info && info.last_error_message) out.hookError = scrub(String(info.last_error_message)).slice(0, 120);
         out.hookPending = info && Number(info.pending_update_count) || 0;
     } catch (err) { out.hookError = scrub(err.message); }
+    // Бот уведомлений (@iZamoN_ai_bot): задан ли отдельный токен, имя бота, куда смотрит его вебхук (только адрес сайта, без пути и секретов)
+    try {
+        out.userBot = { own: watchOwnBot() };
+        if (watchOwnBot()) {
+            out.userBot.name = '@' + (await watchBotName());
+            const wi = await tgCall('getWebhookInfo', {}, watchBotToken());
+            out.userBot.hook = wi && wi.url ? (() => { try { const u = new URL(wi.url); return u.host + u.pathname; } catch { return 'set'; } })() : 'none';
+            if (wi && wi.last_error_message) out.userBot.hookError = scrub(String(wi.last_error_message)).slice(0, 120);
+        }
+        out.userBot.watchesTable = await tableReady('watches');
+    } catch (err) { out.userBot = { ...(out.userBot || {}), error: scrub(err.message) }; }
     return out;
 }
 
