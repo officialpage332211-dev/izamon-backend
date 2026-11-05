@@ -373,6 +373,31 @@ function keywordHas(text, stems) {
     return stems.every(st => /^\d+$/.test(st) ? new RegExp(`(?<!\\d)${st}(?!\\d)`).test(t) : st.split('|').some(x => kwFound(t, kwNorm(x))));
 }
 
+// Города: выбранный на сайте (body.city) или названный в запросе («диван Худжанд»). Сравнение без особых букв и апострофов (kwNorm): «Xo'jand» = «xojand».
+const CITIES = [
+    ['dushanbe', 'душанбе|dushanbe'],
+    ['khujand', 'худжанд|хучанд|xujand|xojand|khujand|hujand'],
+    ['bokhtar', 'бохтар|bokhtar|bohtar|boxtar|курган-?тюбе|кургонтеппа'],
+    ['kulob', 'куляб|кулоб|kulob|kulyab|kolob'],
+    ['istaravshan', 'истаравшан|istaravshan|ура-?тюбе'],
+    ['panjakent', 'пенджикент|панчакент|panjakent|penjikent'],
+    ['tursunzoda', 'турсунзаде|турсунзода|tursunzoda|tursunzade'],
+    ['vahdat', 'вахдат|vahdat|vakhdat'],
+    ['hisor', 'гиссар|хисор|hisor|hissar|gissar'],
+    ['isfara', 'исфара|isfara'],
+    ['konibodom', 'канибадам|конибодом|konibodom|kanibadam'],
+    ['buston', 'бустон|чкаловск|buston'],
+    ['khorog', 'хорог|хоруг|xorug|khorog'],
+    ['nurek', 'нурек|норак|norak|nurek'],
+    ['gafurov', 'гафуров|gafurov'],
+    ['yovon', 'яван|евон|йовон|yovon|yavan']
+].map(([id, w]) => ({ id, re: new RegExp(`(?<![\\p{L}])(?:${w})`, 'u') }));
+function cityOf(text) {
+    const t = kwNorm(text);
+    return CITIES.find(c => c.re.test(t)) || null;
+}
+function cityById(id) { return CITIES.find(c => c.id === String(id || '')) || null; }
+
 // Запросы про жильё и землю ведём сразу в свой раздел (там подключены все сайты): «сниму квартиру» → аренда, «куплю дом» → продажа.
 const KW_HOME = /(?<![\p{L}])(?:квартир|комнат|дом(?:а|у|ом)?(?![\p{L}])|хавли|ҳавлӣ|хона(?![\p{L}])|хонаи|kvartira|xonadon|uy(?![\p{L}])|hovli)/iu;
 const KW_RENT = /(?<![\p{L}])(?:сним|снять|снимаю|аренд|сда[её]т|сдам|сдаю|посуточн|иҷора|ижара|ijara|kiraga)/iu;
@@ -2985,6 +3010,8 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
         const somon = j.host === 'somon.tj';
         for (const a of list) {
             if (spec.stems && spec.stems.length && !keywordHas(kwLoose ? `${a.title} ${a.description}` : a.title, spec.stems)) continue;
+            // выбран город: только объявления из него (город — в поле «место», у некоторых сайтов только в названии)
+            if (spec.city && !spec.city.re.test(kwNorm(`${a.location} ${a.title}`))) { stat.otherCity = (stat.otherCity || 0) + 1; continue; }
             // рубрики (cat) есть только у somon.tj; ola.tj и paydo.tj и так берутся из нужного раздела
             if ((somon && spec.cat && !spec.cat.test(a.cats)) || (somon && spec.notCat && spec.notCat.test(a.cats)) || (words && !words.test(`${a.title} ${a.description}`)) || (spec.notWords && spec.notWords.test(a.title)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
             // вакансии: работу, которой на iZamoN нет места, тихо пропускаем
@@ -3209,7 +3236,8 @@ async function searchListings({ kind, lang, date, query, debug, somon }) {
                 ? withTimeout(webExtra({ kind, lang, date, query, somon }), WEB_EXTRA_WAIT_MS).catch(() => ({ items: [], late: true }))
                 : null;
             const [main, extra] = await Promise.all([finishItems(direct, kind, lang, debug, somon.fixed || ''), extraP || { items: [] }]);
-            const mixed = extraP ? mixFeeds(main, extra.items) : main;
+            const extraItems = somon.city ? extra.items.filter(x => somon.city.re.test(kwNorm(`${x.place} ${x.title}`))) : extra.items;
+            const mixed = extraP ? mixFeeds(main, extraItems) : main;
             if (debug && extraP) debug.web = { n: extra.items.length, shown: mixed.filter(x => !SOMON_HOST.test(hostOf(x.url))).length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), list: extra.items.map(x => `${String(x.title).slice(0, 36)} | ${x.price || '-'} | ${hostOf(x.url)}${(() => { try { return new URL(x.url).pathname.slice(0, 28); } catch { return ''; } })()}`), ...(extra.dbg ? { err: extra.dbg.error, text: extra.dbg.textStart, parseError: extra.dbg.parseError, retry: extra.dbg.retry, confirm: extra.dbg.confirm, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
             return mixed;
         }
@@ -3861,6 +3889,9 @@ async function handleChat(req, res) {
             if (found.length >= 3) { mode = 'ads'; kind = 'ads'; factual = true; somon = kw; }
         }
     }
+    // Город: выбранный на сайте или названный в запросе — только для лент объявлений, вакансий и услуг
+    const city = cityById(body.city) || (somon ? cityOf(routeOn) : null);
+    if (somon && city) somon = { ...somon, city };
     // Вопрос о деле («как получить ИНН?», «где оформить загранпаспорт?») — ответ с поиском и источником, а не по памяти
     if (!topic && !factual && mode === 'general' && cleaned.length <= 250 && KW_ASK.test(cleaned) && !KW_TALK.test(cleaned) && !KW_SMALL.test(cleaned)) factual = true;
     const userText = withHistory(followUp ? cleaned : routed.userText, history);
@@ -3870,7 +3901,7 @@ async function handleChat(req, res) {
 
     // С историей ответ зависит от разговора — такие ответы не кэшируем.
     const cacheable = factual && !history.length;
-    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${norm(detectOn)}`;
+    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id : '-'}|${norm(detectOn)}`;
     if (cacheable) {
         const hit = answerCache.get(key);
         if (hit) return res.json({ ...hit, cached: true });
@@ -5871,5 +5902,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
