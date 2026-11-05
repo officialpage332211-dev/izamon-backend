@@ -335,7 +335,59 @@ function kwGroup(w) {
     }
     return null;
 }
+// Цена в запросе: «диван до 3000», «от 1000 до 5000 сомони», «телефон то 2000», «1000 dan 3000 gacha», «до 500$».
+// Возвращает { min, max, cur } и текст без этих слов (чтобы «3000» не искалось в названиях).
+const PRICE_NUM = String.raw`(\d{1,3}(?:[  ]\d{3})+|\d{2,})`;  // не меньше двух цифр: «от 2 комнат», «до 5 этажа» — не цена
+const PRICE_CUR = String.raw`(?:\s*(сомон[иӣ]?|сом\.?|с\.|tjs|somoni|\$|usd|долл\S*|dollar|доллар\S*))?`;
+function priceRange(text) {
+    let t = String(text || '');
+    let min = 0, max = 0, cur = 'TJS';
+    const num = x => Number(String(x).replace(/\D/g, ''));
+    const take = c => { if (c && /\$|usd|долл|dollar/i.test(c)) cur = 'USD'; };
+    const rules = [
+        [new RegExp(String.raw`(?<![\p{L}])(?:от|аз)\s*${PRICE_NUM}${PRICE_CUR}\s*(?:до|то)\s*${PRICE_NUM}${PRICE_CUR}`, 'iu'), m => { min = num(m[1]); take(m[2]); max = num(m[3]); take(m[4]); }],
+        [new RegExp(String.raw`${PRICE_NUM}${PRICE_CUR}\s*dan\s*${PRICE_NUM}${PRICE_CUR}\s*gacha(?![\p{L}])`, 'iu'), m => { min = num(m[1]); take(m[2]); max = num(m[3]); take(m[4]); }],
+        [new RegExp(String.raw`(?<![\p{L}])(?:до|то|дешевле|не\s+дороже|арзонтар\s+аз)\s*${PRICE_NUM}${PRICE_CUR}`, 'iu'), m => { max = num(m[1]); take(m[2]); }],
+        [new RegExp(String.raw`${PRICE_NUM}${PRICE_CUR}\s*gacha(?![\p{L}])`, 'iu'), m => { max = num(m[1]); take(m[2]); }],
+        [new RegExp(String.raw`(?<![\p{L}])(?:от|аз|дороже)\s*${PRICE_NUM}${PRICE_CUR}`, 'iu'), m => { min = num(m[1]); take(m[2]); }],
+        [new RegExp(String.raw`${PRICE_NUM}${PRICE_CUR}\s*dan(?:\s+(?:qimmat|yuqori))?(?![\p{L}])`, 'iu'), m => { min = num(m[1]); take(m[2]); }]
+    ];
+    for (const [re, fn] of rules) {
+        const m = t.match(re);
+        if (!m) continue;
+        fn(m);
+        t = t.replace(m[0], ' ');
+    }
+    if (max && min > max) [min, max] = [max, min];
+    return (min || max) ? { min, max, cur, text: t.replace(/\s+/g, ' ').trim() } : null;
+}
+// Цена объявления в сомони: сомони как есть, доллары/евро/рубли — по курсу Нацбанка. Нет цены или курса — null.
+function priceInTjs(raw, rates) {
+    const pp = priceParts(String(raw || '').trim().replace(/\s+c\.$/, ' сом.'));
+    if (!pp) return null;
+    if (pp.c === 'TJS') return pp.n;
+    const r = rates && rates[pp.c];
+    return r ? pp.n * r : null;
+}
+// Курсы Нацбанка для пересчёта цен (кэш 6 часов; не ответил — без пересчёта)
+let nbtRatesMemo = { at: 0, rates: null };
+async function nbtRatesFor(date) {
+    if (nbtRatesMemo.rates && Date.now() - nbtRatesMemo.at < 6 * 3600e3) return nbtRatesMemo.rates;
+    try {
+        const x = await withTimeout(nbtXmlRates(date), 6000);
+        if (x && x.rows) {
+            const rates = {};
+            for (const r of x.rows) if (['USD', 'EUR', 'RUB'].includes(r.code) && r.rate > 0) rates[r.code] = r.rate;
+            if (rates.USD) nbtRatesMemo = { at: Date.now(), rates };
+            return rates;
+        }
+    } catch {}
+    return nbtRatesMemo.rates;
+}
+
 function keywordQuery(text) {
+    const pr = priceRange(text);
+    if (pr) text = pr.text;
     const words = String(text || '').toLowerCase().replace(/ё/g, 'е').replace(/[«»"“”„()\[\]{}!?.,;:]+/g, ' ').split(/\s+/).filter(Boolean)
         .map(w => { const g = kwGroup(w); return g && !KW_STOP.has(w) ? g[0] : w; });
     let kept = words.filter(w => !KW_STOP.has(w) && /[\p{L}\d]/u.test(w) && w.length >= 2);
@@ -3012,6 +3064,11 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             if (spec.stems && spec.stems.length && !keywordHas(kwLoose ? `${a.title} ${a.description}` : a.title, spec.stems)) continue;
             // выбран город: только объявления из него (город — в поле «место», у некоторых сайтов только в названии)
             if (spec.city && !spec.city.re.test(kwNorm(`${a.location} ${a.title}`))) { stat.otherCity = (stat.otherCity || 0) + 1; continue; }
+            // задана цена «от–до» (в сомони): объявления без цены или вне диапазона не показываем
+            if (spec.price) {
+                const v = priceInTjs(a.price || a.priceNote, spec.price.rates);
+                if (v === null || (spec.price.min && v < spec.price.min) || (spec.price.max && v > spec.price.max)) { stat.otherPrice = (stat.otherPrice || 0) + 1; continue; }
+            }
             // рубрики (cat) есть только у somon.tj; ola.tj и paydo.tj и так берутся из нужного раздела
             if ((somon && spec.cat && !spec.cat.test(a.cats)) || (somon && spec.notCat && spec.notCat.test(a.cats)) || (words && !words.test(`${a.title} ${a.description}`)) || (spec.notWords && spec.notWords.test(a.title)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
             // вакансии: работу, которой на iZamoN нет места, тихо пропускаем
@@ -3236,7 +3293,8 @@ async function searchListings({ kind, lang, date, query, debug, somon }) {
                 ? withTimeout(webExtra({ kind, lang, date, query, somon }), WEB_EXTRA_WAIT_MS).catch(() => ({ items: [], late: true }))
                 : null;
             const [main, extra] = await Promise.all([finishItems(direct, kind, lang, debug, somon.fixed || ''), extraP || { items: [] }]);
-            const extraItems = somon.city ? extra.items.filter(x => somon.city.re.test(kwNorm(`${x.place} ${x.title}`))) : extra.items;
+            const extraItems = extra.items.filter(x => (!somon.city || somon.city.re.test(kwNorm(`${x.place} ${x.title}`)))
+                && (!somon.price || (v => v !== null && (!somon.price.min || v >= somon.price.min) && (!somon.price.max || v <= somon.price.max))(priceInTjs(x.price, somon.price.rates))));
             const mixed = extraP ? mixFeeds(main, extraItems) : main;
             if (debug && extraP) debug.web = { n: extra.items.length, shown: mixed.filter(x => !SOMON_HOST.test(hostOf(x.url))).length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), list: extra.items.map(x => `${String(x.title).slice(0, 36)} | ${x.price || '-'} | ${hostOf(x.url)}${(() => { try { return new URL(x.url).pathname.slice(0, 28); } catch { return ''; } })()}`), ...(extra.dbg ? { err: extra.dbg.error, text: extra.dbg.textStart, parseError: extra.dbg.parseError, retry: extra.dbg.retry, confirm: extra.dbg.confirm, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
             return mixed;
@@ -3892,6 +3950,18 @@ async function handleChat(req, res) {
     // Город: выбранный на сайте или названный в запросе — только для лент объявлений, вакансий и услуг
     const city = cityById(body.city) || (somon ? cityOf(routeOn) : null);
     if (somon && city) somon = { ...somon, city };
+    // Цена «от–до»: выбранная на сайте (pmin/pmax, сомони) или названная в запросе («до 3000», «до 500$»)
+    const pText = somon ? priceRange(routeOn) : null;
+    const pBody = { min: Math.max(0, Math.round(Number(body.pmin) || 0)), max: Math.max(0, Math.round(Number(body.pmax) || 0)) };
+    let priceF = (pBody.min || pBody.max) ? { ...pBody, cur: 'TJS' } : pText;
+    if (somon && priceF) {
+        const rates = await nbtRatesFor(todayTJ());
+        const k = priceF.cur === 'TJS' ? 1 : rates && rates[priceF.cur];
+        if (k) {
+            const min = Math.round(priceF.min * k), max = Math.round(priceF.max * k);
+            somon = { ...somon, price: { min: max && min > max ? max : min, max: max && min > max ? min : max, rates } };
+        }
+    }
     // Вопрос о деле («как получить ИНН?», «где оформить загранпаспорт?») — ответ с поиском и источником, а не по памяти
     if (!topic && !factual && mode === 'general' && cleaned.length <= 250 && KW_ASK.test(cleaned) && !KW_TALK.test(cleaned) && !KW_SMALL.test(cleaned)) factual = true;
     const userText = withHistory(followUp ? cleaned : routed.userText, history);
@@ -3901,7 +3971,7 @@ async function handleChat(req, res) {
 
     // С историей ответ зависит от разговора — такие ответы не кэшируем.
     const cacheable = factual && !history.length;
-    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id : '-'}|${norm(detectOn)}`;
+    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id : '-'}|${somon && somon.price ? `${somon.price.min}-${somon.price.max}` : '-'}|${norm(detectOn)}`;
     if (cacheable) {
         const hit = answerCache.get(key);
         if (hit) return res.json({ ...hit, cached: true });
@@ -5697,7 +5767,7 @@ async function handleDiag(req, res) {
         const askLang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'ru';
         const t0 = Date.now();
         let out = null;
-        await handleChat({ body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang, city: req.query.city }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
+        await handleChat({ body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang, city: req.query.city, pmin: req.query.pmin, pmax: req.query.pmax }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
         const html = String(out && out.answer || '');
         const urls = [...html.matchAll(/<a class="iz-lc-a" href="([^"]+)"/g)].map(m => m[1]);
         const titles = [...html.matchAll(/<div class="iz-lc-t">([^<]*)<\/div>/g)].map(m => m[1]);
@@ -5903,5 +5973,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
