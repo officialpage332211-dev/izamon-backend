@@ -5132,7 +5132,8 @@ async function handleConfig(req, res) {
         anonKey: process.env.SUPABASE_ANON_KEY || null,
         channel: tgOn() ? (tgChannel().startsWith('@') ? tgChannel() : 'on') : null,
         orders: !!orders,
-        sellerTg: !!(orders && sellerTg)
+        sellerTg: !!(orders && sellerTg),
+        watch: !!(tgOn() && adsOn() && await withTimeout(tableReady('watches'), 2500).catch(() => false))
     });
 }
 
@@ -5456,6 +5457,9 @@ async function processTgUpdate(update) {
     const tx = BOT_TX[code0 === 'uz' ? 'uz' : code0 === 'tg' ? 'tg' : 'ru'];
     const say = text => tgCall('sendMessage', { chat_id, text }).catch(err => console.warn(`[tg ответ Сбой]: ${scrub(err.message)}`));
     const text = m.text.trim().slice(0, 200);
+    // сохранённые поиски («/start w…», «/unwatch_12»); «/stop» отключает и поиски, и заявки
+    const w = await processWatchCommand(text, chat_id, say);
+    if (w) return 'watch_' + w;
     if (/^\/stop(?:@\w+)?$/i.test(text)) {
         if (await tableReady('seller_tg')) { try { await sb(`seller_tg?chat_id=eq.${chat_id}`, { method: 'PATCH', body: { chat_id: null }, prefer: 'return=minimal' }); } catch (e) { /* не страшно */ } }
         await say(tx.stopped);
@@ -5525,6 +5529,182 @@ async function handleTgUnlink(req, res) {
         return res.status(503).json({ ok: false, error: 'store_failed' });
     }
 }
+
+// ---------------------------------------------------------------------------
+// Сохранённый поиск: человек нажимает «🔔 Telegram» над карточками, открывает бота, жмёт Start —
+// и бот присылает новые объявления по этому поиску (с тем же городом и ценой). Входить на сайт не нужно.
+// Таблица watches (sql/watches.sql). Нет таблицы или бота — кнопка на сайте не показывается.
+// ---------------------------------------------------------------------------
+const WATCH_MAX_PER_CHAT = 10;
+const WATCH_EVERY_MS = 30 * MIN;     // каждый поиск проверяем не чаще раза в 30 минут
+const WATCH_TICK_GAP_MS = 10 * MIN;  // общий обход — не чаще раза в 10 минут
+const watchLimited = makeLimiter(10);
+const WATCH_TX = {
+    tg: { linked: q => `🔔 Ҷустуҷӯ нигоҳ дошта шуд: «${q}».\nЭълонҳои нав ба ин ҷо меоянд.`, limit: `Дар як чат то ${WATCH_MAX_PER_CHAT} ҷустуҷӯ. Яке аз онҳоро бо /unwatch_… хомӯш кунед.`, bad: 'Истинод кӯҳна шудааст. Дар iZamoN тугмаи «🔔 Telegram»-ро дубора пахш кунед.', fresh: q => `🔔 Эълонҳои нав: «${q}»`, off: 'Хомӯш кардан', removed: 'Тайёр: ин ҷустуҷӯ хомӯш шуд.', none: 'Чунин ҷустуҷӯ нест.' },
+    ru: { linked: q => `🔔 Поиск сохранён: «${q}».\nНовые объявления будут приходить сюда.`, limit: `В одном чате — до ${WATCH_MAX_PER_CHAT} поисков. Отключите один из них командой /unwatch_…`, bad: 'Ссылка устарела. На iZamoN нажмите «🔔 Telegram» ещё раз.', fresh: q => `🔔 Новые объявления: «${q}»`, off: 'Отключить', removed: 'Готово: этот поиск отключён.', none: 'Такого поиска нет.' },
+    uz: { linked: q => `🔔 Qidiruv saqlandi: «${q}».\nYangi e'lonlar shu yerga keladi.`, limit: `Bitta chatda ${WATCH_MAX_PER_CHAT} tagacha qidiruv. Birini /unwatch_… bilan o'chiring.`, bad: "Havola eskirgan. iZamoN'da «🔔 Telegram» tugmasini qayta bosing.", fresh: q => `🔔 Yangi e'lonlar: «${q}»`, off: "O'chirish", removed: "Tayyor: bu qidiruv o'chirildi.", none: "Bunday qidiruv yo'q." }
+};
+const watchTx = lang => WATCH_TX[lang] || WATCH_TX.ru;
+// Что искали — коротко, для сообщений в Telegram
+function watchLabel(row) {
+    const { text, topic } = normalizePrompt(String(row.prompt || ''));
+    let q = String(topic || text).replace(/^\d+\.\s*/, '').replace(/\s+-\s+/, ' → ').slice(0, 80);
+    const city = cityById(row.city);
+    if (city) q += ` · ${city.id.charAt(0).toUpperCase()}${city.id.slice(1)}`;
+    if (row.pmin || row.pmax) q += ` · ${row.pmin || 0}–${row.pmax || '∞'} TJS`;
+    return q;
+}
+// Тот же выбор источников, что у обычного поиска (раздел или набранные слова), плюс город и цена
+async function watchSpec(row) {
+    const { text, topic } = normalizePrompt(String(row.prompt || ''));
+    if (!text) return null;
+    const routed = routeRequest({ cleaned: text, topic });
+    let somon = routed.somon || null;
+    let kind = routed.kind || 'ads';
+    if (!topic && !somon) {
+        const kw = keywordSpec(text, routed.mode);
+        if (kw) { somon = kw; kind = routed.mode === 'jobs' ? 'jobs' : 'ads'; }
+    }
+    if (!somon) return null;
+    const city = cityById(row.city) || cityOf(text);
+    if (city) somon = { ...somon, city };
+    const pText = priceRange(text);
+    const pr = (row.pmin || row.pmax) ? { min: Number(row.pmin) || 0, max: Number(row.pmax) || 0, cur: 'TJS' } : pText;
+    if (pr) {
+        const rates = await nbtRatesFor(todayTJ());
+        const k = pr.cur === 'TJS' ? 1 : rates && rates[pr.cur];
+        if (k) somon = { ...somon, price: { min: Math.round(pr.min * k), max: Math.round(pr.max * k), rates } };
+    }
+    return { somon, kind };
+}
+
+async function handleWatchCreate(req, res) {
+    if (watchLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const b = req.body || {};
+    const prompt = typeof b.prompt === 'string' ? b.prompt.trim().slice(0, 400) : '';
+    if (!prompt) return res.status(400).json({ ok: false, error: 'empty' });
+    if (!tgOn() || !(await tableReady('watches'))) return res.status(503).json({ ok: false, error: 'off' });
+    const row = {
+        prompt,
+        lang: ['tg', 'ru', 'uz'].includes(b.lang) ? b.lang : 'tg',
+        city: cityById(b.city) ? b.city : null,
+        pmin: Math.max(0, Math.round(Number(b.pmin) || 0)) || null,
+        pmax: Math.max(0, Math.round(Number(b.pmax) || 0)) || null
+    };
+    // следить можно только за лентой объявлений, вакансий или услуг
+    if (!(await watchSpec(row))) return res.status(400).json({ ok: false, error: 'not_listing' });
+    try {
+        const hook = await setupTgHook();
+        if (hook !== 'ok') return res.status(503).json({ ok: false, error: 'hook_' + hook });
+        const code = 'w' + crypto.randomBytes(12).toString('base64url');
+        await sb('watches', { method: 'POST', body: { ...row, code, code_at: new Date().toISOString() }, prefer: 'return=minimal' });
+        const bot = await tgBotName();
+        if (!bot) return res.status(503).json({ ok: false, error: 'off' });
+        return res.json({ ok: true, url: `https://t.me/${bot}?start=${code}` });
+    } catch (err) {
+        console.warn(`[watch Сбой]: ${scrub(err.message)}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+// Бот: «/start w…» — подключить поиск к чату; «/unwatch_12» — отключить поиск; «/stop» — отключить все поиски чата
+async function processWatchCommand(text, chat_id, say) {
+    const un = text.match(/^\/unwatch_(\d{1,18})(?:@\w+)?$/i);
+    const start = text.match(/^\/start(?:@\w+)?\s+(w[\w-]{8,64})$/i);
+    if (!un && !start && !/^\/stop(?:@\w+)?$/i.test(text)) return null;
+    // коды продавцов (подключение заявок) тоже бывают на «w»: нет таблицы или такого поиска — отдаём дальше, заявкам
+    if (!(await tableReady('watches'))) return un ? 'off' : null;
+    try {
+        if (/^\/stop/i.test(text)) {
+            await sb(`watches?chat_id=eq.${chat_id}`, { method: 'PATCH', body: { active: false }, prefer: 'return=minimal' });
+            return null; // дальше /stop обрабатывает и заявки продавца, ответ — общий
+        }
+        if (un) {
+            const rows = await sb(`watches?select=id,lang&id=eq.${un[1]}&chat_id=eq.${chat_id}&limit=1`);
+            if (!rows || !rows[0]) { await say(watchTx('ru').none); return 'none'; }
+            await sb(`watches?id=eq.${un[1]}&chat_id=eq.${chat_id}`, { method: 'PATCH', body: { active: false }, prefer: 'return=minimal' });
+            await say(watchTx(rows[0].lang).removed);
+            return 'removed';
+        }
+        const rows = await sb(`watches?select=id,prompt,lang,city,pmin,pmax,code_at,chat_id&code=eq.${encodeURIComponent(start[1])}&limit=1`);
+        const row = rows && rows[0];
+        if (!row) return null;
+        if (!(Date.parse(row.code_at) > Date.now() - 30 * MIN)) {
+            // тот же чат уже подключён (Telegram повторил доставку) — не ошибка
+            if (String(row.chat_id) === String(chat_id)) { await say(`${watchTx(row.lang).linked(watchLabel(row))}\n${watchTx(row.lang).off}: /unwatch_${row.id}`); return 'already'; }
+            await say(watchTx(row.lang).bad);
+            return 'bad_code';
+        }
+        const mine = await sb(`watches?select=id&chat_id=eq.${chat_id}&active=eq.true&limit=${WATCH_MAX_PER_CHAT + 1}`);
+        if (mine && mine.length >= WATCH_MAX_PER_CHAT) { await say(watchTx(row.lang).limit); return 'limit'; }
+        // код оставляем (по нему узнаём повторную доставку), но он больше не действует: code_at пустой
+        await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { chat_id, code_at: null, active: true }, prefer: 'return=minimal' });
+        await say(`${watchTx(row.lang).linked(watchLabel(row))}\n${watchTx(row.lang).off}: /unwatch_${row.id}`);
+        // сразу запоминаем то, что уже есть: присылаем только то, что появится после
+        watchCheck({ ...row, chat_id, checked_at: null, seen: [] }).catch(() => {});
+        return 'linked';
+    } catch (err) {
+        console.warn(`[watch bot Сбой]: ${scrub(err.message)}`);
+        return 'failed';
+    }
+}
+
+// Один поиск: что появилось нового с прошлой проверки → одно сообщение (до 5 объявлений)
+async function watchCheck(row) {
+    const spec = await watchSpec(row);
+    if (!spec) { await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { active: false }, prefer: 'return=minimal' }); return 'not_listing'; }
+    const items = await somonListings(spec.somon, spec.kind, null, row.lang || 'ru');
+    const seen = new Set(row.seen || []);
+    const fresh = row.checked_at ? items.filter(it => it.url && !seen.has(it.url)) : [];
+    const nextSeen = [...new Set([...items.map(it => it.url).filter(Boolean), ...(row.seen || [])])].slice(0, 120);
+    let sent = 0;
+    if (fresh.length) {
+        const tx = watchTx(row.lang);
+        const lines = fresh.slice(0, 5).map((it, i) => `${i + 1}. ${it.title}${it.price ? ` — ${it.price}` : ''}${it.place ? `, ${it.place}` : ''}\n${it.url}`);
+        try {
+            await tgCall('sendMessage', { chat_id: row.chat_id, text: `${tx.fresh(watchLabel(row))}\n\n${lines.join('\n\n')}\n\n${tx.off}: /unwatch_${row.id}`.slice(0, 4000), disable_web_page_preview: true });
+            sent = Math.min(5, fresh.length);
+        } catch (err) {
+            // бот заблокирован или чат удалён — поиск выключаем
+            if (err.code === 403 || err.code === 400) { await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { active: false }, prefer: 'return=minimal' }); return 'blocked'; }
+            throw err;
+        }
+    }
+    await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { seen: nextSeen, checked_at: new Date().toISOString() }, prefer: 'return=minimal' });
+    return sent ? `sent ${sent}` : 'nothing_new';
+}
+
+// Обход: самые давно проверенные поиски первыми, по одному, до 20 за раз
+let watchTickAt = 0, watchTickBusy = false;
+async function watchTick(force) {
+    if (watchTickBusy) return { ok: true, busy: true };
+    if (!force && Date.now() - watchTickAt < WATCH_TICK_GAP_MS) return { ok: true, skipped: true };
+    if (!tgOn() || !(await tableReady('watches'))) return { ok: false, off: true };
+    watchTickBusy = true; watchTickAt = Date.now();
+    const out = { ok: true, checked: 0, sent: 0, errors: 0 };
+    try {
+        const before = new Date(Date.now() - WATCH_EVERY_MS).toISOString();
+        const rows = await sb(`watches?select=id,prompt,lang,city,pmin,pmax,chat_id,seen,checked_at&active=eq.true&chat_id=not.is.null&or=(checked_at.is.null,checked_at.lt.${encodeURIComponent(before)})&order=checked_at.asc.nullsfirst&limit=20`);
+        for (const row of rows || []) {
+            try {
+                const r = await withTimeout(watchCheck(row), 40000);
+                out.checked++;
+                if (/^sent/.test(r)) out.sent++;
+            } catch (err) { out.errors++; console.warn(`[watch ${row.id} Сбой]: ${scrub(err && err.message || err)}`); }
+        }
+    } catch (err) {
+        out.ok = false; out.error = scrub(err.message).slice(0, 80);
+    } finally { watchTickBusy = false; }
+    return out;
+}
+async function handleWatchTick(req, res) {
+    // Будильник снаружи (раз в 30 минут) держит сервер проснувшимся и запускает обход. Чаще раза в 10 минут обход не идёт.
+    const r = await watchTick(false);
+    res.json(r);
+}
+
+app.post('/api/watch', handleWatchCreate);
+app.get('/api/watch/tick', handleWatchTick);
 
 app.post('/api/orders', handleOrderCreate);
 app.get('/api/orders/mine', handleOrdersMine);
@@ -5965,6 +6145,8 @@ if (require.main === module) {
         console.log(`🚀 iZamoN бэкенд запущен на порту ${PORT}`);
         // Вебхук бота для подключения Telegram продавцов: ставим, когда таблица в базе уже создана
         setTimeout(() => { tableReady('seller_tg').then(ok => ok ? setupTgHook() : null).then(r => { if (r) console.log(`[tg hook]: ${r}`); }).catch(() => {}); }, 8000).unref();
+        // Сохранённые поиски: обход раз в 15 минут, пока сервер не спит (будильник снаружи будит его раз в 30 минут)
+        setInterval(() => { watchTick(false).then(r => { if (r && r.checked) console.log(`[watch]: ${JSON.stringify(r)}`); }).catch(() => {}); }, 15 * MIN).unref();
     });
 }
 
@@ -5974,5 +6156,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };

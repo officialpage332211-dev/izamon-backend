@@ -1,0 +1,15 @@
+# Будильник для сохранённых поисков: раз в 30 минут будит сервер на Render и запускает проверку новых объявлений.
+# Ничего секретного не передаёт; сервер сам не проверяет чаще раза в 10 минут.
+name: watch-tick
+on:
+  schedule:
+    - cron: '7,37 * * * *'
+  workflow_dispatch:
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Wake server and check saved searches
+        run: |
+          curl -sS --max-time 120 --retry 3 --retry-delay 20 https://izamon-backend.onrender.com/api/watch/tick || true
