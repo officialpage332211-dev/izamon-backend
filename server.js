@@ -3075,6 +3075,8 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
         const words = j.words || spec.words;
         const somon = j.host === 'somon.tj';
         for (const a of list) {
+            // «Себ\\Яблоки»: обратные косые черты в названии (так пишут продавцы) показываем как « / »
+            if (a.title && a.title.includes('\\')) a.title = a.title.replace(/\s*\\+\s*/g, ' / ').replace(/^\s*\/\s*|\s*\/\s*$/g, '').trim();
             if (spec.stems && spec.stems.length && !keywordHas(kwLoose ? `${a.title} ${a.description}` : a.title, spec.stems)) continue;
             // выбран город: только объявления из него (город — в поле «место», у некоторых сайтов только в названии)
             if (spec.city && !spec.city.re.test(kwNorm(`${a.location} ${a.title}`))) { stat.otherCity = (stat.otherCity || 0) + 1; continue; }
