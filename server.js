@@ -209,6 +209,9 @@ const PORTAL_RULES = [
     // «Рестораны»: рестораны, кафе, фастфуд, самбуса. Только без алкоголя и свинины; «халяль» — со слов самого заведения
     { re: /^(?:тарабхонаҳо|тарабхона|ошхонаҳо|рестораны|ресторан|restoranlar|restoran)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places',
       query: 'Найди рестораны, кафе, фастфуд и самбусахоны в Таджикистане: название, адрес и город, телефон, часы работы, есть ли доставка, сайт или страница, что там едят и средний чек (только если опубликован). Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай бары, пабы, ночные клубы, кальянные и места, где подают алкоголь или свинину.' },
+    // «Растаможка»: правила с официальных и новостных сайтов, без выдуманных ставок; ссылки — всегда
+    { re: /^(?:гумрук|растаможка|bojxona)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'customs',
+      query: 'Найди актуальные правила растаможки в Таджикистане для обычных людей: ввоз автомобиля (из чего складывается сумма, какие документы нужны, где оформлять) и телефонов (регистрация IMEI, как узнать сумму). Бери официальные сайты (egov.tj, imei.tj) и новостные (khovar.tj, asiaplustj.info, avesta.tj). Цифры и ставки пиши только если они есть на открытой странице, с датой; ничего не выдумывай. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение.' },
     // «Поездки» → вкладки «Гостиницы» и «Достопримечательности» (кнопки над карточками туров)
     { re: /^(?:меҳмонхонаҳо|гостиницы|mehmonxonalar)$/, portal: /нақлиёт|транспорт|transport/, mode: 'digest', kind: 'places',
       query: 'Найди гостиницы и места проживания в Таджикистане (Душанбе, Худжанд, Хорог, Искандеркуль и другие места): название, город, цена за ночь (только если опубликована), телефон, сайт или страница бронирования. Не показывай места, где главное — бар, ночной клуб или казино.' },
@@ -821,7 +824,14 @@ const TEXT_CARDS = {
     tips: { icon: '💡', head: TIPS_HEAD, max: 3 },
     mmt: { icon: '🎓', head: { tg: 'ММТ', ru: 'ММТ', uz: 'MMT' }, max: 3 },
     facts: { icon: '📚', head: { tg: 'Донишномаҳо', ru: 'Энциклопедии', uz: 'Kitoblar' }, max: 3 },
-    sowing: { icon: '🌱', head: { tg: 'Кишт', ru: 'Посев', uz: 'Ekin' }, max: 3 }
+    sowing: { icon: '🌱', head: { tg: 'Кишт', ru: 'Посев', uz: 'Ekin' }, max: 3 },
+    customs: { icon: '📦', head: { tg: 'Гумрук', ru: 'Растаможка', uz: 'Bojxona' }, max: 5 }
+};
+// «Растаможка»: под ответом всегда — официальные ссылки и честное «сумма ориентировочная». Своих ставок не считаем.
+const CUSTOMS_LINKS = {
+    ru: '🔗 Официально: Таможенная служба при Правительстве РТ — https://egov.tj/site/gumruk-tj\n📱 Телефоны: сумму по IMEI или модели показывает https://imei.tj/price/checkform.php\n⚠️ Цифры здесь ориентировочные: точную сумму уточняйте на таможне или у таможенного брокера.',
+    tg: '🔗 Расман: Хадамоти гумруки назди Ҳукумати ҶТ — https://egov.tj/site/gumruk-tj\n📱 Телефонҳо: маблағро аз рӯи IMEI ё модел дар https://imei.tj/price/checkform.php дидан мумкин аст\n⚠️ Рақамҳо тахминӣ мебошанд: маблағи дақиқро дар гумрук ё аз брокери гумрукӣ пурсед.',
+    uz: "🔗 Rasmiy: Tojikiston Hukumati huzuridagi Bojxona xizmati — https://egov.tj/site/gumruk-tj\n📱 Telefonlar: IMEI yoki model bo'yicha summani https://imei.tj/price/checkform.php ko'rsatadi\n⚠️ Raqamlar taxminiy: aniq summani bojxonada yoki bojxona brokeridan so'rang."
 };
 const TIP_LINE = /^(\p{Extended_Pictographic}(?:[\uFE0F\u200D]|\p{Extended_Pictographic})*)\s*(.*)$/su;
 // Модель иногда пишет «🌾Пшеница:Посев в ноябре» без пробелов — тогда строка не узнаётся как карточка. Ставим пробел после значка и после двоеточия в заголовке.
@@ -3861,7 +3871,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             if (geminiUp()) engines.push({ name: 'gemini', run: (sys, msg) => askGemini(sys, msg, true) });
             if (openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             // «ММТ», «Посев», «Советы», «Энциклопедии»: поиск находит источники (или пишет карточки) не с первого раза — даём второму поиску ещё одну попытку
-            if ((kind === 'mmt' || kind === 'sowing' || kind === 'tips' || kind === 'facts') && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
+            if ((kind === 'mmt' || kind === 'sowing' || kind === 'tips' || kind === 'facts' || kind === 'customs') && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             // «Энциклопедии»: поиск нередко отвечает фактами без единого источника (такой ответ не показываем) — даём ещё одну попытку
             if (kind === 'facts' && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             for (const eng of engines) {
@@ -3894,7 +3904,8 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                     else if (kind === 'facts') text = factLines(text);
                     if (step) step.final = text.slice(0, 300);
                     if (!text.trim()) continue;
-                    const web = TEXT_CARDS[kind] ? tipsAnswer(text, sources, lang, kind) : finalize(text, sources, lang);
+                    let web = TEXT_CARDS[kind] ? tipsAnswer(text, sources, lang, kind) : finalize(text, sources, lang);
+                    if (kind === 'customs') web += `\n${finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang)}`;
                     const made = { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(TEXT_CARDS[kind] ? { view: 'tips' } : {}) }, ttl: ttlFor(mode) };
                     if (kind === 'tips' || kind === 'facts') {
                         const n = (web.match(/class="iz-tip"/g) || []).length;
@@ -3911,7 +3922,8 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             if (ownBlock) {
                 return { body: { answer: ownBlock, provider: 'izamon', grounded: true, sources: [] }, ttl: ttlFor(mode) };
             }
-            // Источников нет — фактов не даём вообще.
+            // Источников нет — фактов не даём вообще («Растаможка»: только официальные ссылки).
+            if (kind === 'customs') return { body: { answer: finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: errored ? 0 : 3 * MIN };
         }
 
