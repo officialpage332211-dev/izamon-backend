@@ -3296,6 +3296,24 @@ function mixFeeds(main, extra, total = 10) {
     return out;
 }
 
+// Цена билета в рублях (так её пишет сайт): рядом — примерно в сомони по курсу Нацбанка. Курса нет — цена как есть.
+const RUB_PRICE = /^((?:от|аз|dan)\s+)?(\d[\d\s\u00a0]*(?:[.,]\d{1,2})?)\s*(?:₽|руб\.?|rub)$/i;
+async function withTjsForRub(items, date) {
+    if (!items.some(it => RUB_PRICE.test(String(it.price || '').trim()))) return items;
+    let rates = null;
+    try { rates = await nbtRatesFor(date); } catch { rates = null; }
+    const k = rates && rates.RUB;
+    if (!(k > 0)) return items;
+    return items.map(it => {
+        const m = RUB_PRICE.exec(String(it.price || '').trim());
+        if (!m) return it;
+        const n = Number(m[2].replace(/[\s\u00a0]/g, '').replace(',', '.'));
+        if (!(n > 0)) return it;
+        const tjs = Math.round(n * k).toLocaleString('ru-RU').replace(/\u00a0/g, ' ');
+        return { ...it, price: `${String(it.price).trim()} (≈ ${tjs} TJS)` };
+    });
+}
+
 async function searchListings({ kind, lang, date, query, debug, somon }) {
     // Сначала готовый список somon.tj: точные ссылки и фото. Мало найдено или сайт не ответил — ищем через модель, как раньше.
     if (somon) {
@@ -3317,7 +3335,7 @@ async function searchListings({ kind, lang, date, query, debug, somon }) {
     }
     const items = await webListings({ kind, lang, date, query, debug });
     const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
-    return kind === 'tickets' ? withTicketLinks(done, debug) : done;
+    return kind === 'tickets' ? withTicketLinks(await withTjsForRub(done, date), debug) : done;
 }
 
 // Поиск по интернету: карточки с настоящими ссылками на страницы, которые поиск действительно открыл. task — что искать, skip — какие сайты не брать.
@@ -3375,6 +3393,16 @@ url — обычная ссылка https://… (без Markdown и скобок
         return true;
     });
     if (!citedHosts.size) items = [];
+    // Билеты и туры: один и тот же маршрут (тур с той же ценой) с разных страниц показываем один раз
+    if (kind === 'tickets' || kind === 'tours') {
+        const seenT = new Set();
+        items = items.filter(it => {
+            const k = it.title.toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, '') + (kind === 'tours' ? '|' + String(it.price || '').replace(/\D/g, '') : '');
+            if (seenT.has(k)) { drop.dup++; return false; }
+            seenT.add(k);
+            return true;
+        });
+    }
     if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
     return items;
 }
