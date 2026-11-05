@@ -5861,6 +5861,83 @@ async function handleTgSection(req, res) {
 }
 app.post('/api/tg/section', handleTgSection);
 
+// ---------------------------------------------------------------------------
+// Разделы в WhatsApp: то же, что в Telegram, но сообщениями WhatsApp (Cloud API).
+// Программа WhatsApp на Vercel (api/whatsapp.js) пересылает сюда выбор раздела; подпись — из WHATSAPP_ACCESS_TOKEN.
+// Каждое сообщение WhatsApp считается (после 1 000 в месяц — платно), поэтому на карточку — одно сообщение.
+// ---------------------------------------------------------------------------
+const waToken = () => String(process.env.WHATSAPP_ACCESS_TOKEN || '').trim();
+const waPhoneId = () => String(process.env.WHATSAPP_PHONE_NUMBER_ID || '').trim();
+const waOn = () => waToken().length > 20 && /^\d{6,20}$/.test(waPhoneId());
+const waSecret = () => crypto.createHmac('sha256', waToken()).update('izamon-wa-cmd').digest('hex').slice(0, 48);
+async function waSend(to, payload) {
+    const r = await fetch(`https://graph.facebook.com/v23.0/${waPhoneId()}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${waToken()}` },
+        body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to, ...payload }),
+        signal: AbortSignal.timeout(15000)
+    });
+    const data = await r.json().catch(() => ({}));
+    if (!r.ok) throw new Error((data && data.error && data.error.message) || `whatsapp ${r.status}`);
+    return data;
+}
+// WhatsApp принимает фото только JPEG и PNG; остальное (webp) — текстом со ссылкой и превью страницы
+const waPhotoOk = u => /^https:\/\/[^\s]+\.(?:jpe?g|png)(?:\?[^\s]*)?$/i.test(u || '');
+const waCut = (t, n) => { t = String(t || ''); return t.length > n ? t.slice(0, n - 1) + '…' : t; };
+async function waSectionRun({ to, lang, s, portal, item, city = '', price = 0 }) {
+    const tx = TG_SEC_TX[lang] || TG_SEC_TX.tg;
+    const cid = cityById(city) ? city : '-';
+    const pr = TG_PRICES[price] ? price : 0;
+    let out = null;
+    const prompt = `[Lang: ${lang}] [MODULE: LOCAL_SERVICE_CARD] Выдай предложения по запросу "${portal} - ${item}".`;
+    const body = { prompt, lang, ...(cid !== '-' ? { city: cid } : {}), ...(pr ? { pmin: TG_PRICES[pr][0], pmax: TG_PRICES[pr][1] } : {}) };
+    await handleChat({ body, ip: `wa-${to}`, headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
+    const html = String(out && out.answer || '');
+    const cards = tgCards(html).slice(0, 5);
+    for (const c of cards) {
+        const text = [`*${c.title}*`, c.price ? `💰 ${c.price}` : '', c.place ? `📍 ${c.place}` : '', c.contact ? `📞 ${c.contact}` : '', c.gallery && c.gallery.length > 1 ? `📷 ${c.gallery.length}` : '', `🔗 ${c.url}`].filter(Boolean).join('\n');
+        const photo = [c.image, ...(c.gallery || [])].find(waPhotoOk);
+        try {
+            if (photo) await waSend(to, { type: 'image', image: { link: photo, caption: waCut(text, 1000) } });
+            else await waSend(to, { type: 'text', text: { preview_url: true, body: waCut(text, 4000) } });
+        } catch (err) { console.warn(`[wa карточка Сбой]: ${scrub(err.message)}`); }
+    }
+    const head = cards.length
+        ? `${portal.replace(/^\d+\.\s*/, '')} → ${item}${cid !== '-' ? ` · 📍 ${(TG_CITY_NAMES[cid] || {})[lang] || cid}` : ''}${pr ? ` · 💰 ${tgPriceLabel(pr)}` : ''}`
+        : (tgText(html) || tx.none);
+    // три кнопки — больше WhatsApp не разрешает; ссылка на сайт — текстом
+    await waSend(to, { type: 'interactive', interactive: {
+        type: 'button',
+        body: { text: waCut(`${head}\n\n🌐 ${tx.more}: ${SITE_BASE}?lang=${lang}&s=${s}`, 1024) },
+        action: { buttons: [
+            { type: 'reply', reply: { id: `fc:${lang}:${s}:${cid}:${pr}`, title: waCut(`📍 ${tx.city}`, 20) } },
+            { type: 'reply', reply: { id: `fp:${lang}:${s}:${cid}:${pr}`, title: waCut(`💰 ${tx.price}`, 20) } },
+            { type: 'reply', reply: { id: `m:${lang}`, title: waCut(tx.back, 20) } }
+        ] }
+    } });
+    return cards.length ? 'cards' : 'text';
+}
+async function handleWaSection(req, res) {
+    const got = Buffer.from(String(req.headers['x-izamon-sign'] || ''));
+    const want = Buffer.from(waOn() ? waSecret() : '-');
+    if (!waOn() || got.length !== want.length || !crypto.timingSafeEqual(got, want)) return res.status(403).json({ ok: false });
+    const b = req.body || {};
+    const to = String(b.to || '');
+    const lang = ['tg', 'ru', 'uz'].includes(b.lang) ? b.lang : 'tg';
+    const s = /^\d{1,2}\.\d{1,2}$/.test(String(b.s || '')) ? String(b.s) : '';
+    const portal = String(b.portal || '').slice(0, 80), item = String(b.item || '').slice(0, 80);
+    const city = cityById(b.city) ? String(b.city) : '';
+    const price = Math.max(0, Math.min(TG_PRICES.length - 1, Math.floor(Number(b.price) || 0)));
+    if (!/^\d{6,20}$/.test(to) || !s || !portal || !item) return res.status(400).json({ ok: false });
+    res.json({ ok: true });
+    try { await waSectionRun({ to, lang, s, portal, item, city, price }); }
+    catch (err) {
+        console.warn(`[wa раздел Сбой]: ${scrub(err && err.message || err)}`);
+        waSend(to, { type: 'text', text: { body: (TG_SEC_TX[lang] || TG_SEC_TX.tg).err } }).catch(() => {});
+    }
+}
+app.post('/api/wa/section', handleWaSection);
+
 app.post('/api/watch', handleWatchCreate);
 app.post('/api/tg/watch-cmd', handleWatchCmd);
 app.get('/api/watch/tick', handleWatchTick);
@@ -6315,5 +6392,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
