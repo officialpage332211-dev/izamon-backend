@@ -5754,6 +5754,83 @@ async function handleWatchCmd(req, res) {
     return res.json({ ok: true, handled, result: r || null });
 }
 
+// ---------------------------------------------------------------------------
+// Разделы прямо в Telegram (@iZamoN_ai_bot): человек жмёт кнопку раздела — бот присылает карточки сообщениями,
+// как на сайте, без браузера. Программа бота на Vercel пересылает нажатие сюда (подпись та же, что у команд поиска),
+// мы сразу отвечаем «принято», а поиск и отправку делаем сами: на сервере нет ограничения по времени.
+// ---------------------------------------------------------------------------
+const SITE_BASE = 'https://izamon.vercel.app/';
+const TG_SEC_TX = {
+    tg: { wait: '⏳ Ҷустуҷӯ…', more: 'Боз дар сомона', back: '⬅️ Бахшҳо', open: 'Кушодан', none: 'Ҳоло чизе ёфт нашуд. Каме баъдтар кӯшиш кунед.', err: 'Хатогӣ шуд. Каме баъдтар кӯшиш кунед.' },
+    ru: { wait: '⏳ Ищу…', more: 'Ещё на сайте', back: '⬅️ Разделы', open: 'Открыть', none: 'Сейчас ничего не нашлось. Попробуйте чуть позже.', err: 'Произошла ошибка. Попробуйте чуть позже.' },
+    uz: { wait: '⏳ Qidirilmoqda…', more: 'Saytda yana', back: "⬅️ Bo'limlar", open: 'Ochish', none: "Hozircha hech narsa topilmadi. Birozdan keyin urinib ko'ring.", err: "Xatolik yuz berdi. Birozdan keyin urinib ko'ring." }
+};
+// Текст из нашей HTML-карточки → безопасный для Telegram (parse_mode HTML)
+const tgDecode = x => String(x || '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&');
+const tgEsc = x => String(x || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const tgText = html => tgDecode(String(html || '').replace(/<br\s*\/?>/gi, '\n').replace(/<\/(?:div|p|li)>/gi, '\n').replace(/<[^>]+>/g, '')).replace(/[ \t]+/g, ' ').replace(/\n\s*\n+/g, '\n\n').trim();
+function tgCards(html) {
+    const parts = String(html || '').split('<div class="iz-lc"').slice(1);
+    return parts.map(c => {
+        const pick = re => { const m = c.match(re); return m ? tgDecode(m[1]).trim() : ''; };
+        return {
+            title: pick(/<div class="iz-lc-t">([^<]*)<\/div>/),
+            price: pick(/<div class="iz-lc-p">([^<]*)<\/div>/),
+            place: pick(/<div class="iz-lc-m">📍 ([^<·]*)/),
+            contact: pick(/<div class="iz-lc-m">📞 ([^<]*)<\/div>/),
+            url: pick(/<a class="iz-lc-a" href="([^"]+)"/),
+            image: pick(/<img src="[^"]*" data-d="([^"]+)"/) || pick(/<img src="([^"]+)"/),
+            proxy: pick(/<img src="([^"]+)" data-d=/)
+        };
+    }).filter(x => x.title && /^https:\/\//.test(x.url));
+}
+async function tgSectionRun({ chat_id, lang, s, portal, item }) {
+    const tx = TG_SEC_TX[lang] || TG_SEC_TX.tg;
+    const send = (method, payload) => tgCall(method, { chat_id, ...payload }, watchBotToken());
+    const tail = { reply_markup: { inline_keyboard: [[{ text: `🌐 ${tx.more}`, url: `${SITE_BASE}?lang=${lang}&s=${s}` }, { text: tx.back, callback_data: `m:${lang}` }]] } };
+    await send('sendChatAction', { action: 'typing' }).catch(() => {});
+    let out = null;
+    const prompt = `[Lang: ${lang}] [MODULE: LOCAL_SERVICE_CARD] Выдай предложения по запросу "${portal} - ${item}".`;
+    await handleChat({ body: { prompt, lang }, ip: `tg-${chat_id}`, headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
+    const html = String(out && out.answer || '');
+    const cards = tgCards(html).slice(0, 6);
+    if (cards.length) {
+        for (const c of cards) {
+            const caption = [`<b>${tgEsc(c.title)}</b>`, c.price ? `💰 ${tgEsc(c.price)}` : '', c.place ? `📍 ${tgEsc(c.place)}` : '', c.contact ? `📞 ${tgEsc(c.contact)}` : ''].filter(Boolean).join('\n').slice(0, 1000);
+            const btn = { reply_markup: { inline_keyboard: [[{ text: `🔗 ${tx.open} — ${hostOf(c.url)}`, url: c.url }]] } };
+            // фото: прямая ссылка, если Telegram её не взял (формат webp и т.п.) — через наш прокси, иначе — текстом
+            let done = false;
+            for (const photo of [c.image, c.proxy].filter(u => u && /^https:\/\//.test(u))) {
+                try { await send('sendPhoto', { photo, caption, parse_mode: 'HTML', ...btn }); done = true; break; } catch { /* следующий вариант */ }
+            }
+            if (!done) await send('sendMessage', { text: caption, parse_mode: 'HTML', disable_web_page_preview: true, ...btn }).catch(() => {});
+        }
+        await send('sendMessage', { text: `${portal.replace(/^\d+\.\s*/, '')} → ${item}`, ...tail });
+        return 'cards';
+    }
+    const text = tgText(html);
+    await send('sendMessage', { text: (text || tx.none).slice(0, 4000), disable_web_page_preview: true, ...tail });
+    return text ? 'text' : 'none';
+}
+async function handleTgSection(req, res) {
+    const got = Buffer.from(String(req.headers['x-izamon-sign'] || ''));
+    const want = Buffer.from(watchOwnBot() ? watchCmdSecret() : '-');
+    if (!watchOwnBot() || got.length !== want.length || !crypto.timingSafeEqual(got, want)) return res.status(403).json({ ok: false });
+    const b = req.body || {};
+    const chat_id = Number(b.chat_id);
+    const lang = ['tg', 'ru', 'uz'].includes(b.lang) ? b.lang : 'tg';
+    const s = /^\d{1,2}\.\d{1,2}$/.test(String(b.s || '')) ? String(b.s) : '';
+    const portal = String(b.portal || '').slice(0, 80), item = String(b.item || '').slice(0, 80);
+    if (!Number.isSafeInteger(chat_id) || !s || !portal || !item) return res.status(400).json({ ok: false });
+    res.json({ ok: true }); // отвечаем сразу, дальше работаем сами
+    try { await tgSectionRun({ chat_id, lang, s, portal, item }); }
+    catch (err) {
+        console.warn(`[tg раздел Сбой]: ${scrub(err && err.message || err)}`);
+        tgCall('sendMessage', { chat_id, text: (TG_SEC_TX[lang] || TG_SEC_TX.tg).err }, watchBotToken()).catch(() => {});
+    }
+}
+app.post('/api/tg/section', handleTgSection);
+
 app.post('/api/watch', handleWatchCreate);
 app.post('/api/tg/watch-cmd', handleWatchCmd);
 app.get('/api/watch/tick', handleWatchTick);
@@ -6208,5 +6285,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
