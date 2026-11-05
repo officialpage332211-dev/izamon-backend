@@ -203,6 +203,9 @@ const PORTAL_RULES = [
       query: 'Найди актуальные объявления о продаже сельхозпродукции и продуктов (мёд, фрукты, овощи, сухофрукты, мясо, зерно) в Таджикистане, сначала на somon.tj: что продаётся, цена, количество, место, контакт продавца.' },
     { re: /^(?:сафарҳо|поездки|safar)$/, mode: 'digest', kind: 'tours',
       query: 'Найди актуальные предложения туров и поездок из Таджикистана: направление, цена, даты, контакт оператора.' },
+    // «4. Повседневное»: аптеки — только адреса, телефоны и часы работы; наличие и цены лекарств не обещаем
+    { re: /^(?:дорухонаҳо|дорухона|аптеки|аптека|dorixonalar|dorixona)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places',
+      query: 'Найди аптеки в Таджикистане: название, адрес и город, телефон, часы работы (круглосуточно или нет), сайт или страница. Наличие лекарств и цены на лекарства не указывай и не обещай; советов по лечению и дозам не давай.' },
     // «Поездки» → вкладки «Гостиницы» и «Достопримечательности» (кнопки над карточками туров)
     { re: /^(?:меҳмонхонаҳо|гостиницы|mehmonxonalar)$/, portal: /нақлиёт|транспорт|transport/, mode: 'digest', kind: 'places',
       query: 'Найди гостиницы и места проживания в Таджикистане (Душанбе, Худжанд, Хорог, Искандеркуль и другие места): название, город, цена за ночь (только если опубликована), телефон, сайт или страница бронирования. Не показывай места, где главное — бар, ночной клуб или казино.' },
@@ -4019,12 +4022,15 @@ async function handleChat(req, res) {
     if (!topic && !factual && mode === 'general' && cleaned.length <= 250 && KW_ASK.test(cleaned) && !KW_TALK.test(cleaned) && !KW_SMALL.test(cleaned)) factual = true;
     const userText = withHistory(followUp ? cleaned : routed.userText, history);
     const detectOn = topic || cleaned;
-    const fullMessage = category ? `[Подраздел: ${category}] ${userText}` : userText;
+    // Места (аптеки, гостиницы…): выбранный на сайте город — прямо в запрос поиска
+    const placeCity = kind === 'places' ? cityById(body.city) : null;
+    const placeNote = placeCity && TG_CITY_NAMES[placeCity.id] ? `\nТолько места в городе ${TG_CITY_NAMES[placeCity.id].ru}.` : '';
+    const fullMessage = (category ? `[Подраздел: ${category}] ${userText}` : userText) + placeNote;
     const date = todayTJ();
 
     // С историей ответ зависит от разговора — такие ответы не кэшируем.
     const cacheable = factual && !history.length;
-    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id : '-'}|${somon && somon.price ? `${somon.price.min}-${somon.price.max}` : '-'}|${norm(detectOn)}`;
+    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id : placeCity ? 'p:' + placeCity.id : '-'}|${somon && somon.price ? `${somon.price.min}-${somon.price.max}` : '-'}|${norm(detectOn)}`;
     if (cacheable) {
         const hit = answerCache.get(key);
         if (hit) return res.json({ ...hit, cached: true });
@@ -6166,31 +6172,31 @@ async function timed(fn) {
 
 // Пункты меню для проверки карточек: /diag?cards=1&lang=tg&item=jobs (jobs, livestock, tickets, tours, land, sale, rent, landcom, electric, plumber, mechanic, master)
 const DIAG_TOPICS = {
-    jobs: '4. Молия ва тиҷорат - Кор ва шуғл',
-    livestock: '6. Кишоварзӣ - Чорводорӣ',
+    jobs: '5. Молия ва тиҷорат - Кор ва шуғл',
+    livestock: '7. Кишоварзӣ - Чорводорӣ',
     tickets: '2. Нақлиёт ва сафар - Чиптаҳо',
     tours: '2. Нақлиёт ва сафар - Сафарҳо',
-    land: '6. Кишоварзӣ - Заминҳои кишт',
+    land: '7. Кишоварзӣ - Заминҳои кишт',
     sale: '1. Истиқомат ва амвол - Фурӯши хона',
     rent: '1. Истиқомат ва амвол - Иҷора',
     landcom: '1. Истиқомат ва амвол - Замин ва тиҷоратӣ',
-    electric: '7. Хизматрасонӣ - Барқчӣ',
-    plumber: '7. Хизматрасонӣ - Сантехник',
-    mechanic: '7. Хизматрасонӣ - Автомеханик',
-    master: '7. Хизматрасонӣ - Усто',
+    electric: '8. Хизматрасонӣ - Барқчӣ',
+    plumber: '8. Хизматрасонӣ - Сантехник',
+    mechanic: '8. Хизматрасонӣ - Автомеханик',
+    master: '8. Хизматрасонӣ - Усто',
     cars: '2. Нақлиёт ва сафар - Мошинҳо',
     parts: '2. Нақлиёт ва сафар - Қисмҳои эҳтиётӣ',
     furniture: '3. Бозор ва молу ашё - Мебел',
     clothes: '3. Бозор ва молу ашё - Либос',
     tech: '3. Бозор ва молу ашё - Техника',
     phones: '3. Бозор ва молу ашё - Телефонҳо',
-    langs: '5. Маориф ва илм - Забонҳо',
-    itcourses: '5. Маориф ва илм - Курсҳои IT',
-    harvest: '6. Кишоварзӣ - Ҳосил',
-    tips: '4. Молия ва тиҷорат - Маслиҳатҳо',
-    mmt: '5. Маориф ва илм - ММТ',
-    encyc: '5. Маориф ва илм - Донишномаҳо',
-    sowing: '6. Кишоварзӣ - Кишт'
+    langs: '6. Маориф ва илм - Забонҳо',
+    itcourses: '6. Маориф ва илм - Курсҳои IT',
+    harvest: '7. Кишоварзӣ - Ҳосил',
+    tips: '5. Молия ва тиҷорат - Маслиҳатҳо',
+    mmt: '6. Маориф ва илм - ММТ',
+    encyc: '6. Маориф ва илм - Донишномаҳо',
+    sowing: '7. Кишоварзӣ - Кишт'
 };
 
 async function handleDiag(req, res) {
