@@ -5323,7 +5323,7 @@ async function notifySeller(sellerId, text) {
         const rows = await sb(`seller_tg?select=chat_id&user_id=eq.${encodeURIComponent(sellerId)}&limit=1`);
         const chat = rows && rows[0] && rows[0].chat_id;
         if (!chat) return false;
-        await tgCall('sendMessage', { chat_id: chat, text, disable_web_page_preview: true });
+        await tgCall('sendMessage', { chat_id: chat, text, disable_web_page_preview: true }, watchBotToken());
         return true;
     } catch (err) {
         console.warn(`[заявка → Telegram Сбой]: ${scrub(err.message)}`);
@@ -5430,35 +5430,36 @@ const BOT_TX = {
         linked: '✅ Telegram пайваст шуд. Аризаҳои нави iZamoN ба ин ҷо меоянд.',
         already: '✅ Telegram аллакай пайваст аст.',
         bad: 'Истинод кӯҳна шудааст. Дар iZamoN, дар «Ҳисоби ман», дубора «Пайваст кардани Telegram»-ро пахш кунед.',
-        stopped: 'Тайёр: аризаҳо дигар ба ин ҷо намеоянд.',
+        stopped: 'Тайёр: огоҳиномаҳо (аризаҳо ва ҷустуҷӯҳо) дигар ба ин ҷо намеоянд.',
         help: 'Салом! Ин боти аризаҳои iZamoN аст. Барои гирифтани аризаҳо дар сомона, дар «Ҳисоби ман», «Пайваст кардани Telegram»-ро пахш кунед.'
     },
     ru: {
         linked: '✅ Telegram подключён. Новые заявки с iZamoN будут приходить сюда.',
         already: '✅ Telegram уже подключён.',
         bad: 'Ссылка устарела. На iZamoN в разделе «Мой аккаунт» нажмите «Подключить Telegram» ещё раз.',
-        stopped: 'Готово: заявки сюда больше не приходят.',
+        stopped: 'Готово: уведомления (заявки и поиски) сюда больше не приходят.',
         help: 'Здравствуйте! Это бот заявок iZamoN. Чтобы получать заявки, на сайте в разделе «Мой аккаунт» нажмите «Подключить Telegram».'
     },
     uz: {
         linked: "✅ Telegram ulandi. iZamoN'dagi yangi arizalar shu yerga keladi.",
         already: '✅ Telegram allaqachon ulangan.',
         bad: "Havola eskirgan. iZamoN'da «Mening hisobim» bo'limida «Telegramni ulash» tugmasini qayta bosing.",
-        stopped: 'Tayyor: arizalar endi bu yerga kelmaydi.',
+        stopped: 'Tayyor: bildirishnomalar (arizalar va qidiruvlar) endi bu yerga kelmaydi.',
         help: "Salom! Bu iZamoN arizalar boti. Arizalarni olish uchun saytda «Mening hisobim» bo'limida «Telegramni ulash» tugmasini bosing."
     }
 };
 
-async function processTgUpdate(update) {
+// opts.token — каким ботом отвечать (по умолчанию бот заявок), opts.fromUserBot — пришло от @iZamoN_ai_bot через Vercel
+async function processTgUpdate(update, opts = {}) {
     const m = update && update.message;
     if (!m || !m.chat || m.chat.type !== 'private' || typeof m.text !== 'string' || !Number.isSafeInteger(m.chat.id)) return 'ignored';
     const chat_id = m.chat.id;
     const code0 = String((m.from && m.from.language_code) || '').toLowerCase().slice(0, 2);
     const tx = BOT_TX[code0 === 'uz' ? 'uz' : code0 === 'tg' ? 'tg' : 'ru'];
-    const say = text => tgCall('sendMessage', { chat_id, text }).catch(err => console.warn(`[tg ответ Сбой]: ${scrub(err.message)}`));
+    const say = text => tgCall('sendMessage', { chat_id, text }, opts.token).catch(err => console.warn(`[tg ответ Сбой]: ${scrub(err.message)}`));
     const text = m.text.trim().slice(0, 200);
     // сохранённые поиски («/start w…», «/unwatch_12»); «/stop» отключает и поиски, и заявки
-    const w = watchOwnBot() ? null : await processWatchCommand(text, chat_id, say);
+    const w = watchOwnBot() && !opts.fromUserBot ? null : await processWatchCommand(text, chat_id, say);
     if (w) return 'watch_' + w;
     if (/^\/stop(?:@\w+)?$/i.test(text)) {
         if (await tableReady('seller_tg')) { try { await sb(`seller_tg?chat_id=eq.${chat_id}`, { method: 'PATCH', body: { chat_id: null }, prefer: 'return=minimal' }); } catch (e) { /* не страшно */ } }
@@ -5505,11 +5506,14 @@ async function handleTgLink(req, res) {
     try {
         const seller = await getSeller(user.id);
         if (!seller) return res.status(403).json({ ok: false, error: 'seller_required' });
-        const hook = await setupTgHook();
-        if (hook !== 'ok') return res.status(503).json({ ok: false, error: 'hook_' + hook });
+        // заявки приходят в @iZamoN_ai_bot (его сообщения принимает программа на Vercel), если он задан; иначе — в бот заявок
+        if (!watchOwnBot()) {
+            const hook = await setupTgHook();
+            if (hook !== 'ok') return res.status(503).json({ ok: false, error: 'hook_' + hook });
+        }
         const code = crypto.randomBytes(12).toString('base64url');
         await sb('seller_tg?on_conflict=user_id', { method: 'POST', body: { user_id: user.id, code, code_at: new Date().toISOString() }, prefer: 'resolution=merge-duplicates,return=minimal' });
-        const bot = await tgBotName();
+        const bot = await watchBotName();
         if (!bot) return res.status(503).json({ ok: false, error: 'tg_off' });
         return res.json({ ok: true, url: `https://t.me/${bot}?start=${code}` });
     } catch (err) {
@@ -5636,12 +5640,7 @@ async function processWatchCommand(text, chat_id, say) {
     try {
         if (/^\/stop/i.test(text)) {
             await sb(`watches?chat_id=eq.${chat_id}`, { method: 'PATCH', body: { active: false }, prefer: 'return=minimal' });
-            if (watchOwnBot()) {
-                const one = await sb(`watches?select=lang&chat_id=eq.${chat_id}&limit=1`).catch(() => []);
-                await say(watchTx(one && one[0] && one[0].lang).removed);
-                return 'stopped';
-            }
-            return null; // общий бот: дальше /stop обрабатывает и заявки продавца, ответ — общий
+            return null; // дальше /stop отключает и заявки продавца; ответ — общий («уведомления больше не приходят»)
         }
         if (un) {
             const rows = await sb(`watches?select=id,lang&id=eq.${un[1]}&chat_id=eq.${chat_id}&limit=1`);
@@ -5735,10 +5734,13 @@ async function handleWatchCmd(req, res) {
     const chat_id = Number(req.body && req.body.chat_id);
     const text = String(req.body && req.body.text || '').trim().slice(0, 200);
     if (!Number.isSafeInteger(chat_id) || !text) return res.status(400).json({ ok: false });
-    const say = t => tgCall('sendMessage', { chat_id, text: t }, watchBotToken()).catch(err => console.warn(`[watch ответ Сбой]: ${scrub(err.message)}`));
-    const r = await processWatchCommand(text, chat_id, say);
-    // не команда поиска (или неизвестный код) — пусть программа бота ответит как обычно
-    return res.json({ ok: true, handled: !!r, result: r || null });
+    // только команды уведомлений; всё остальное — не наше, бот отвечает сам
+    if (!/^\/(?:start(?:@\w+)?\s+[\w-]{8,64}|unwatch_\d{1,18}(?:@\w+)?|stop(?:@\w+)?)$/i.test(text)) return res.json({ ok: true, handled: false, result: null });
+    const lang = String(req.body && req.body.lang || '').slice(0, 2);
+    // поиск, подключение заявок продавца, /stop — тем же ботом; «help» (не наша команда) — пусть бот ответит как обычно
+    const r = await processTgUpdate({ message: { chat: { id: chat_id, type: 'private' }, from: { language_code: lang }, text } }, { token: watchBotToken(), fromUserBot: true });
+    const handled = !!r && r !== 'help' && r !== 'ignored';
+    return res.json({ ok: true, handled, result: r || null });
 }
 
 app.post('/api/watch', handleWatchCreate);
