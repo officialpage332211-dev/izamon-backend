@@ -693,6 +693,12 @@ function dropHaramLines(text, quiet = false) {
 }
 
 // Тексты на таджикском и узбекском стоит показать носителю языка.
+// «ММТ» вне сезона: новых дат регистрации и экзаменов не объявлено — так и говорим, и даём официальный сайт Центра тестирования.
+const MMT_NONE = {
+    ru: '📅 На сегодня новые даты регистрации и экзаменов ММТ не объявлены.\n🔔 Как только Национальный центр тестирования их объявит, они появятся здесь.\n🔗 Официальный сайт: https://ntc.tj/tj/',
+    tg: '📅 То имрӯз санаҳои нави бақайдгирӣ ва имтиҳонҳои ММТ эълон нашудаанд.\n🔔 Ҳамин ки Маркази миллии тестӣ онҳоро эълон кунад, дар ин ҷо пайдо мешаванд.\n🔗 Сомонаи расмӣ: https://ntc.tj/tj/',
+    uz: "📅 Bugungi kunda MMT ro'yxatdan o'tish va imtihonlarining yangi sanalari e'lon qilinmagan.\n🔔 Milliy test markazi ularni e'lon qilishi bilan shu yerda paydo bo'ladi.\n🔗 Rasmiy sayt: https://ntc.tj/tj/"
+};
 const NO_DATA = {
     ru: '🔍 Подтверждённых данных на сегодня не нашёл, поэтому ничего не выдумываю.\n💡 Уточните запрос или попробуйте чуть позже.',
     tg: '🔍 Барои имрӯз маълумоти тасдиқшуда наёфтам, бинобар ин тахмин намекунам.\n💡 Дархостро дақиқтар кунед ё каме баъдтар кӯшиш кунед.',
@@ -3786,7 +3792,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                     } catch (err) { console.warn(`[mmt Сбой]: ${err.status || ''} ${err.message}`); }
                 }
                 // Текстовым поиском «ММТ» не отвечаем: он путал даты (регистрацию принимал за экзамен). Нет дат — честное «данных нет».
-                return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
+                return { body: { answer: finalize(MMT_NONE[lang] || MMT_NONE.tg, [], lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             }
             if (openai && KIND_TASK[kind]) {
                 try {
