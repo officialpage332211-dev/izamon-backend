@@ -4997,8 +4997,8 @@ function adChannelText(ad, limit = CAPTION_MAX) {
     return [headText, desc, tailText].filter(Boolean).join('\n\n');
 }
 
-async function tgCall(method, payload) {
-    const r = await fetch(`${TG_API}/bot${tgToken()}/${method}`, {
+async function tgCall(method, payload, token) {
+    const r = await fetch(`${TG_API}/bot${token || tgToken()}/${method}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -5133,7 +5133,7 @@ async function handleConfig(req, res) {
         channel: tgOn() ? (tgChannel().startsWith('@') ? tgChannel() : 'on') : null,
         orders: !!orders,
         sellerTg: !!(orders && sellerTg),
-        watch: !!(tgOn() && adsOn() && await withTimeout(tableReady('watches'), 2500).catch(() => false))
+        watch: !!(watchTgOn() && adsOn() && await withTimeout(tableReady('watches'), 2500).catch(() => false))
     });
 }
 
@@ -5458,7 +5458,7 @@ async function processTgUpdate(update) {
     const say = text => tgCall('sendMessage', { chat_id, text }).catch(err => console.warn(`[tg ответ Сбой]: ${scrub(err.message)}`));
     const text = m.text.trim().slice(0, 200);
     // сохранённые поиски («/start w…», «/unwatch_12»); «/stop» отключает и поиски, и заявки
-    const w = await processWatchCommand(text, chat_id, say);
+    const w = watchOwnBot() ? null : await processWatchCommand(text, chat_id, say);
     if (w) return 'watch_' + w;
     if (/^\/stop(?:@\w+)?$/i.test(text)) {
         if (await tableReady('seller_tg')) { try { await sb(`seller_tg?chat_id=eq.${chat_id}`, { method: 'PATCH', body: { chat_id: null }, prefer: 'return=minimal' }); } catch (e) { /* не страшно */ } }
@@ -5535,6 +5535,22 @@ async function handleTgUnlink(req, res) {
 // и бот присылает новые объявления по этому поиску (с тем же городом и ценой). Входить на сайт не нужно.
 // Таблица watches (sql/watches.sql). Нет таблицы или бота — кнопка на сайте не показывается.
 // ---------------------------------------------------------------------------
+// Уведомления присылает отдельный бот (@iZamoN_ai_bot), если задан TG_WATCH_BOT_TOKEN; иначе — бот заявок.
+// Сообщения отдельного бота принимает его программа на Vercel (api/telegram.js): команды поиска она пересылает сюда,
+// на /api/tg/watch-cmd, с подписью из того же токена (новых секретов настраивать не нужно).
+const watchToken = () => String(process.env.TG_WATCH_BOT_TOKEN || '').trim();
+const watchOwnBot = () => /^\d{6,}:[\w-]{30,}$/.test(watchToken());
+const watchBotToken = () => watchOwnBot() ? watchToken() : tgToken();
+const watchTgOn = () => watchOwnBot() || tgOn();
+const watchCmdSecret = () => crypto.createHmac('sha256', watchBotToken()).update('izamon-watch-cmd').digest('hex').slice(0, 48);
+let watchBotUser = null;
+async function watchBotName() {
+    if (!watchOwnBot()) return tgBotName();
+    if (watchBotUser) return watchBotUser;
+    const me = await tgCall('getMe', {}, watchBotToken());
+    watchBotUser = me && me.username && /^\w{4,64}$/.test(me.username) ? me.username : null;
+    return watchBotUser;
+}
 const WATCH_MAX_PER_CHAT = 10;
 const WATCH_EVERY_MS = 30 * MIN;     // каждый поиск проверяем не чаще раза в 30 минут
 const WATCH_TICK_GAP_MS = 10 * MIN;  // общий обход — не чаще раза в 10 минут
@@ -5583,7 +5599,7 @@ async function handleWatchCreate(req, res) {
     const b = req.body || {};
     const prompt = typeof b.prompt === 'string' ? b.prompt.trim().slice(0, 400) : '';
     if (!prompt) return res.status(400).json({ ok: false, error: 'empty' });
-    if (!tgOn() || !(await tableReady('watches'))) return res.status(503).json({ ok: false, error: 'off' });
+    if (!watchTgOn() || !(await tableReady('watches'))) return res.status(503).json({ ok: false, error: 'off' });
     const row = {
         prompt,
         lang: ['tg', 'ru', 'uz'].includes(b.lang) ? b.lang : 'tg',
@@ -5594,11 +5610,14 @@ async function handleWatchCreate(req, res) {
     // следить можно только за лентой объявлений, вакансий или услуг
     if (!(await watchSpec(row))) return res.status(400).json({ ok: false, error: 'not_listing' });
     try {
-        const hook = await setupTgHook();
-        if (hook !== 'ok') return res.status(503).json({ ok: false, error: 'hook_' + hook });
+        // общий бот с заявками — его вебхук наш; отдельный бот слушает своя программа на Vercel
+        if (!watchOwnBot()) {
+            const hook = await setupTgHook();
+            if (hook !== 'ok') return res.status(503).json({ ok: false, error: 'hook_' + hook });
+        }
         const code = 'w' + crypto.randomBytes(12).toString('base64url');
         await sb('watches', { method: 'POST', body: { ...row, code, code_at: new Date().toISOString() }, prefer: 'return=minimal' });
-        const bot = await tgBotName();
+        const bot = await watchBotName();
         if (!bot) return res.status(503).json({ ok: false, error: 'off' });
         return res.json({ ok: true, url: `https://t.me/${bot}?start=${code}` });
     } catch (err) {
@@ -5617,7 +5636,12 @@ async function processWatchCommand(text, chat_id, say) {
     try {
         if (/^\/stop/i.test(text)) {
             await sb(`watches?chat_id=eq.${chat_id}`, { method: 'PATCH', body: { active: false }, prefer: 'return=minimal' });
-            return null; // дальше /stop обрабатывает и заявки продавца, ответ — общий
+            if (watchOwnBot()) {
+                const one = await sb(`watches?select=lang&chat_id=eq.${chat_id}&limit=1`).catch(() => []);
+                await say(watchTx(one && one[0] && one[0].lang).removed);
+                return 'stopped';
+            }
+            return null; // общий бот: дальше /stop обрабатывает и заявки продавца, ответ — общий
         }
         if (un) {
             const rows = await sb(`watches?select=id,lang&id=eq.${un[1]}&chat_id=eq.${chat_id}&limit=1`);
@@ -5662,7 +5686,7 @@ async function watchCheck(row) {
         const tx = watchTx(row.lang);
         const lines = fresh.slice(0, 5).map((it, i) => `${i + 1}. ${it.title}${it.price ? ` — ${it.price}` : ''}${it.place ? `, ${it.place}` : ''}\n${it.url}`);
         try {
-            await tgCall('sendMessage', { chat_id: row.chat_id, text: `${tx.fresh(watchLabel(row))}\n\n${lines.join('\n\n')}\n\n${tx.off}: /unwatch_${row.id}`.slice(0, 4000), disable_web_page_preview: true });
+            await tgCall('sendMessage', { chat_id: row.chat_id, text: `${tx.fresh(watchLabel(row))}\n\n${lines.join('\n\n')}\n\n${tx.off}: /unwatch_${row.id}`.slice(0, 4000), disable_web_page_preview: true }, watchBotToken());
             sent = Math.min(5, fresh.length);
         } catch (err) {
             // бот заблокирован или чат удалён — поиск выключаем
@@ -5679,7 +5703,7 @@ let watchTickAt = 0, watchTickBusy = false;
 async function watchTick(force) {
     if (watchTickBusy) return { ok: true, busy: true };
     if (!force && Date.now() - watchTickAt < WATCH_TICK_GAP_MS) return { ok: true, skipped: true };
-    if (!tgOn() || !(await tableReady('watches'))) return { ok: false, off: true };
+    if (!watchTgOn() || !(await tableReady('watches'))) return { ok: false, off: true };
     watchTickBusy = true; watchTickAt = Date.now();
     const out = { ok: true, checked: 0, sent: 0, errors: 0 };
     try {
@@ -5703,7 +5727,22 @@ async function handleWatchTick(req, res) {
     res.json(r);
 }
 
+// Команды поиска от программы бота на Vercel: { chat_id, text }, заголовок x-izamon-sign — подпись из токена бота
+async function handleWatchCmd(req, res) {
+    const got = Buffer.from(String(req.headers['x-izamon-sign'] || ''));
+    const want = Buffer.from(watchOwnBot() ? watchCmdSecret() : '-');
+    if (!watchOwnBot() || got.length !== want.length || !crypto.timingSafeEqual(got, want)) return res.status(403).json({ ok: false });
+    const chat_id = Number(req.body && req.body.chat_id);
+    const text = String(req.body && req.body.text || '').trim().slice(0, 200);
+    if (!Number.isSafeInteger(chat_id) || !text) return res.status(400).json({ ok: false });
+    const say = t => tgCall('sendMessage', { chat_id, text: t }, watchBotToken()).catch(err => console.warn(`[watch ответ Сбой]: ${scrub(err.message)}`));
+    const r = await processWatchCommand(text, chat_id, say);
+    // не команда поиска (или неизвестный код) — пусть программа бота ответит как обычно
+    return res.json({ ok: true, handled: !!r, result: r || null });
+}
+
 app.post('/api/watch', handleWatchCreate);
+app.post('/api/tg/watch-cmd', handleWatchCmd);
 app.get('/api/watch/tick', handleWatchTick);
 
 app.post('/api/orders', handleOrderCreate);
@@ -6156,5 +6195,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
