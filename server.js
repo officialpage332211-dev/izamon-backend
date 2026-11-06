@@ -3208,7 +3208,7 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
         if (count) gal = gal.slice(0, count);
         // Возраст объявления; у билетов и туров дата — это день вылета/поездки, а не публикации, поэтому возраста у них нет
         const age = kind === 'tickets' || kind === 'tours' || kind === 'places' ? null : (t.pub ? t.pub.ageMin : ageFromDate(it.date));
-        const base = { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
+        const base = { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: kind === 'places' ? '' : dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
             full: kind === 'tickets' || kind === 'tours' ? '' : fullText(photos.descs && photos.descs[i], t.listDesc),
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
         return fixed ? { ...base, ...fixedSlots(base, lang, fixed, { specs: photos.specs && photos.specs[i], desc: photos.descs && photos.descs[i], title0: t.title }) } : base;
