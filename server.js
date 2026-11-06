@@ -1229,7 +1229,7 @@ const KIND_TASK = {
     tours: 'Найди до 10 актуальных туров и поездок (по Таджикистану и из Таджикистана) у турагентств: цена, даты, оператор.',
     services: 'Найди до 10 актуальных предложений в Таджикистане (школы, курсы, учебные центры, услуги, магазины): название, цена, город, контакт, сайт.',
     masters: 'Найди до 10 самых свежих объявлений мастеров и специалистов по услугам (то, что просит запрос). Ищи сначала на somon.tj в разделе «Услуги», затем на других сайтах объявлений Таджикистана и в Telegram-каналах. Это услуги, а не недвижимость: площадь, этаж и год постройки в характеристики не пиши.',
-    places: 'Найди до 10 реальных мест в Таджикистане (то, что просит запрос): название, город или адрес, цена (только если она опубликована), телефон, сайт или страница. Только то, что есть на открытых тобой страницах; ничего не выдумывай.'
+    places: 'Найди до 10 реальных мест в Таджикистане (то, что просит запрос) из разных источников: название, город или адрес, телефон, часы работы. Ссылка — на страницу именно этого места (карточка в справочнике или на картах, страница заведения, где написан его телефон), а не на главную страницу сайта. Цену не пиши. Только то, что есть на открытых тобой страницах; ничего не выдумывай.'
 };
 const KIND_EMOJI = { ads: '🏷️', jobs: '💼', tickets: '✈️', tours: '🧳', services: '🏫', masters: '🛠️', places: '📍' };
 
@@ -3190,7 +3190,7 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
     const dates = await Promise.all(top.map(async it => {
         // Нет разбора времени со страницы somon.tj — пробуем обычную дату от модели («2026-11-01»): словами или ДД.ММ.ГГГГ.
         // У билетов и туров дата — день вылета или поездки, её не трогаем.
-        if (!it.pub) return kind === 'tickets' || kind === 'tours' ? null : dateLabel(pubFromDate(it.date), lang, '') || null;
+        if (!it.pub) return kind === 'tickets' || kind === 'tours' || kind === 'places' ? null : dateLabel(pubFromDate(it.date), lang, '') || null;
         let iso = '';
         if (it.pub.ageMin >= WEEK_MIN && process.env.PHOTO_CHECK !== 'off') {
             try { iso = pageDate((await withTimeout(getPage(it.url), 6000)).html); } catch { iso = ''; }
@@ -3207,7 +3207,7 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
         if (img && gal.length && gal[0] !== img) gal = [img, ...gal.filter(x => x !== img)];
         if (count) gal = gal.slice(0, count);
         // Возраст объявления; у билетов и туров дата — это день вылета/поездки, а не публикации, поэтому возраста у них нет
-        const age = kind === 'tickets' || kind === 'tours' ? null : (t.pub ? t.pub.ageMin : ageFromDate(it.date));
+        const age = kind === 'tickets' || kind === 'tours' || kind === 'places' ? null : (t.pub ? t.pub.ageMin : ageFromDate(it.date));
         const base = { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
             full: kind === 'tickets' || kind === 'tours' ? '' : fullText(photos.descs && photos.descs[i], t.listDesc),
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
@@ -3419,6 +3419,20 @@ url — обычная ссылка https://… (без Markdown и скобок
         return true;
     });
     if (!citedHosts.size) items = [];
+    // Места (аптеки, рестораны, гостиницы…): цену не показываем (на сайтах это «от 10 сомони» за доставку или знак «$»),
+    // ссылка — только на страницу самого места (главная страница сайта без телефона не годится), с одного сайта — не больше трёх
+    if (kind === 'places') {
+        const perHost = {};
+        items = items.filter(it => {
+            let path = '/';
+            try { path = new URL(it.url).pathname; } catch { path = '/'; }
+            if (/^\/?(?:[a-z]{2}(?:-[a-z]{2})?\/?)?$/i.test(path)) { drop.home = (drop.home || 0) + 1; return false; }
+            const h = hostOf(it.url);
+            perHost[h] = (perHost[h] || 0) + 1;
+            if (perHost[h] > 3) { drop.sameSite = (drop.sameSite || 0) + 1; return false; }
+            return true;
+        }).map(it => ({ ...it, price: '' }));
+    }
     // Билеты и туры: один и тот же маршрут (тур с той же ценой) с разных страниц показываем один раз
     if (kind === 'tickets' || kind === 'tours') {
         const seenT = new Set();
