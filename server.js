@@ -547,6 +547,15 @@ const DIRECTIVES = {
 - Не описывай раздел и не рассказывай, что умеешь: никаких «в этом разделе можно…».
 - Данные только из найденных источников. Нет конкретных дат, цен или названий — скажи об этом одной строкой, без общих фраз.
 - Не больше 3 пунктов, каждый — 1–2 короткие строки.`,
+    heart: `РЕЖИМ «ДИЛИ ПУР» (анонимно выговориться):
+- Человек пришёл поделиться чувствами, обидой, усталостью, тем, как прошёл день. Главное — выслушать и поддержать.
+- Сначала покажи, что услышал: коротко и своими словами назови его чувство. Без оценок, без упрёков, без лекций и без длинных советов.
+- Совет — только если человек просит, и тогда один маленький и выполнимый шаг.
+- Здесь можно (и нужно) закончить одним мягким вопросом, чтобы человек мог продолжить, если хочет.
+- Не спрашивай имя, адрес, телефон и другие личные данные. Этот разговор нигде не сохраняется.
+- Если человек сам говорит о вере — можно бережно напомнить о терпении (сабр) и надежде, без нравоучений.
+- Если есть угроза жизни или здоровью (его или чужому) — мягко, но прямо скажи: сейчас же позвонить 103 (скорая помощь) или 102 (милиция) и не оставаться одному, быть рядом с близким человеком.
+- Ты ИИ, не врач и не психолог: при долгой тоске, бессоннице, панике — бережно посоветуй обратиться к врачу или психологу.`,
     general: `РЕЖИМ ПОМОЩНИКА:
 - Помогай с любыми вопросами: наука, учёба, быт, чувства, планы, как прошёл день.
 - Объясняй по-простому и по делу.`
@@ -583,7 +592,7 @@ function buildSystemPrompt({ mode, lang, canSearch, date, strict = false }) {
 СТИЛЬ (строго):
 - По умолчанию 2–5 строк. Больше — только если человек просит подробно.
 - Сразу к сути: сначала данные или ответ. Не описывай раздел, не рассказывай, что умеешь, не пересказывай вопрос.
-- Никаких вопросов и приглашений в конце («уточните», «обращайтесь», «хотите ли…»). Один короткий вопрос допустим, только если без него невозможно ответить.
+- Никаких вопросов и приглашений в конце («уточните», «обращайтесь», «хотите ли…»), кроме режима «Дили пур». Один короткий вопрос допустим, только если без него невозможно ответить.
 - Без пожеланий и общих фраз ради вежливости.
 - Одна строка = одно короткое предложение с одним подходящим по смыслу эмодзи в начале; строки идут подряд, без пустых строк.
 - Простые слова, понятные и ребёнку, и пожилому человеку. Без таблиц, без длинных абзацев, без канцелярита.
@@ -753,7 +762,7 @@ function cleanModelText(text) {
         .trim();
 }
 
-const MODE_EMOJI = { ads: '🔹', jobs: '💼', finance: '💱', digest: '💡', general: '🔹' };
+const MODE_EMOJI = { ads: '🔹', jobs: '💼', finance: '💱', digest: '💡', general: '🔹', heart: '🤍' };
 const STARTS_EMOJI = /^\s*(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[0-9]️?⃣)/u;
 // Модель иногда ставит эмодзи в конце строки: переносим его в начало, чтобы все строки выглядели одинаково.
 const TRAIL_EMOJI = /^(.*?[^\s\p{Extended_Pictographic}\uFE0F\u200D])\s*((?:\p{Extended_Pictographic}[\uFE0F\u200D]*)+)\s*$/su;
@@ -3956,13 +3965,13 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             try {
                 const r = await run();
                 if (mixedLanguage(r.text, lang)) { kept = kept || { r, name }; continue; }
-                return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(r.text), mode !== 'general'), mode), [], lang), provider: name, grounded: false, sources: [] }, ttl: 0 };
+                return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(r.text), mode !== 'general' && mode !== 'heart'), mode), [], lang), provider: name, grounded: false, sources: [] }, ttl: 0 };
             } catch (err) {
                 console.warn(`[${name} Сбой]: ${err.status || ''} ${err.message}`);
             }
         }
         if (kept) {
-            return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(kept.r.text), mode !== 'general'), mode), [], lang), provider: kept.name, grounded: false, sources: [] }, ttl: 0 };
+            return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(kept.r.text), mode !== 'general' && mode !== 'heart'), mode), [], lang), provider: kept.name, grounded: false, sources: [] }, ttl: 0 };
         }
         return { body: { answer: ERR_FALLBACK[lang], provider: 'none', grounded: false, sources: [] }, ttl: 0 };
     } finally {
@@ -4023,8 +4032,11 @@ async function handleChat(req, res) {
     const routeOn = followUp ? `${lastUser.content} ${cleaned}` : cleaned;
     const routed = routeRequest({ cleaned: routeOn, topic, category });
     let { mode, factual, kind, somon } = routed;
+    // «Дили пур»: анонимно выговориться. Без поиска, без кэша; переписка нигде не хранится (история — только в открытой вкладке).
+    const heart = body.room === 'heart';
+    if (heart) { mode = 'heart'; factual = false; kind = null; somon = null; }
     // Набранный запрос («водитель», «iPhone 13», «диван»): сначала прямой поиск по сайтам объявлений
-    if (!topic && !somon && process.env.KEYWORD_SEARCH !== 'off') {
+    if (!heart && !topic && !somon && process.env.KEYWORD_SEARCH !== 'off') {
         const kw = keywordSpec(followUp ? cleaned : routeOn, mode);
         if (kw && (mode === 'ads' || mode === 'jobs')) { somon = kw; kind = mode === 'jobs' ? 'jobs' : 'ads'; factual = true; }
         else if (kw) {
@@ -6273,7 +6285,7 @@ async function handleDiag(req, res) {
         const askLang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'ru';
         const t0 = Date.now();
         let out = null;
-        await handleChat({ body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang, city: req.query.city, pmin: req.query.pmin, pmax: req.query.pmax }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
+        await handleChat({ body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang, city: req.query.city, pmin: req.query.pmin, pmax: req.query.pmax, room: req.query.room }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
         const html = String(out && out.answer || '');
         const urls = [...html.matchAll(/<a class="iz-lc-a" href="([^"]+)"/g)].map(m => m[1]);
         const titles = [...html.matchAll(/<div class="iz-lc-t">([^<]*)<\/div>/g)].map(m => m[1]);
