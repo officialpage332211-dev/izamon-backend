@@ -6263,7 +6263,9 @@ async function handleDiag(req, res) {
         const titles = [...html.matchAll(/<div class="iz-lc-t">([^<]*)<\/div>/g)].map(m => m[1]);
         const prices = [...html.matchAll(/<div class="iz-lc-p">([^<]*)<\/div>/g)].map(m => m[1]);
         const places = [...html.matchAll(/<div class="iz-lc-m">📍 ([^<·]*)/g)].map(m => m[1].trim());
-        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
+        // full=1: текст первых карточек целиком (что видит человек), для проверки цен и контактов
+        const full = req.query.full === '1' ? html.split('class="iz-lc"').slice(1, 4).map(c => c.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400)) : undefined;
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
     }
     // /diag?orders=1: проверка таблиц заявок на настоящей базе. Пишет одну пробную строку (заявка с номером 0 и продавцом «diag») и сразу её удаляет.
     if (req.query?.orders === '1') {
