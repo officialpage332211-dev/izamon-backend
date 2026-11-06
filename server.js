@@ -839,6 +839,20 @@ const TEXT_CARDS = {
     customs: { icon: '📦', head: { tg: 'Гумрук', ru: 'Растаможка', uz: 'Bojxona' }, max: 5 }
 };
 // «Растаможка»: под ответом всегда — официальные ссылки и честное «сумма ориентировочная». Своих ставок не считаем.
+// Две кнопки: телефон — официальная форма imei.tj (IMEI и код с картинки человек вводит сам); машина — звонок в Центр «Единое окно»
+// при Таможенной службе (номер с их сайта swcustoms.tj), пока нет официальной таблицы ставок для калькулятора.
+const CUSTOMS_BTN = {
+    ru: ['📱 Проверить сумму за телефон (imei.tj)', '🚗 Машина: позвонить в «Единое окно» таможни', 'Сайт «Единого окна»'],
+    tg: ['📱 Маблағи телефонро санҷед (imei.tj)', '🚗 Мошин: ба «Равзанаи ягона»-и гумрук занг занед', 'Сомонаи «Равзанаи ягона»'],
+    uz: ["📱 Telefon summasini tekshirish (imei.tj)", "🚗 Mashina: bojxona «Yagona darcha»siga qo'ng'iroq", "«Yagona darcha» sayti"]
+};
+function customsButtons(lang) {
+    const b = CUSTOMS_BTN[lang] || CUSTOMS_BTN.ru;
+    const st = 'display:block;width:100%;margin:6px 0 0;padding:10px 12px;text-align:center;text-decoration:none;box-sizing:border-box';
+    return `<div class="iz-cust"><a class="iz-btn on" style="${st}" href="https://imei.tj/price/checkform.php" target="_blank" rel="noopener noreferrer">${escapeHtml(b[0])}</a>` +
+        `<a class="iz-btn" style="${st}" href="tel:+992778885000">${escapeHtml(b[1])} · +992 77 888 5000</a>` +
+        `<a class="iz-btn" style="${st}" href="https://www.swcustoms.tj/" target="_blank" rel="noopener noreferrer">🌐 ${escapeHtml(b[2])}</a></div>`;
+}
 const CUSTOMS_LINKS = {
     ru: '🔗 Официально: Таможенная служба при Правительстве РТ — https://egov.tj/site/gumruk-tj\n📱 Телефоны: сумму по IMEI или модели показывает https://imei.tj/price/checkform.php\n⚠️ Цифры здесь ориентировочные: точную сумму уточняйте на таможне или у таможенного брокера.',
     tg: '🔗 Расман: Хадамоти гумруки назди Ҳукумати ҶТ — https://egov.tj/site/gumruk-tj\n📱 Телефонҳо: маблағро аз рӯи IMEI ё модел дар https://imei.tj/price/checkform.php дидан мумкин аст\n⚠️ Рақамҳо тахминӣ мебошанд: маблағи дақиқро дар гумрук ё аз брокери гумрукӣ пурсед.',
@@ -3930,7 +3944,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                     if (step) step.final = text.slice(0, 300);
                     if (!text.trim()) continue;
                     let web = TEXT_CARDS[kind] ? tipsAnswer(text, sources, lang, kind) : finalize(text, sources, lang);
-                    if (kind === 'customs') web += `\n${finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang)}`;
+                    if (kind === 'customs') web += `\n${finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang)}${customsButtons(lang)}`;
                     const made = { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(TEXT_CARDS[kind] ? { view: 'tips' } : {}) }, ttl: ttlFor(mode) };
                     if (kind === 'tips' || kind === 'facts') {
                         const n = (web.match(/class="iz-tip"/g) || []).length;
@@ -3948,7 +3962,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                 return { body: { answer: ownBlock, provider: 'izamon', grounded: true, sources: [] }, ttl: ttlFor(mode) };
             }
             // Источников нет — фактов не даём вообще («Растаможка»: только официальные ссылки).
-            if (kind === 'customs') return { body: { answer: finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
+            if (kind === 'customs') return { body: { answer: finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang) + customsButtons(lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: errored ? 0 : 3 * MIN };
         }
 
