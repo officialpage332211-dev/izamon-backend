@@ -262,7 +262,7 @@ const PORTAL_RULES = [
       somon: { sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], boards: [{ host: 'paydo.tj', path: 'telefony' }],  facts: 'phone', fixed: 'phone' },
       query: 'Найди актуальные объявления о продаже мобильных телефонов в Таджикистане, сначала на somon.tj: модель, память, состояние, цена, город, контакт продавца.' },
     { re: /^(?:кор\s+ва\s+шуғл|вакансии|ish)$/, mode: 'jobs',
-      somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], boards: [{ host: 'paydo.tj', path: 'vakansii' }, { host: 'ola.tj', path: 'vakansii' }],  notCat: /Banki-strahovanie-lizing/i, facts: 'job', fixed: 'job' },
+      somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], boards: [{ host: 'paydo.tj', path: 'vakansii' }, { host: 'ola.tj', path: 'vakansii' }],  notCat: /Banki-strahovanie-lizing/i, notWords: /(?<![\p{L}])(?:ищу|ишу|ищем\s+себе)\s+работ|кор\s+мекобам|ҷои\s+кор\s+мекобам|ish\s+qidir/iu, facts: 'job', fixed: 'job' },
       query: 'Найди актуальные вакансии в Таджикистане на сегодня, сначала на somon.tj: должность, зарплата, город, работодатель, график, контакт. ' + JOB_SKIP_TEXT },
     { re: /^(?:земли|заминҳои\s+кишт)$/, mode: 'ads', somon: SOMON_FARMLAND,
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане, сначала на somon.tj: площадь, цена, место, контакт владельца.' },
@@ -631,6 +631,8 @@ function mixedLanguage(text, lang) {
     if (latin.some(w => !LATIN_OK.has(w.toLowerCase()))) return true;
     if (lang === 'tg' && (RU_LEAK.test(t) || RU_WORDS.test(t) || RU_ENDINGS.test(t) || /[ыщьц]/i.test(t))) return true;
     if (lang === 'ru' && /[ӣӯқғҳҷ]/.test(t)) return true;
+    // Персидские (арабские) буквы посреди таджикского или русского текста («дар سیستم давлатӣ») — ошибка перевода
+    if ((lang === 'tg' || lang === 'ru') && /[\u0600-\u06FF]{2,}/.test(t)) return true;
     return false;
 }
 
@@ -3939,6 +3941,8 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                     // Последняя защита: чужой язык до человека не доходит. Не осталось строк — пробуем другой поиск.
                     if (mixedLanguage(text, lang)) text = dropMixedLines(text, lang);
                     text = capLines(shapeLines(dropHaramLines(cleanModelText(text), true), mode), kind === 'mmt' ? 12 : TEXT_CARDS[kind] ? TEXT_CARDS[kind].max : 10);
+                    // «Телефон: маълумот нест», «Адрес: нет данных» — пустые строки не показываем
+                    text = text.split('\n').filter(l => { const body = l.replace(/^[^\p{L}\d]*/u, ''); return !(body.includes(':') && blankValue(body)); }).join('\n');
                     if (kind === 'mmt') text = mmtLines(text, lang);
                     else if (kind === 'facts') text = factLines(text);
                     if (step) step.final = text.slice(0, 300);
