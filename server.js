@@ -229,6 +229,13 @@ const PORTAL_RULES = [
     { re: /^(?:замин\s+ва\s+тиҷоратӣ|земля\s+и\s+коммерческая|yer\s+va\s+tijorat)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
       somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], boards: [{ host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-arenda' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }, { host: 'ola.tj', path: 'pomeshcheniya' }],  mix: true, fixed: 'land' },
       query: 'Найди актуальные объявления о земельных участках под строительство и о коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: что это, площадь, цена, продажа или аренда, место, контакт. Жилые квартиры и дома не показывай.' },
+    // «Земля и коммерческая» — обширный раздел с вкладками: «Участки», «Сельхоз земли», «Помещения и офисы» (кнопки над карточками)
+    { re: /^(?:қитъаҳои\s+замин|участки|yer\s+uchastkalari)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/', page: 2 }], boards: [{ host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }],  fixed: 'land' },
+      query: 'Найди актуальные объявления о продаже земельных участков в Таджикистане, сначала на somon.tj: площадь (сотки), цена, место, контакт.' },
+    { re: /^(?:биноҳои\s+тиҷоратӣ|помещения\s+и\s+офисы|tijorat\s+binolari)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], boards: [{ host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-arenda' }, { host: 'ola.tj', path: 'pomeshcheniya' }],  mix: true, fixed: 'land' },
+      query: 'Найди актуальные объявления о продаже и аренде коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: площадь, цена, продажа или аренда, место, контакт.' },
     // Услуги: мастера и специалисты. Объявления берём с somon.tj (раздел «Услуги») и других сайтов.
     { re: /^(?:барқчӣ|электрик|elektrik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
       somon: { sources: [{ q: 'электрик' }, { q: 'электромонтаж' }], boards: [{ host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'paydo.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'ustanovka-oborudovaniya' }],  cat: SOMON_SERVICES, words: /электр|барқ|розетк|проводк|светильник|люстр|освещени|elektr/i, fixed: 'service' },
@@ -264,7 +271,7 @@ const PORTAL_RULES = [
     { re: /^(?:кор\s+ва\s+шуғл|вакансии|ish)$/, mode: 'jobs',
       somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], boards: [{ host: 'paydo.tj', path: 'vakansii' }, { host: 'ola.tj', path: 'vakansii' }],  notCat: /Banki-strahovanie-lizing/i, notWords: /(?<![\p{L}])(?:ищу|ишу|ищем\s+себе)\s+работ|кор\s+мекобам|ҷои\s+кор\s+мекобам|ish\s+qidir/iu, facts: 'job', fixed: 'job' },
       query: 'Найди актуальные вакансии в Таджикистане на сегодня, сначала на somon.tj: должность, зарплата, город, работодатель, график, контакт. ' + JOB_SKIP_TEXT },
-    { re: /^(?:земли|заминҳои\s+кишт)$/, mode: 'ads', somon: SOMON_FARMLAND,
+    { re: /^(?:земли|заминҳои\s+кишт|сельхоз\s+земли|ekin\s+yerlari)$/, mode: 'ads', somon: SOMON_FARMLAND,
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане, сначала на somon.tj: площадь, цена, место, контакт владельца.' },
     { re: /^yer$/, portal: /qishloq/, mode: 'ads', somon: SOMON_FARMLAND,
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане: площадь, цена, место, контакт владельца.' }
