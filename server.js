@@ -720,6 +720,20 @@ function dropHaramLines(text, quiet = false) {
 }
 
 // Тексты на таджикском и узбекском стоит показать носителю языка.
+// «Посев»: на этот месяц проверенных сроков посева нет — так и говорим (с названием месяца) и зовём спросить про свою культуру:
+// вопрос в разделе уходит в поиск с источниками.
+const SOW_MONTHS = {
+    ru: ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'],
+    tg: ['январ', 'феврал', 'март', 'апрел', 'май', 'июн', 'июл', 'август', 'сентябр', 'октябр', 'ноябр', 'декабр'],
+    uz: ['yanvar', 'fevral', 'mart', 'aprel', 'may', 'iyun', 'iyul', 'avgust', 'sentabr', 'oktabr', 'noyabr', 'dekabr']
+};
+function sowingNone(lang, date) {
+    const mi = Math.max(0, Math.min(11, Number(String(date && date.iso || '').slice(5, 7)) - 1 || 0));
+    const m = (SOW_MONTHS[lang] || SOW_MONTHS.ru)[mi];
+    if (lang === 'tg') return `🌱 Барои моҳи ${m} дар манбаъҳои кишоварзии боэътимод мӯҳлатҳои нави кишт ҳоло нест.\n✍️ Дар ҳамин ҷо дар бораи ҳар зироат пурсед — масалан, «картошкаро кай шинонам?» ё «боғро дар зимистон чӣ тавр нигоҳубин кунам?» — ман бо манбаъ ҷавоб медиҳам.`;
+    if (lang === 'uz') return `🌱 ${m.charAt(0).toUpperCase() + m.slice(1)} oyi uchun ishonchli agro-manbalarda ekish muddatlari hozircha yo'q.\n✍️ Shu yerda istalgan ekin haqida so'rang — masalan, «kartoshkani qachon ekaman?» yoki «bog'ni qishda qanday parvarish qilaman?» — manba bilan javob beraman.`;
+    return `🌱 На ${m} проверенных сроков посева в агро-источниках Таджикистана пока нет.\n✍️ Спросите здесь о любой культуре — например, «когда сажать картофель?» или «как ухаживать за садом зимой?» — я отвечу с источником.`;
+}
 // «ММТ» вне сезона: новых дат регистрации и экзаменов не объявлено — так и говорим, и даём официальный сайт Центра тестирования.
 const MMT_NONE = {
     ru: '📅 На сегодня новые даты регистрации и экзаменов ММТ не объявлены.\n🔔 Как только Национальный центр тестирования их объявит, они появятся здесь.\n🔗 Официальный сайт: https://ntc.tj/tj/',
@@ -3966,6 +3980,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                 return { body: { answer: ownBlock, provider: 'izamon', grounded: true, sources: [] }, ttl: ttlFor(mode) };
             }
             // Источников нет — фактов не даём вообще («Растаможка»: только официальные ссылки).
+            if (kind === 'sowing') return { body: { answer: finalize(sowingNone(lang, date), [], lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             if (kind === 'customs') return { body: { answer: finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang) + customsButtons(lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: errored ? 0 : 3 * MIN };
         }
