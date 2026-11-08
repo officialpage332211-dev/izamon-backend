@@ -5992,6 +5992,32 @@ const TG_SEC_TX = {
     ru: { wait: '⏳ Ищу…', more: 'Ещё на сайте', back: '⬅️ Разделы', open: 'Открыть', city: 'Город', price: 'Цена', any: 'все', none: 'Сейчас ничего не нашлось. Попробуйте чуть позже.', err: 'Произошла ошибка. Попробуйте чуть позже.' },
     uz: { wait: '⏳ Qidirilmoqda…', more: 'Saytda yana', back: "⬅️ Bo'limlar", open: 'Ochish', city: 'Shahar', price: 'Narx', any: 'barchasi', none: "Hozircha hech narsa topilmadi. Birozdan keyin urinib ko'ring.", err: "Xatolik yuz berdi. Birozdan keyin urinib ko'ring." }
 };
+// Вкладки разделов в боте — те же, что на сайте (izamon-trips.js): [название пункта для сервера, надпись на кнопке]
+const TAB_GROUPS = [
+    { tg: [['Сафарҳо', '🧳 Турҳо'], ['Меҳмонхонаҳо', '🏨 Меҳмонхонаҳо'], ['Ҷойҳои диданӣ', '🏛 Ҷойҳои диданӣ']],
+      ru: [['Поездки', '🧳 Туры'], ['Гостиницы', '🏨 Гостиницы'], ['Достопримечательности', '🏛 Достопримечательности']],
+      uz: [['Safar', '🧳 Turlar'], ['Mehmonxonalar', '🏨 Mehmonxonalar'], ['Diqqatga sazovor joylar', '🏛 Diqqatga sazovor joylar']] },
+    { tg: [['Замин ва тиҷоратӣ', '📋 Ҳама'], ['Қитъаҳои замин', '🏡 Қитъаҳо'], ['Заминҳои кишт', '🌾 Заминҳои кишт'], ['Биноҳои тиҷоратӣ', '🏢 Биноҳо ва офисҳо']],
+      ru: [['Земля и коммерческая', '📋 Всё'], ['Участки', '🏡 Участки'], ['Сельхоз земли', '🌾 Сельхоз земли'], ['Помещения и офисы', '🏢 Помещения и офисы']],
+      uz: [['Yer va tijorat', '📋 Hammasi'], ['Yer uchastkalari', '🏡 Uchastkalar'], ['Ekin yerlari', '🌾 Ekin yerlari'], ['Tijorat binolari', '🏢 Binolar va ofislar']] },
+    { tg: [['Устоҳо ба хона', '🧰 Ҳама'], ['Барқчӣ', '⚡ Барқчӣ'], ['Сантехник', '🚿 Сантехник'], ['Усто', '🔨 Таъмир ва ороиш'], ['Таъмири техника', '❄️ Таъмири техника'], ['Тирезаю дарҳо', '🪟 Тирезаю дарҳо'], ['Ҳаммолон ва кӯчонидан', '🚚 Ҳаммолон']],
+      ru: [['Мастера на дом', '🧰 Все'], ['Электрик', '⚡ Электрик'], ['Сантехник', '🚿 Сантехник'], ['Мастер', '🔨 Ремонт и отделка'], ['Ремонт техники', '❄️ Ремонт техники'], ['Окна и двери', '🪟 Окна и двери'], ['Грузчики и переезд', '🚚 Грузчики']],
+      uz: [['Uyga ustalar', '🧰 Hammasi'], ['Elektrik', '⚡ Elektrik'], ['Santexnik', '🚿 Santexnik'], ['Usta', "🔨 Ta'mir va pardoz"], ["Texnika ta'miri", "❄️ Texnika ta'miri"], ['Deraza va eshiklar', '🪟 Deraza va eshiklar'], ["Yukchilar va ko'chish", '🚚 Yukchilar']] }
+];
+// Группа вкладок, где главный пункт (первая вкладка) — это item; иначе null
+function tabGroupOf(item, lang) {
+    const it = String(item || '').trim().toLowerCase();
+    return TAB_GROUPS.find(g => ((g[lang] || g.tg)[0][0]).toLowerCase() === it) || null;
+}
+// Ссылки-кнопки из справок (ММТ, Растаможка, Коммунальные платежи): https — кнопками бота, tel: — остаются текстом
+function tgGuideLinks(html) {
+    const btns = [];
+    const rest = String(html || '').replace(/<a class="iz-btn[^"]*"[^>]*href="(https:[^"]+)"[^>]*>([\s\S]*?)<\/a>/g, (m, href, label) => {
+        btns.push({ text: tgDecode(label.replace(/<[^>]+>/g, '')).trim().slice(0, 60), url: tgDecode(href) });
+        return '';
+    });
+    return { btns: btns.slice(0, 8), rest };
+}
 // Цена в боте — готовые промежутки (сомони); номер промежутка ходит в кнопках. Тот же список — в программе бота (api/telegram.js).
 const TG_CITY_NAMES = {
     dushanbe: { tg: 'Душанбе', ru: 'Душанбе', uz: 'Dushanbe' }, khujand: { tg: 'Хуҷанд', ru: 'Худжанд', uz: "Xo'jand" }, bokhtar: { tg: 'Бохтар', ru: 'Бохтар', uz: "Bo'xtar" },
@@ -6023,7 +6049,7 @@ function tgCards(html) {
         };
     }).filter(x => x.title && /^https:\/\//.test(x.url));
 }
-async function tgSectionRun({ chat_id, lang, s, portal, item, city = '', price = 0 }) {
+async function tgSectionRun({ chat_id, lang, s, portal, item, city = '', price = 0, tab = 0 }) {
     const tx = TG_SEC_TX[lang] || TG_SEC_TX.tg;
     const send = (method, payload) => tgCall(method, { chat_id, ...payload }, watchBotToken());
     const cid = cityById(city) ? city : '-';
@@ -6034,6 +6060,19 @@ async function tgSectionRun({ chat_id, lang, s, portal, item, city = '', price =
          { text: `💰 ${tx.price}: ${pr ? tgPriceLabel(pr) : tx.any}`, callback_data: `fp:${lang}:${s}:${cid}:${pr}` }],
         [{ text: `🌐 ${tx.more}`, url: `${SITE_BASE}?lang=${lang}&s=${s}` }, { text: tx.back, callback_data: `m:${lang}` }]
     ] } };
+    // вкладки раздела (как на сайте): по две в ряд, выбранная — с ✅; сервер ищет по пункту выбранной вкладки
+    const group = tabGroupOf(item, lang);
+    if (group) {
+        const list = group[lang] || group.tg;
+        const k = Math.max(0, Math.min(list.length - 1, Number(tab) || 0));
+        const rows = [];
+        list.forEach((t, n) => {
+            const b = { text: `${n === k ? '✅ ' : ''}${t[1]}`.slice(0, 40), callback_data: `t:${lang}:${s}:${n}` };
+            if (n % 2 === 0) rows.push([b]); else rows[rows.length - 1].push(b);
+        });
+        tail.reply_markup.inline_keyboard.unshift(...rows);
+        item = list[k][0];
+    }
     await send('sendChatAction', { action: 'typing' }).catch(() => {});
     let out = null;
     const prompt = `[Lang: ${lang}] [MODULE: LOCAL_SERVICE_CARD] Выдай предложения по запросу "${portal} - ${item}".`;
@@ -6063,8 +6102,10 @@ async function tgSectionRun({ chat_id, lang, s, portal, item, city = '', price =
         await send('sendMessage', { text: `${portal.replace(/^\d+\.\s*/, '')} → ${item}${cid !== '-' ? ` · 📍 ${(TG_CITY_NAMES[cid] || {})[lang] || cid}` : ''}${pr ? ` · 💰 ${tgPriceLabel(pr)}` : ''}`, ...tail });
         return 'cards';
     }
-    const text = tgText(html);
-    await send('sendMessage', { text: (text || tx.none).slice(0, 4000), disable_web_page_preview: true, ...tail });
+    const guide = tgGuideLinks(html);
+    const text = tgText(guide.rest);
+    const markup = guide.btns.length ? { reply_markup: { inline_keyboard: [...guide.btns.map(x => [x]), ...tail.reply_markup.inline_keyboard] } } : tail;
+    await send('sendMessage', { text: (text || tx.none).slice(0, 4000), disable_web_page_preview: true, ...markup });
     return text ? 'text' : 'none';
 }
 async function handleTgSection(req, res) {
@@ -6080,7 +6121,8 @@ async function handleTgSection(req, res) {
     const price = Math.max(0, Math.min(TG_PRICES.length - 1, Math.floor(Number(b.price) || 0)));
     if (!Number.isSafeInteger(chat_id) || !s || !portal || !item) return res.status(400).json({ ok: false });
     res.json({ ok: true }); // отвечаем сразу, дальше работаем сами
-    try { await tgSectionRun({ chat_id, lang, s, portal, item, city, price }); }
+    const tab = Math.max(0, Math.min(9, Math.floor(Number(b.tab) || 0)));
+    try { await tgSectionRun({ chat_id, lang, s, portal, item, city, price, tab }); }
     catch (err) {
         console.warn(`[tg раздел Сбой]: ${scrub(err && err.message || err)}`);
         tgCall('sendMessage', { chat_id, text: (TG_SEC_TX[lang] || TG_SEC_TX.tg).err }, watchBotToken()).catch(() => {});
