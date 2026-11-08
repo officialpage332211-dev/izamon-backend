@@ -229,6 +229,8 @@ const PORTAL_RULES = [
     // «Коммунальные платежи»: новости и способы оплаты (без тарифов и сумм) + постоянная справка с проверенными контактами
     { re: /^(?:пардохти\s+коммуналӣ|коммунальные\s+платежи|kommunal\s+to.?lovlar)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'utilities',
       query: 'Найди на официальных и новостных сайтах Таджикистана (asiaplus.news, khovar.tj, avesta.tj, сайты банков и коммунальных служб) актуальные новости о том, как оплачивать коммунальные услуги (свет, вода, газ, отопление, вывоз мусора): новые способы оплаты, сроки, где получить счёт. Тарифы и суммы не называй. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение.' },
+    // «Госуслуги»: постоянная справка с официальными ссылками (GOV_GUIDE), без поиска
+    { re: /^(?:хизматрасониҳои\s+давлатӣ|госуслуги|davlat\s+xizmatlari)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'gov', query: 'Госуслуги' },
     // «Поездки» → вкладки «Гостиницы» и «Достопримечательности» (кнопки над карточками туров)
     { re: /^(?:меҳмонхонаҳо|гостиницы|mehmonxonalar)$/, portal: /нақлиёт|транспорт|transport/, mode: 'digest', kind: 'places',
       query: 'Найди гостиницы и места проживания в Таджикистане (Душанбе, Худжанд, Хорог, Искандеркуль и другие места): название, город, цена за ночь (только если опубликована), телефон, сайт или страница бронирования. Не показывай места, где главное — бар, ночной клуб или казино.' },
@@ -976,6 +978,33 @@ const UTIL_GUIDE = {
         { head: "🛡 Ehtiyot bo'ling", text: ["Faqat rasmiy SMS havolasi yoki o'z bankingiz ilovasi orqali to'lang. Begona havolalarga o'tmang."] }
     ]
 };
+// «Госуслуги»: постоянная справка без ИИ (мгновенно, без ошибок). Проверено 08.11.2026:
+// портал ekhizmat.tj — более 116 услуг, в т.ч. справки о судимости (Avesta.tj, 16.07.2026); вход — идентификация в Центре госуслуг
+// (Душанбе, ул. Бехзод 47А, паспорт + телефон) и приложение IMZO (Asia-Plus, 06.04.2026); ИНН онлайн на andoz.tj → «Физические лица» →
+// «Регистрация ИНН», ответ по SMS, справка PDF на почту (Asia-Plus, 15.11.2024); канал Налогового комитета t.me/nalogtojik;
+// МВД — vkd.tj, справочный телефон 1919 (сайт МВД); справка о несудимости — также в Информационном центре МВД, за рубежом — в консульстве (Asia-Plus, 12.10.2023);
+// Главное консульское управление МИД — consular.tj.
+const GOV_GUIDE = {
+    ru: [
+        { head: '🏛 Единый портал госуслуг', text: ['Больше 116 услуг онлайн: например, справка о судимости (несудимости), разрешение на тонировку, доверенность на машину.', 'Чтобы войти: один раз подойдите с паспортом и телефоном в Центр госуслуг (Душанбе, ул. Бехзод, 47А), затем установите приложение IMZO.'], btns: [{ label: '🌐 Открыть ekhizmat.tj', href: 'https://ekhizmat.tj/', main: true }] },
+        { head: '🧾 ИНН онлайн', text: ['На сайте Налогового комитета: «Физические лица» → «Регистрация ИНН».', 'Нужны фото с документом и паспорт или свидетельство о рождении. ИНН придёт по SMS, справка — на почту.'], btns: [{ label: '🧾 Получить ИНН (andoz.tj)', href: 'https://andoz.tj/' }, { label: '📢 Налоговый комитет в Telegram', href: 'https://t.me/nalogtojik' }] },
+        { head: '🪪 Паспорт и прописка', text: ['Паспорт, загранпаспорт и прописку оформляет паспортно-регистрационная служба МВД по месту жительства.', 'За рубежом — в консульстве Таджикистана.'], btns: [{ label: '📞 Справочная МВД · 1919', href: 'tel:1919' }, { label: '🌐 Сайт МВД (vkd.tj)', href: 'https://vkd.tj/' }, { label: '🌍 Консульская служба МИД (consular.tj)', href: 'https://consular.tj/' }] },
+        { head: '🛡 Осторожно', text: ['Оформляйте только на официальных сайтах. Никому не называйте коды из SMS и не отдавайте паспорт посредникам.'] }
+    ],
+    tg: [
+        { head: '🏛 Портали ягонаи хизматрасониҳои давлатӣ', text: ['Зиёда аз 116 хизмат онлайн: масалан, маълумотнома дар бораи доғи судӣ (набудани он), иҷозат барои тонировка, ваколатнома барои мошин.', 'Барои ворид шудан: як маротиба бо шиноснома ва телефон ба Маркази хизматрасониҳои давлатӣ (Душанбе, кӯчаи Беҳзод, 47А) равед, баъд барномаи IMZO-ро насб кунед.'], btns: [{ label: '🌐 Кушодани ekhizmat.tj', href: 'https://ekhizmat.tj/', main: true }] },
+        { head: '🧾 РМА онлайн', text: ['Дар сомонаи Кумитаи андоз: «Шахсони воқеӣ» → «Бақайдгирии РМА».', 'Акс бо ҳуҷҷат ва шиноснома ё шаҳодатномаи таваллуд лозим аст. РМА бо SMS меояд, маълумотнома — ба почтаи электронӣ.'], btns: [{ label: '🧾 Гирифтани РМА (andoz.tj)', href: 'https://andoz.tj/' }, { label: '📢 Кумитаи андоз дар Telegram', href: 'https://t.me/nalogtojik' }] },
+        { head: '🪪 Шиноснома ва бақайдгирӣ', text: ['Шиноснома, шинономаи хориҷӣ ва бақайдгириро хадамоти шиносномадиҳӣ ва бақайдгирии ВКД дар ҷои истиқомат мекунад.', 'Дар хориҷа — дар консулгарии Тоҷикистон.'], btns: [{ label: '📞 Хадамоти маълумотии ВКД · 1919', href: 'tel:1919' }, { label: '🌐 Сомонаи ВКД (vkd.tj)', href: 'https://vkd.tj/' }, { label: '🌍 Хадамоти консулии ВКХ (consular.tj)', href: 'https://consular.tj/' }] },
+        { head: '🛡 Эҳтиёт шавед', text: ['Танҳо дар сомонаҳои расмӣ ҳуҷҷат кунед. Рамзҳои SMS-ро ба касе нагӯед ва шиносномаро ба миёнаравҳо надиҳед.'] }
+    ],
+    uz: [
+        { head: "🏛 Davlat xizmatlarining yagona portali", text: ["116 dan ortiq xizmat onlayn: masalan, sudlanganlik (sudlanmaganlik) haqida ma'lumotnoma, tonirovka uchun ruxsat, mashina uchun ishonchnoma.", "Kirish uchun: bir marta pasport va telefon bilan Davlat xizmatlari markaziga (Dushanbe, Behzod ko'chasi, 47A) boring, keyin IMZO ilovasini o'rnating."], btns: [{ label: '🌐 ekhizmat.tj ni ochish', href: 'https://ekhizmat.tj/', main: true }] },
+        { head: '🧾 STIR (INN) onlayn', text: ["Soliq qo'mitasi saytida: «Jismoniy shaxslar» → «INN ro'yxatdan o'tkazish».", "Hujjat bilan surat va pasport yoki tug'ilganlik guvohnomasi kerak. INN SMS orqali keladi, ma'lumotnoma — elektron pochtaga."], btns: [{ label: '🧾 INN olish (andoz.tj)', href: 'https://andoz.tj/' }, { label: "📢 Soliq qo'mitasi Telegramda", href: 'https://t.me/nalogtojik' }] },
+        { head: "🪪 Pasport va ro'yxatga olish", text: ["Pasport, xorijiy pasport va ro'yxatga olishni IIV pasport-ro'yxatga olish xizmati yashash joyida rasmiylashtiradi.", "Chet elda — Tojikiston konsulligida."], btns: [{ label: "📞 IIV ma'lumot xizmati · 1919", href: 'tel:1919' }, { label: '🌐 IIV sayti (vkd.tj)', href: 'https://vkd.tj/' }, { label: '🌍 TIV konsullik xizmati (consular.tj)', href: 'https://consular.tj/' }] },
+        { head: "🛡 Ehtiyot bo'ling", text: ["Faqat rasmiy saytlarda rasmiylashtiring. SMS kodlarini hech kimga aytmang va pasportni vositachilarga bermang."] }
+    ]
+};
+function govButtons(lang) { return guideBlock(GOV_GUIDE[lang] || GOV_GUIDE.ru); }
 function utilButtons(lang) { return guideBlock(UTIL_GUIDE[lang] || UTIL_GUIDE.ru); }
 function mmtButtons(lang) { return guideBlock(MMT_GUIDE[lang] || MMT_GUIDE.ru); }
 const CUSTOMS_LINKS = {
@@ -4021,6 +4050,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
     }
     active++;
     try {
+        if (factual && kind === 'gov') return { body: { answer: govButtons(lang), provider: 'none', grounded: true, sources: [] }, ttl: 60 * MIN };
         if (factual) {
             // Сначала объявления самого iZamoN (с контактом автора), затем поиск по интернету.
             let ownBlock = '';
