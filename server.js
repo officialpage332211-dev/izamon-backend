@@ -882,17 +882,62 @@ const CUSTOMS_BTN = {
     tg: ['📱 Маблағи телефонро санҷед (imei.tj)', '🚗 Мошин: ба «Равзанаи ягона»-и гумрук занг занед', 'Сомонаи «Равзанаи ягона»'],
     uz: ["📱 Telefon summasini tekshirish (imei.tj)", "🚗 Mashina: bojxona «Yagona darcha»siga qo'ng'iroq", "«Yagona darcha» sayti"]
 };
-function customsButtons(lang) {
-    const b = CUSTOMS_BTN[lang] || CUSTOMS_BTN.ru;
-    const st = 'display:block;width:100%;margin:6px 0 0;padding:10px 12px;text-align:center;text-decoration:none;box-sizing:border-box';
-    return `<div class="iz-cust"><a class="iz-btn on" style="${st}" href="https://imei.tj/price/checkform.php" target="_blank" rel="noopener noreferrer">${escapeHtml(b[0])}</a>` +
-        `<a class="iz-btn" style="${st}" href="tel:+992778885000">${escapeHtml(b[1])} · +992 77 888 5000</a>` +
-        `<a class="iz-btn" style="${st}" href="https://www.swcustoms.tj/" target="_blank" rel="noopener noreferrer">🌐 ${escapeHtml(b[2])}</a></div>`;
+// Карточки-справки с кнопками (ММТ, Растаможка): заголовок, 1–2 проверенные строки и кнопки на официальные страницы
+function guideBlock(parts) {
+    const card = 'margin:8px 0 0;padding:12px 14px;border:1px solid var(--border-color);border-radius:14px;background:var(--card-bg);line-height:1.45';
+    const btn = 'display:block;width:100%;margin:8px 0 0;padding:10px 12px;text-align:center;text-decoration:none;box-sizing:border-box';
+    return '<div class="iz-guide">' + parts.map(p => `<div style="${card}"><div style="font-weight:800;font-size:15px">${escapeHtml(p.head)}</div>` +
+        (p.text || []).map(t => `<div style="margin-top:6px">${escapeHtml(t)}</div>`).join('') +
+        (p.btns || []).map(b => `<a class="iz-btn${b.main ? ' on' : ''}" style="${btn}" href="${escapeAttr(b.href)}"${/^https:/.test(b.href) ? ' target="_blank" rel="noopener noreferrer"' : ''}>${escapeHtml(b.label)}</a>`).join('') +
+        '</div>').join('') + '</div>';
 }
+// «Растаможка»: телефон (регистрация IMEI и сумма — официальная форма imei.tj), машина (запрет ввоза до 2013 года — Постановление
+// Правительства №355 от 2 августа 2023, khovar.tj; звонок в Центр «Единое окно» при Таможенной службе, номер с swcustoms.tj)
+const CUSTOMS_GUIDE = {
+    ru: [
+        { head: '📱 Телефон', text: ['Каждый телефон с SIM-картой регистрируется по IMEI.', 'Сумму за свой телефон можно узнать по IMEI или модели — на официальной форме.'], btns: [{ label: '📱 Проверить сумму за телефон (imei.tj)', href: 'https://imei.tj/price/checkform.php', main: true }] },
+        { head: '🚗 Машина', text: ['Ввоз машин, выпущенных до 2013 года, запрещён (Постановление Правительства №355 от 2 августа 2023).', 'Точную сумму за машину назовут в таможне или у брокера.'], btns: [{ label: '📞 Позвонить в «Единое окно» таможни · +992 77 888 5000', href: 'tel:+992778885000' }, { label: '🌐 Сайт «Единого окна»', href: 'https://www.swcustoms.tj/' }] },
+        { head: '🏛 Официально', text: ['Таможенная служба при Правительстве Республики Таджикистан.'], btns: [{ label: '🔗 Страница таможни на egov.tj', href: 'https://egov.tj/site/gumruk-tj' }] }
+    ],
+    tg: [
+        { head: '📱 Телефон', text: ['Ҳар телефони дорои SIM-корт аз рӯи IMEI ба қайд гирифта мешавад.', 'Маблағи телефонатонро аз рӯи IMEI ё модел дар шакли расмӣ фаҳмидан мумкин аст.'], btns: [{ label: '📱 Маблағи телефонро санҷед (imei.tj)', href: 'https://imei.tj/price/checkform.php', main: true }] },
+        { head: '🚗 Мошин', text: ['Воридоти мошинҳое, ки то соли 2013 истеҳсол шудаанд, манъ аст (Қарори Ҳукумат №355 аз 2 августи 2023).', 'Маблағи дақиқро дар гумрук ё аз брокер пурсед.'], btns: [{ label: '📞 Ба «Равзанаи ягона»-и гумрук занг занед · +992 77 888 5000', href: 'tel:+992778885000' }, { label: '🌐 Сомонаи «Равзанаи ягона»', href: 'https://www.swcustoms.tj/' }] },
+        { head: '🏛 Расман', text: ['Хадамоти гумруки назди Ҳукумати Ҷумҳурии Тоҷикистон.'], btns: [{ label: '🔗 Саҳифаи гумрук дар egov.tj', href: 'https://egov.tj/site/gumruk-tj' }] }
+    ],
+    uz: [
+        { head: '📱 Telefon', text: ["SIM-kartali har bir telefon IMEI bo'yicha ro'yxatdan o'tkaziladi.", "Telefoningiz summasini IMEI yoki model bo'yicha rasmiy shaklda bilish mumkin."], btns: [{ label: '📱 Telefon summasini tekshirish (imei.tj)', href: 'https://imei.tj/price/checkform.php', main: true }] },
+        { head: '🚗 Mashina', text: ["2013-yilgacha ishlab chiqarilgan mashinalarni olib kirish taqiqlangan (Hukumat qarori №355, 2023-yil 2-avgust).", "Aniq summani bojxonada yoki brokerdan so'rang."], btns: [{ label: "📞 Bojxona «Yagona darcha»siga qo'ng'iroq · +992 77 888 5000", href: 'tel:+992778885000' }, { label: '🌐 «Yagona darcha» sayti', href: 'https://www.swcustoms.tj/' }] },
+        { head: '🏛 Rasmiy', text: ['Tojikiston Respublikasi Hukumati huzuridagi Bojxona xizmati.'], btns: [{ label: '🔗 Bojxona sahifasi (egov.tj)', href: 'https://egov.tj/site/gumruk-tj' }] }
+    ]
+};
+function customsButtons(lang) { return guideBlock(CUSTOMS_GUIDE[lang] || CUSTOMS_GUIDE.ru); }
+// «ММТ»: официальные материалы Национального центра тестирования (ntc.tj): типовые тестовые задания 2026,
+// план приёма 2026–2027 (специальности), подбор специальности, официальный Telegram-канал
+const MMT_GUIDE = {
+    ru: [{ head: '🎓 Подготовка к ММТ — официально', text: ['Всё ниже — с сайта Национального центра тестирования.'], btns: [
+        { label: '📝 Типовые тестовые задания 2026 (с ответами)', href: 'https://ntc.tj/ru/obyavleniya2.html', main: true },
+        { label: '🏫 План приёма 2026–2027: специальности', href: 'https://ntc.tj/tj/ba-dovtalab/nakshai-kabul.html' },
+        { label: '🎯 Подобрать специальность', href: 'https://spec.ntc.tj/' },
+        { label: '📢 Новости центра в Telegram', href: 'https://t.me/officialntc' },
+        { label: '🌐 Сайт ntc.tj', href: 'https://ntc.tj/tj/' }] }],
+    tg: [{ head: '🎓 Омодагӣ ба ММТ — расмӣ', text: ['Ҳама чиз дар поён — аз сомонаи Маркази миллии тестӣ.'], btns: [
+        { label: '📝 Супоришҳои намунавии тестӣ 2026 (бо ҷавобҳо)', href: 'https://ntc.tj/ru/obyavleniya2.html', main: true },
+        { label: '🏫 Нақшаи қабул 2026–2027: ихтисосҳо', href: 'https://ntc.tj/tj/ba-dovtalab/nakshai-kabul.html' },
+        { label: '🎯 Интихоби ихтисос', href: 'https://spec.ntc.tj/' },
+        { label: '📢 Хабарҳои марказ дар Telegram', href: 'https://t.me/officialntc' },
+        { label: '🌐 Сомонаи ntc.tj', href: 'https://ntc.tj/tj/' }] }],
+    uz: [{ head: '🎓 MMTga tayyorgarlik — rasmiy', text: ["Quyidagilarning barchasi Milliy test markazi saytidan."], btns: [
+        { label: '📝 Namunaviy test topshiriqlari 2026 (javoblari bilan)', href: 'https://ntc.tj/ru/obyavleniya2.html', main: true },
+        { label: "🏫 Qabul rejasi 2026–2027: mutaxassisliklar", href: 'https://ntc.tj/tj/ba-dovtalab/nakshai-kabul.html' },
+        { label: '🎯 Mutaxassislik tanlash', href: 'https://spec.ntc.tj/' },
+        { label: '📢 Markaz yangiliklari Telegramda', href: 'https://t.me/officialntc' },
+        { label: '🌐 ntc.tj sayti', href: 'https://ntc.tj/tj/' }] }]
+};
+function mmtButtons(lang) { return guideBlock(MMT_GUIDE[lang] || MMT_GUIDE.ru); }
 const CUSTOMS_LINKS = {
-    ru: '🔗 Официально: Таможенная служба при Правительстве РТ — https://egov.tj/site/gumruk-tj\n📱 Телефоны: сумму по IMEI или модели показывает https://imei.tj/price/checkform.php\n⚠️ Цифры здесь ориентировочные: точную сумму уточняйте на таможне или у таможенного брокера.',
-    tg: '🔗 Расман: Хадамоти гумруки назди Ҳукумати ҶТ — https://egov.tj/site/gumruk-tj\n📱 Телефонҳо: маблағро аз рӯи IMEI ё модел дар https://imei.tj/price/checkform.php дидан мумкин аст\n⚠️ Рақамҳо тахминӣ мебошанд: маблағи дақиқро дар гумрук ё аз брокери гумрукӣ пурсед.',
-    uz: "🔗 Rasmiy: Tojikiston Hukumati huzuridagi Bojxona xizmati — https://egov.tj/site/gumruk-tj\n📱 Telefonlar: IMEI yoki model bo'yicha summani https://imei.tj/price/checkform.php ko'rsatadi\n⚠️ Raqamlar taxminiy: aniq summani bojxonada yoki bojxona brokeridan so'rang."
+    ru: '⚠️ Цифры здесь ориентировочные: точную сумму уточняйте на таможне или у таможенного брокера.',
+    tg: '⚠️ Рақамҳо тахминӣ мебошанд: маблағи дақиқро дар гумрук ё аз брокери гумрукӣ пурсед.',
+    uz: "⚠️ Raqamlar taxminiy: aniq summani bojxonada yoki bojxona brokeridan so'rang."
 };
 const TIP_LINE = /^(\p{Extended_Pictographic}(?:[\uFE0F\u200D]|\p{Extended_Pictographic})*)\s*(.*)$/su;
 // Модель иногда пишет «🌾Пшеница:Посев в ноябре» без пробелов — тогда строка не узнаётся как карточка. Ставим пробел после значка и после двоеточия в заголовке.
@@ -3926,11 +3971,11 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                         const r = await searchMmt({ date, trace });
                         const lines = r && mmtFromData(r.data, lang, date.iso);
                         if (trace) trace.push({ engine: 'json', attempt, lines: String(lines || '').slice(0, 300) });
-                        if (lines) return { body: { answer: tipsAnswer(lines, r.sources, lang, 'mmt'), provider: 'openai', grounded: true, sources: r.sources, view: 'tips' }, ttl: ttlFor(mode) };
+                        if (lines) return { body: { answer: tipsAnswer(lines, r.sources, lang, 'mmt') + mmtButtons(lang), provider: 'openai', grounded: true, sources: r.sources, view: 'tips' }, ttl: ttlFor(mode) };
                     } catch (err) { console.warn(`[mmt Сбой]: ${err.status || ''} ${err.message}`); }
                 }
                 // Текстовым поиском «ММТ» не отвечаем: он путал даты (регистрацию принимал за экзамен). Нет дат — честное «данных нет».
-                return { body: { answer: finalize(MMT_NONE[lang] || MMT_NONE.tg, [], lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
+                return { body: { answer: finalize(MMT_NONE[lang] || MMT_NONE.tg, [], lang) + mmtButtons(lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             }
             if (openai && KIND_TASK[kind]) {
                 try {
