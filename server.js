@@ -212,6 +212,9 @@ const PORTAL_RULES = [
     // «Растаможка»: правила с официальных и новостных сайтов, без выдуманных ставок; ссылки — всегда
     { re: /^(?:гумрук|растаможка|bojxona)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'customs',
       query: 'Найди актуальные правила растаможки в Таджикистане для обычных людей: ввоз автомобиля (из чего складывается сумма, какие документы нужны, где оформлять) и телефонов (регистрация IMEI, как узнать сумму). Бери официальные сайты (egov.tj, imei.tj) и новостные (khovar.tj, asiaplustj.info, avesta.tj). Ставки, проценты и суммы пошлин не называй вообще (источники часто расходятся, например «20%» и «20 евро»): пиши только, что нужно сделать, какие ограничения действуют, где оформить и где узнать точную сумму. Ничего не выдумывай. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение.' },
+    // «Коммунальные платежи»: новости и способы оплаты (без тарифов и сумм) + постоянная справка с проверенными контактами
+    { re: /^(?:пардохти\s+коммуналӣ|коммунальные\s+платежи|kommunal\s+to.?lovlar)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'utilities',
+      query: 'Найди на официальных и новостных сайтах Таджикистана (asiaplus.news, khovar.tj, avesta.tj, сайты банков и коммунальных служб) актуальные новости о том, как оплачивать коммунальные услуги (свет, вода, газ, отопление, вывоз мусора): новые способы оплаты, сроки, где получить счёт. Тарифы и суммы не называй. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение.' },
     // «Поездки» → вкладки «Гостиницы» и «Достопримечательности» (кнопки над карточками туров)
     { re: /^(?:меҳмонхонаҳо|гостиницы|mehmonxonalar)$/, portal: /нақлиёт|транспорт|transport/, mode: 'digest', kind: 'places',
       query: 'Найди гостиницы и места проживания в Таджикистане (Душанбе, Худжанд, Хорог, Искандеркуль и другие места): название, город, цена за ночь (только если опубликована), телефон, сайт или страница бронирования. Не показывай места, где главное — бар, ночной клуб или казино.' },
@@ -872,7 +875,8 @@ const TEXT_CARDS = {
     mmt: { icon: '🎓', head: { tg: 'ММТ', ru: 'ММТ', uz: 'MMT' }, max: 3 },
     facts: { icon: '📚', head: { tg: 'Донишномаҳо', ru: 'Энциклопедии', uz: 'Kitoblar' }, max: 3 },
     sowing: { icon: '🌱', head: { tg: 'Кишт', ru: 'Посев', uz: 'Ekin' }, max: 3 },
-    customs: { icon: '📦', head: { tg: 'Гумрук', ru: 'Растаможка', uz: 'Bojxona' }, max: 5 }
+    customs: { icon: '📦', head: { tg: 'Гумрук', ru: 'Растаможка', uz: 'Bojxona' }, max: 5 },
+    utilities: { icon: '🧾', head: { tg: 'Пардохти коммуналӣ', ru: 'Коммунальные платежи', uz: "Kommunal to'lovlar" }, max: 4 }
 };
 // «Растаможка»: под ответом всегда — официальные ссылки и честное «сумма ориентировочная». Своих ставок не считаем.
 // Две кнопки: телефон — официальная форма imei.tj (IMEI и код с картинки человек вводит сам); машина — звонок в Центр «Единое окно»
@@ -933,6 +937,27 @@ const MMT_GUIDE = {
         { label: '📢 Markaz yangiliklari Telegramda', href: 'https://t.me/officialntc' },
         { label: '🌐 ntc.tj sayti', href: 'https://ntc.tj/tj/' }] }]
 };
+// «Коммунальные платежи»: «Единый коммунальный платёж» в Душанбе (пилот в районе Сино с августа 2026) — по статье Asia-Plus
+// от 25.09.2026: свет, вода, отопление, вывоз мусора и жилфонд одним платежом; номер счёта и ссылка — в SMS; 15 дней на оплату;
+// приложения Эсхата, Alif mobi, DC Next, Амонат мобайл; колл-центр 3322, Telegram-поддержка t.me/pardokhtiyagona, бот @hisob_1_bot.
+const UTIL_GUIDE = {
+    ru: [
+        { head: '🧾 Единый коммунальный платёж (Душанбе)', text: ['Свет, вода, отопление, вывоз мусора и жилфонд — одним платежом. Пока работает в районе Сино (с августа 2026).', 'Номер счёта, сумма и ссылка для оплаты приходят по SMS. На оплату — 15 дней.'], btns: [{ label: '📞 Колл-центр 3322', href: 'tel:3322', main: true }, { label: '💬 Поддержка в Telegram', href: 'https://t.me/pardokhtiyagona' }, { label: '🤖 Бот «Ҳисоб»', href: 'https://t.me/hisob_1_bot' }] },
+        { head: '📱 Где оплатить', text: ['В приложениях банков: «Эсхата онлайн», Alif mobi, DC Next, «Амонат мобайл».', 'Без смартфона — в кассе банка.'] },
+        { head: '🛡 Осторожно', text: ['Платите только по ссылке из официального SMS или в приложении своего банка. По чужим ссылкам не переходите.'] }
+    ],
+    tg: [
+        { head: '🧾 Пардохти ягонаи коммуналӣ (Душанбе)', text: ['Барқ, об, гармидиҳӣ, партов ва фонди манзил — бо як пардохт. Ҳоло дар ноҳияи Сино амал мекунад (аз августи 2026).', 'Рақами ҳисоб, маблағ ва истинод барои пардохт бо SMS меояд. Барои пардохт — 15 рӯз.'], btns: [{ label: '📞 Маркази тамос 3322', href: 'tel:3322', main: true }, { label: '💬 Дастгирӣ дар Telegram', href: 'https://t.me/pardokhtiyagona' }, { label: '🤖 Боти «Ҳисоб»', href: 'https://t.me/hisob_1_bot' }] },
+        { head: '📱 Дар куҷо пардохт кардан', text: ['Дар барномаҳои бонкҳо: «Эсхата онлайн», Alif mobi, DC Next, «Амонат мобайл».', 'Бе смартфон — дар хазинаи бонк.'] },
+        { head: '🛡 Эҳтиёт шавед', text: ['Танҳо тавассути истиноди SMS-и расмӣ ё дар барномаи бонки худ пардохт кунед. Ба истинодҳои бегона нагузаред.'] }
+    ],
+    uz: [
+        { head: "🧾 Yagona kommunal to'lov (Dushanbe)", text: ["Elektr, suv, isitish, chiqindi va uy-joy fondi — bitta to'lov bilan. Hozircha Sino tumanida ishlaydi (2026-yil avgustdan).", "Hisob raqami, summa va to'lov havolasi SMS orqali keladi. To'lov uchun — 15 kun."], btns: [{ label: "📞 Aloqa markazi 3322", href: 'tel:3322', main: true }, { label: "💬 Telegramda yordam", href: 'https://t.me/pardokhtiyagona' }, { label: '🤖 «Hisob» boti', href: 'https://t.me/hisob_1_bot' }] },
+        { head: "📱 Qayerda to'lash mumkin", text: ["Bank ilovalarida: «Eskhata onlayn», Alif mobi, DC Next, «Amonat mobayl».", "Smartfonsiz — bank kassasida."] },
+        { head: "🛡 Ehtiyot bo'ling", text: ["Faqat rasmiy SMS havolasi yoki o'z bankingiz ilovasi orqali to'lang. Begona havolalarga o'tmang."] }
+    ]
+};
+function utilButtons(lang) { return guideBlock(UTIL_GUIDE[lang] || UTIL_GUIDE.ru); }
 function mmtButtons(lang) { return guideBlock(MMT_GUIDE[lang] || MMT_GUIDE.ru); }
 const CUSTOMS_LINKS = {
     ru: '⚠️ Цифры здесь ориентировочные: точную сумму уточняйте на таможне или у таможенного брокера.',
@@ -3991,7 +4016,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             if (geminiUp()) engines.push({ name: 'gemini', run: (sys, msg) => askGemini(sys, msg, true) });
             if (openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             // «ММТ», «Посев», «Советы», «Энциклопедии»: поиск находит источники (или пишет карточки) не с первого раза — даём второму поиску ещё одну попытку
-            if ((kind === 'mmt' || kind === 'sowing' || kind === 'tips' || kind === 'facts' || kind === 'customs') && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
+            if ((kind === 'mmt' || kind === 'sowing' || kind === 'tips' || kind === 'facts' || kind === 'customs' || kind === 'utilities') && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             // «Энциклопедии»: поиск нередко отвечает фактами без единого источника (такой ответ не показываем) — даём ещё одну попытку
             if (kind === 'facts' && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             for (const eng of engines) {
@@ -4027,6 +4052,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                     if (step) step.final = text.slice(0, 300);
                     if (!text.trim()) continue;
                     let web = TEXT_CARDS[kind] ? tipsAnswer(text, sources, lang, kind) : finalize(text, sources, lang);
+                    if (kind === 'utilities') web += utilButtons(lang);
                     if (kind === 'customs') web += `\n${finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang)}${customsButtons(lang)}`;
                     const made = { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(TEXT_CARDS[kind] ? { view: 'tips' } : {}) }, ttl: ttlFor(mode) };
                     if (kind === 'tips' || kind === 'facts') {
@@ -4046,6 +4072,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             }
             // Источников нет — фактов не даём вообще («Растаможка»: только официальные ссылки).
             if (kind === 'sowing') return { body: { answer: finalize(sowingNone(lang, date), [], lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
+            if (kind === 'utilities') return { body: { answer: utilButtons(lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             if (kind === 'customs') return { body: { answer: finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang) + customsButtons(lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: errored ? 0 : 3 * MIN };
         }
