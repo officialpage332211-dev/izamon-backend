@@ -96,6 +96,20 @@ const chatLimited = makeLimiter(Number(process.env.RATE_LIMIT_PER_MIN) || 20);
 const importLimited = makeLimiter(6);
 const speakLimited = makeLimiter(Number(process.env.SPEAK_LIMIT_PER_MIN) || 10);
 
+// Общий дневной лимит обращений к ИИ на весь сайт — защита кошелька, даже если кто-то шлёт запросы с тысяч адресов.
+// Сутки считаются по Душанбе (UTC+5). Число меняется переменной AI_DAY_LIMIT на Render. Счётчик в памяти: перезапуск сервера его обнуляет.
+const AI_DAY_LIMIT = Number(process.env.AI_DAY_LIMIT) || 3000;
+let aiDay = '', aiUsed = 0;
+function aiToday() { return new Date(Date.now() + 5 * 3600 * 1000).toISOString().slice(0, 10); }
+function aiOver() { if (aiDay !== aiToday()) { aiDay = aiToday(); aiUsed = 0; } return aiUsed >= AI_DAY_LIMIT; }
+function aiSpend() {
+    if (aiOver()) {
+        if (aiUsed === AI_DAY_LIMIT) { aiUsed++; console.warn(`[ИИ] дневной лимит ${AI_DAY_LIMIT} исчерпан`); }
+        const e = new Error('ai_day_limit'); e.status = 429; e.dayLimit = true; throw e;
+    }
+    aiUsed++;
+}
+
 const escapeHtml = str => String(str).replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const escapeAttr = str => String(str).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const norm = s => s.toLowerCase().replace(/[^\p{L}\p{N}\s]/gu, ' ').replace(/\s+/g, ' ').trim();
@@ -774,6 +788,11 @@ const RATE_REPLY = {
     tg: 'Дархостҳо аз ҳад зиёданд. Лутфан, як дақиқа интизор шавед.',
     uz: "So'rovlar juda ko'p. Bir daqiqa kutib, qayta urinib ko'ring."
 };
+const DAY_LIMIT_REPLY = {
+    ru: '⏳ На сегодня сайт получил очень много вопросов. Пожалуйста, попробуйте завтра.',
+    tg: '⏳ Имрӯз ба сайт саволҳо хеле зиёд омаданд. Лутфан, фардо кӯшиш кунед.',
+    uz: "⏳ Bugun saytga juda ko'p savol keldi. Iltimos, ertaga urinib ko'ring."
+};
 const BUSY_REPLY = {
     ru: '⏳ Сейчас много людей, попробуйте через несколько секунд.',
     tg: '⏳ Ҳоло одамон зиёданд, баъди чанд сония кӯшиш кунед.',
@@ -1229,9 +1248,11 @@ async function askGemini(system, userText, useSearch, timeoutMs) {
         try {
             let response;
             try {
+                aiSpend();
                 response = await withTimeout(gemini.models.generateContent(build(thinkingOk)), ms);
             } catch (err) {
                 if (thinkingOk && (err.status === 400 || /think/i.test(String(err.message)))) {
+                    aiSpend();
                     response = await withTimeout(gemini.models.generateContent(build(false)), ms);
                     thinkingOk = false;
                 } else {
@@ -1257,7 +1278,7 @@ let searchTool = 'web_search';
 let wantSources = true;
 async function openaiSearchRaw(system, userText, maxTokens = 1200) {
     // tool_choice: 'required' — модель обязана сходить в интернет, а не отвечать «из головы».
-    const run = (tool, withSources) => openai.responses.create({
+    const run = (tool, withSources) => (aiSpend(), openai.responses.create({
         model: OPENAI_SEARCH_MODEL,
         instructions: system,
         input: userText,
@@ -1265,7 +1286,7 @@ async function openaiSearchRaw(system, userText, maxTokens = 1200) {
         tool_choice: 'required',
         max_output_tokens: maxTokens,
         ...(withSources ? { include: ['web_search_call.action.sources'] } : {})
-    });
+    }));
     let lastErr;
     for (let attempt = 0; attempt < 3; attempt++) {
         try {
@@ -1317,6 +1338,7 @@ async function askOpenAISearch(system, userText) {
 const ENCYC_HOST = /(^|\.)(?:wikipedia\.org|britannica\.com|bigenc\.ru|ruwiki\.ru|encyclopedia\.com|nationalgeographic\.com|kids\.britannica\.com)$/i;
 
 async function askChat(client, model, system, userText, maxTokens = 300) {
+    aiSpend();
     const completion = await withTimeout(client.chat.completions.create({
         model,
         messages: [
@@ -1760,7 +1782,8 @@ async function repairJson(text) {
     if (!client) return [];
     const system = 'Ты чинишь JSON. Верни ТОЛЬКО корректный JSON {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":[""]}]}. Возьми все пункты из текста пользователя, ничего не добавляй и не выдумывай, значения не меняй. Ссылки — обычный текст https://…, без Markdown.';
     try {
-        const completion = await withTimeout(client.chat.completions.create({
+        aiSpend();
+    const completion = await withTimeout(client.chat.completions.create({
             model: client === openai ? OPENAI_MODEL : OPENROUTER_MODEL,
             messages: [{ role: 'system', content: system }, { role: 'user', content: String(text).slice(0, 9000) }],
             max_tokens: 2500,
@@ -4144,6 +4167,9 @@ async function handleChat(req, res) {
     if (chatLimited(req.ip)) {
         return res.status(429).json({ error: 'Too many requests', answer: RATE_REPLY[lang], provider: 'rate-limit' });
     }
+    if (aiOver()) {
+        return res.status(429).json({ error: 'ai_day_limit', answer: DAY_LIMIT_REPLY[lang], provider: 'rate-limit' });
+    }
 
     const { text: cleaned, topic } = normalizePrompt(prompt);
     if (!cleaned) return res.status(400).json({ error: 'Промпт не передан' });
@@ -4924,6 +4950,7 @@ category — одно из: estate, transport, goods, finance, other.
     const runs = [];
     if (geminiUp()) runs.push(async () => {
         try {
+            aiSpend();
             const r = await withTimeout(gemini.models.generateContent({
                 model: GEMINI_MODEL,
                 contents: user,
@@ -4936,6 +4963,7 @@ category — одно из: estate, transport, goods, finance, other.
         }
     });
     if (openai) runs.push(async () => {
+        aiSpend();
         const r = await withTimeout(openai.chat.completions.create({
             model: OPENAI_MODEL,
             messages: [{ role: 'system', content: system }, { role: 'user', content: user }],
@@ -5054,6 +5082,7 @@ async function handleSpeak(req, res) {
     let buf = ttsCache.get(key);
     if (!buf) {
         try {
+            aiSpend();
             const audio = await withTimeout(openai.audio.speech.create({
                 model: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
                 voice,
@@ -6317,6 +6346,7 @@ async function handleStt(req, res) {
         const toFile = OpenAI.toFile || require('openai/uploads').toFile;
         const file = await toFile(buf, `voice.${ext}`, { type });
         const words = dictRowsNow.slice(0, 80).map(r => r.word).join(', ');
+        aiSpend();
         const r = await withTimeout(openai.audio.transcriptions.create({
             file,
             model: process.env.STT_MODEL || 'whisper-1',
