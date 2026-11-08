@@ -1546,6 +1546,26 @@ function priceParts(raw) {
     return c ? { n, c } : null;
 }
 
+// Подозрительно низкая цена: меньше 30% от средней (медианы) у тех же объявлений в той же валюте, если цен с чем сравнить не меньше 5.
+// Цены ниже 5% медианы не трогаем — это обычно «1 сомони» вместо «договорная», а не обман.
+const SUSPECT_LABEL = {
+    ru: '⚠️ Цена намного ниже других. Не платите заранее — сначала посмотрите товар.',
+    tg: '⚠️ Нарх аз дигарон хеле паст аст. Пешакӣ пул напардозед — аввал молро бинед.',
+    uz: "⚠️ Narx boshqalarnikidan ancha past. Oldindan pul to'lamang — avval mahsulotni ko'ring."
+};
+function suspectFlags(list) {
+    const out = list.map(() => false);
+    const byCur = Object.create(null);
+    list.forEach((x, i) => { if (x && x.pn > 0 && x.pc) (byCur[x.pc] = byCur[x.pc] || []).push(i); });
+    for (const idx of Object.values(byCur)) {
+        if (idx.length < 5) continue;
+        const sorted = idx.map(i => list[i].pn).sort((a, b) => a - b);
+        const mid = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
+        for (const i of idx) if (list[i].pn < mid * 0.3 && list[i].pn >= mid * 0.05) out[i] = true;
+    }
+    return out;
+}
+
 // list: [{ pn, pc }] → массив true/false, у кого цена ниже, чем у не менее двух третей остальных (строго дороже их цены).
 function cheapFlags(list) {
     const out = list.map(() => false);
@@ -1606,7 +1626,8 @@ function cardHtml(it, kind, lang) {
         badges,
         `<div class="iz-lc-t">${escapeHtml(it.title)}</div>`,
         it.price ? `<div class="iz-lc-p">${escapeHtml(it.price)}</div>` : '',
-        it.cheap && CHEAP_LABEL[lang] ? `<div class="iz-lc-pl">↓ ${escapeHtml(CHEAP_LABEL[lang])}</div>` : '',
+        it.suspect && SUSPECT_LABEL[lang] ? `<div class="iz-lc-pl iz-lc-warn">${escapeHtml(SUSPECT_LABEL[lang])}</div>`
+            : it.cheap && CHEAP_LABEL[lang] ? `<div class="iz-lc-pl">↓ ${escapeHtml(CHEAP_LABEL[lang])}</div>` : '',
         it.sellerSince && it.sellerCount > 0 && SELLER_LINE[lang] ? `<div class="iz-lc-sl">${escapeHtml(SELLER_LINE[lang](it.sellerSince, it.sellerCount))}</div>` : '',
         it.place || it.who ? `<div class="iz-lc-m">${it.place ? '📍 ' + escapeHtml(it.place) : ''}${it.place && it.who ? ' · ' : ''}${it.who ? '👤 ' + escapeHtml(it.who) : ''}</div>` : '',
         tiles ? `<div class="iz-tiles">${tiles}</div>` : '',
@@ -3773,7 +3794,8 @@ function listingsAnswer(items, kind, lang, own) {
     const ownList = own && own.length ? ownItems(own, lang) : [];
     // Метку «цена ниже, чем у большинства найденных» считаем по всем карточкам выдачи вместе (свои и с других сайтов), только для объявлений
     const flags = kind === 'ads' ? cheapFlags([...ownList, ...items]) : [];
-    const mark = (it, i) => (flags[i] ? { ...it, cheap: true } : it);
+    const sus = kind === 'ads' ? suspectFlags([...ownList, ...items]) : [];
+    const mark = (it, i) => (sus[i] ? { ...it, suspect: true } : flags[i] ? { ...it, cheap: true } : it);
     const ownHtml = ownList.map((it, i) => cardHtml(mark(it, i), 'ads', lang)).join('');
     return `<div class="iz-lcs">${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
 }
@@ -6490,7 +6512,7 @@ async function handleDiag(req, res) {
         const places = [...html.matchAll(/<div class="iz-lc-m">📍 ([^<·]*)/g)].map(m => m[1].trim());
         // full=1: текст первых карточек целиком (что видит человек), для проверки цен и контактов
         const full = req.query.full === '1' ? html.split('class="iz-lc"').slice(1, 4).map(c => c.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400)) : undefined;
-        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
     }
     // /diag?orders=1: проверка таблиц заявок на настоящей базе. Пишет одну пробную строку (заявка с номером 0 и продавцом «diag») и сразу её удаляет.
     if (req.query?.orders === '1') {
