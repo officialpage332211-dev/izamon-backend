@@ -3592,12 +3592,13 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread })
     let items;
     if (Array.isArray(spread) && spread.length) {
         // «Врачи и клиники»: основной поиск и поиск по другим городам — одновременно; ответ ждём не дольше одного поиска
-        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: n ? null : debug }).catch(err => {
+        const dbgs = [query, ...spread].map((q, n) => (debug ? (n ? {} : debug) : null));
+        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: dbgs[n] }).catch(err => {
             console.warn(`[listings spread Сбой]: ${err && err.status || ''} ${scrub(err && err.message || err)}`);
             return [];
         })));
         items = mergeListings(lists);
-        if (debug) debug.spread = lists.map(l => l.length);
+        if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
     } else items = await webListings({ kind, lang, date, query, debug });
     const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
     return kind === 'tickets' ? withTicketLinks(await withTjsForRub(done, date), debug) : done;
@@ -6499,6 +6500,7 @@ async function timed(fn) {
 
 // Пункты меню для проверки карточек: /diag?cards=1&lang=tg&item=jobs (jobs, livestock, tickets, tours, land, sale, rent, landcom, electric, plumber, mechanic, master)
 const DIAG_TOPICS = {
+    clinics: '4. Повседневное - Врачи и клиники',
     jobs: '5. Молия ва тиҷорат - Кор ва шуғл',
     livestock: '7. Кишоварзӣ - Чорводорӣ',
     tickets: '2. Нақлиёт ва сафар - Чиптаҳо',
@@ -6636,10 +6638,11 @@ async function handleDiag(req, res) {
         out.cards_test = await timed(async () => {
             let kind = 'ads';
             let query = 'Найди актуальные объявления на сегодня: сначала на somon.tj. Раздел: «Хона».';
-            let routed = null, somon = null;
+            let routed = null, somon = null, spreadQ = null;
             if (diagTopic) {
                 // тот же путь, что и у настоящей кнопки раздела
                 const r = routeRequest({ cleaned: diagTopic, topic: diagTopic });
+                spreadQ = r.spread || null;
                 routed = { mode: r.mode, kind: r.kind, somon: !!r.somon };
                 kind = r.kind;
                 somon = r.somon;
@@ -6664,9 +6667,9 @@ async function handleDiag(req, res) {
                 return { lang: diagLang, routed, steps: req.query?.trace === '1' ? steps : undefined, provider: res.body.provider, view: res.body.view || null, tips: (String(res.body.answer || '').match(/class="iz-tip"/g) || []).length, plain, sources: (res.body.sources || []).length, trace };
             }
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
-            const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon });
+            const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon, spread: spreadQ });
             const f = items[0];
-            return { lang: diagLang, routed, items: items.length, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points, fixed: f.fixed } : null, fixedAll: items.map(x => x.fixed ? x.fixed.map(y => y.value || '—').join('/') : null).slice(0, 10),
+            return { lang: diagLang, routed, items: items.length, spread: dbgL.spread, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points, fixed: f.fixed } : null, fixedAll: items.map(x => x.fixed ? x.fixed.map(y => y.value || '—').join('/') : null).slice(0, 10),
             fullLens: items.slice(0, 10).map(x => String(x.full || '').length), slugsAll: kind === 'jobs' ? items.map(x => x.sphereSlug || null).slice(0, 10) : undefined, pointsAll: items.slice(0, 10).map(x => `${String(x.title || '').slice(0, 60)} => ${(x.points || []).join(' ; ')}`), sort: { priced: items.filter(x => x.pn > 0).length, aged: items.filter(x => Number.isFinite(x.age)).length, cheap: cheapFlags(items).filter(Boolean).length, prices: items.map(x => x.pn > 0 ? x.pn + x.pc : '-').join(' '), ages: items.map(x => Number.isFinite(x.age) ? x.age : '-').join(' ') }, ...dbgL };
         });
         if (!out.cards_test.ok) out.cards_test.debug = dbgL;
