@@ -4190,7 +4190,12 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
         }
 
         // Разговор без поиска. Для таджикского и узбекского первым идёт Gemini: он грамотнее.
-        const order = lang === 'ru' ? ['openai', 'gemini', 'openrouter'] : ['gemini', 'openai', 'openrouter'];
+        // «Садои дил» (личные чувства) — только OpenAI: по его правилам данные из API не идут на обучение моделей
+        // (developers.openai.com/api/docs/guides/your-data). Бесплатный Gemini (условия Google: на бесплатном уровне
+        // запросы используются для улучшения продуктов, их могут читать люди) и OpenRouter (чужие поставщики) сюда не пускаем.
+        // Вторая попытка OpenAI — со строгой подсказкой, если первый ответ вышел не на языке человека.
+        const order = mode === 'heart' ? ['openai', 'openai']
+            : lang === 'ru' ? ['openai', 'gemini', 'openrouter'] : ['gemini', 'openai', 'openrouter'];
         let kept = null;
         for (const name of order) {
             const system = buildSystemPrompt({ mode, lang, canSearch: false, date, strict: !!kept });
