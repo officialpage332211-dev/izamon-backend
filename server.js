@@ -237,8 +237,9 @@ const PORTAL_RULES = [
     // «Госуслуги»: постоянная справка с официальными ссылками (GOV_GUIDE), без поиска
     { re: /^(?:хизматрасониҳои\s+давлатӣ|госуслуги|davlat\s+xizmatlari)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'gov', query: 'Госуслуги' },
     // «Поездки» → вкладки «Гостиницы» и «Достопримечательности» (кнопки над карточками туров)
-    { re: /^(?:меҳмонхонаҳо|гостиницы|mehmonxonalar)$/, portal: /нақлиёт|транспорт|transport/, mode: 'digest', kind: 'places',
-      query: 'Найди гостиницы и места проживания в Таджикистане (Душанбе, Худжанд, Хорог, Искандеркуль и другие места): название, город, цена за ночь (только если опубликована), телефон, сайт или страница бронирования. Не показывай места, где главное — бар, ночной клуб или казино.' },
+    // «Гостиницы» — карточки как у остальных разделов: фото со страницы гостиницы, цена за ночь, плитки «Звёзды», «Оценка», «Адрес» (fixed: 'hotel')
+    { re: /^(?:меҳмонхонаҳо|гостиницы|mehmonxonalar)$/, portal: /нақлиёт|транспорт|transport/, mode: 'digest', kind: 'places', fixed: 'hotel',
+      query: 'Найди гостиницы и места проживания в Таджикистане (Душанбе, Худжанд, Хорог, Искандеркуль и другие места). Для каждой гостиницы — страница именно этой гостиницы (её сайт или её страница на сайте бронирования, в справочнике, на картах), а не общий список. Название, город, адрес, цена за ночь (только если опубликована), телефон (только если написан), звёзды и оценка гостей (если указаны). Не показывай места, где главное — бар, ночной клуб или казино.' },
     { re: /^(?:ҷойҳои\s+диданӣ|достопримечательности|diqqatga\s+sazovor\s+joylar)$/, portal: /нақлиёт|транспорт|transport/, mode: 'digest', kind: 'places',
       query: 'Найди достопримечательности и красивые места Таджикистана для поездки (горы, озёра, крепости, музеи, исторические места): название, где находится, что посмотреть, цена входа (только если опубликована), как добраться. Бери официальные и туристические сайты.' },
     { re: /чиптаҳо|^билеты$|^chiptalar$/, mode: 'digest', kind: 'tickets',
@@ -547,6 +548,7 @@ function routeRequest({ cleaned, topic, category = '' }) {
             factual: true,
             somon: rule.somon || null,
             spread: rule.spread || null,
+            fixed: rule.fixed || null,
             userText: (q => topic ? q : `${q} Запрос пользователя: «${cleaned}».`)(typeof rule.query === 'function' ? rule.query(todayTJ()) : rule.query)
         };
     }
@@ -1518,7 +1520,8 @@ const FOUND_LABEL = {
     tours: { tg: 'сафар', ru: 'туров', uz: 'sayohat' },
     services: { tg: 'пешниҳод', ru: 'предложений', uz: 'taklif' },
     masters: { tg: 'эълони хизматрасонӣ', ru: 'объявлений мастеров', uz: "xizmat e'loni" },
-    places: { tg: 'ҷой', ru: 'мест', uz: 'joy' }
+    places: { tg: 'ҷой', ru: 'мест', uz: 'joy' },
+    hotel: { tg: 'меҳмонхона', ru: 'гостиниц', uz: 'mehmonxona' }
 };
 const KIND_TASK = {
     ads: 'Найди до 10 самых свежих объявлений. Ищи сначала на somon.tj, затем на других сайтах объявлений Таджикистана (ola.tj, arzon.tj и др.) и в Telegram-каналах.',
@@ -1529,7 +1532,9 @@ const KIND_TASK = {
     masters: 'Найди до 10 самых свежих объявлений мастеров и специалистов по услугам (то, что просит запрос). Ищи сначала на somon.tj в разделе «Услуги», затем на других сайтах объявлений Таджикистана и в Telegram-каналах. Это услуги, а не недвижимость: площадь, этаж и год постройки в характеристики не пиши.',
     places: 'Найди до 10 реальных мест в Таджикистане (то, что просит запрос) из разных источников: название, город или адрес, телефон, часы работы. Ссылка — на страницу именно этого места (карточка в справочнике или на картах, страница заведения, где написан его телефон), а не на главную страницу сайта. Цену не пиши. Только то, что есть на открытых тобой страницах; ничего не выдумывай.'
 };
-const KIND_EMOJI = { ads: '🏷️', jobs: '💼', tickets: '✈️', tours: '🧳', services: '🏫', masters: '🛠️', places: '📍' };
+const KIND_EMOJI = { ads: '🏷️', jobs: '💼', tickets: '✈️', tours: '🧳', services: '🏫', masters: '🛠️', places: '📍', hotel: '🏨' };
+// «Гостиницы»: каждая карточка — одна гостиница со своей страницы (оттуда же фото), цена за ночь и плитки «Звёзды», «Оценка», «Адрес»
+const HOTEL_TASK = 'Найди до 10 реальных гостиниц в Таджикистане (то, что просит запрос) из разных источников. Для каждой — ссылка на страницу именно этой гостиницы: её собственный сайт или её страница на сайте бронирования, в справочнике или на картах; не общий список гостиниц. price — цена за ночь, только если она опубликована на странице (с валютой, например «от 450 TJS за ночь»). contact — телефон, только если он написан на странице. points — только с этой страницы: «Звёзды: 4», «Оценка: 8,7 из 10», «Адрес: улица, дом». Ничего не выдумывай.';
 
 // «Н/Д», «Цены уточняются», «не указано» — это не данные, такие значения в карточке не показываем.
 const BLANK_VALUE = new RegExp('^(?:н/?д|n/?a|na|нет|нет\\s+данных|данных\\s+нет|не\\s+указан[а-яё]*|не\\s+известн[а-яё]*|неизвестн[а-яё]*|уточня[а-яё]*|уточните|цен[а-яё]*\\s+уточня[а-яё]*|цена\\s+не\\s+указана|информации\\s+нет|' +
@@ -1734,7 +1739,8 @@ const KIND_BADGE = {
     tours: { tg: 'Сафар', ru: 'Тур', uz: 'Sayohat' },
     services: { tg: 'Хизмат', ru: 'Услуга', uz: 'Xizmat' },
     masters: { tg: 'Хизмат', ru: 'Услуга', uz: 'Xizmat' },
-    places: { tg: 'Ҷой', ru: 'Место', uz: 'Joy' }
+    places: { tg: 'Ҷой', ru: 'Место', uz: 'Joy' },
+    hotel: { tg: 'Меҳмонхона', ru: 'Гостиница', uz: 'Mehmonxona' }
 };
 
 const MESSENGER_WORD = /whats\s*-?\s*app|wa\.me|ват[сц]\s?[аa]п+|вацап+|воцап+|вотсап+|telegram|t\.me|телеграм+|viber|вайбер|вибер|instagram|инстаграм+|(?<![\p{L}\p{N}])(?:imo|имо|тг|tg)(?![\p{L}\p{N}])/iu;
@@ -1754,7 +1760,8 @@ function cardHtml(it, kind, lang) {
     const host = hostOf(it.url);
     const phone = firstCallable(it.contact);
     const callable = !!phone;
-    const badges = `<div class="iz-badges"><span class="iz-badge iz-b-g">✔ ${escapeHtml(host)}</span><span class="iz-badge iz-b-b">${KIND_BADGE[kind] ? KIND_BADGE[kind][lang] : ''}</span>${it.date ? `<span class="iz-badge">🗓️ ${escapeHtml(it.date)}</span>` : ''}</div>`;
+    const look = it.hotel ? 'hotel' : kind; // значок и подпись: у гостиниц свои (🏨 «Гостиница»)
+    const badges = `<div class="iz-badges"><span class="iz-badge iz-b-g">✔ ${escapeHtml(host)}</span><span class="iz-badge iz-b-b">${KIND_BADGE[look] ? KIND_BADGE[look][lang] : ''}</span>${it.date ? `<span class="iz-badge">🗓️ ${escapeHtml(it.date)}</span>` : ''}</div>`;
     // характеристики плитками 2×2, как в образце: «Ключ: значение» → подпись + значение
     // fixed — одинаковый для всех карточек раздела набор плиток (пустая показывается как «—»)
     const fixedTiles = (it.fixed || []).map(f => f.value
@@ -1766,8 +1773,8 @@ function cardHtml(it, kind, lang) {
     }).join('');
     const parts = [
         it.image
-            ? `<div class="iz-lc-img"${it.photoCount ? ` data-n="${Number(it.photoCount) || 0}"` : ''}${it.gallery && it.gallery.length > 1 ? ` data-g="${escapeAttr(it.gallery.join(' '))}" data-gd="${escapeAttr((it.galleryDirect || []).join(' '))}"` : ''}><img src="${escapeAttr(it.imageProxy || it.image)}"${it.imageProxy ? ` data-d="${escapeAttr(it.image)}"` : ''} alt="" referrerpolicy="no-referrer" onerror="var d=this.getAttribute('data-d');if(d){this.removeAttribute('data-d');this.src=d}else{this.parentNode.classList.add('iz-noimg');this.remove()}"><span class="iz-src">${escapeHtml(host)}</span>${it.photoCount ? `<span class="iz-cnt">📷 ${Number(it.photoCount) || 0}</span>` : ''}<i>${KIND_EMOJI[kind] || '🏷️'}</i></div>`
-            : `<div class="iz-lc-img iz-noimg"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[kind] || '🏷️'}</i></div>`,
+            ? `<div class="iz-lc-img"${it.photoCount ? ` data-n="${Number(it.photoCount) || 0}"` : ''}${it.gallery && it.gallery.length > 1 ? ` data-g="${escapeAttr(it.gallery.join(' '))}" data-gd="${escapeAttr((it.galleryDirect || []).join(' '))}"` : ''}><img src="${escapeAttr(it.imageProxy || it.image)}"${it.imageProxy ? ` data-d="${escapeAttr(it.image)}"` : ''} alt="" referrerpolicy="no-referrer" onerror="var d=this.getAttribute('data-d');if(d){this.removeAttribute('data-d');this.src=d}else{this.parentNode.classList.add('iz-noimg');this.remove()}"><span class="iz-src">${escapeHtml(host)}</span>${it.photoCount ? `<span class="iz-cnt">📷 ${Number(it.photoCount) || 0}</span>` : ''}<i>${KIND_EMOJI[look] || '🏷️'}</i></div>`
+            : `<div class="iz-lc-img iz-noimg"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[look] || '🏷️'}</i></div>`,
         badges,
         `<div class="iz-lc-t">${escapeHtml(it.title)}</div>`,
         it.price ? `<div class="iz-lc-p">${escapeHtml(it.price)}</div>` : '',
@@ -2533,6 +2540,66 @@ function tourSlots(it, lang) {
         points: pts.filter((_, k) => !used.has(k))
     };
 }
+// ---------- «Гостиницы»: плитки «Звёзды», «Оценка», «Адрес» (чего нет на странице — «—») ----------
+const HOTEL_L = {
+    ru: { stars: 'Звёзды', rate: 'Оценка', addr: 'Адрес' },
+    tg: { stars: 'Ситора', rate: 'Баҳо', addr: 'Суроға' },
+    uz: { stars: 'Yulduz', rate: 'Baho', addr: 'Manzil' }
+};
+const HOTEL_RE = {
+    stars: /звёзд|звезд|ситора|yulduz|^stars?$|класс\s+отел/i,
+    rate: /оценк|рейтинг|баҳо|baho|reyting|rating/i,
+    addr: /адрес|суроға|нишонӣ|manzil|address/i
+};
+function hotelSlots(it, lang) {
+    const T = HOTEL_L[lang] || HOTEL_L.ru;
+    const pts = Array.isArray(it.points) ? it.points : [];
+    const used = new Set();
+    const take = re => {
+        const i = pts.findIndex((x, k) => !used.has(k) && re.test(String(x).split(':')[0].trim()) && /:/.test(String(x)));
+        if (i < 0) return '';
+        const v = valueOf(pts[i]);
+        if (!v || blankValue(v)) return '';
+        used.add(i);
+        return clip(v, 90);
+    };
+    const stars = take(HOTEL_RE.stars), rate = take(HOTEL_RE.rate), addr = take(HOTEL_RE.addr);
+    return {
+        hotel: true,
+        fixed: [{ label: T.stars, value: stars }, { label: T.rate, value: rate }, { label: T.addr, value: addr, row: true }],
+        points: pts.filter((_, k) => !used.has(k))
+    };
+}
+// Страница точно про эту гостиницу? Отличительное слово названия («Лал», «Hyatt», «Серена») должно быть в заголовке страницы.
+// Слова сравниваем латиницей (кириллица переводится в латиницу), общие слова («гостиница», «hotel», города) не считаются.
+const HOTEL_GENERIC = /^(?:hotel|otel|hostel|gostini|mehmonhon|mihmonhon|resort|inn|dushanbe|hujand|hudjand|horog|tajikistan|tadjikistan|tojikiston|tajik|city|the|and)/;
+function latinKey(s) {
+    const map = { а: 'a', б: 'b', в: 'v', г: 'g', ғ: 'g', д: 'd', е: 'e', ё: 'o', ж: 'j', з: 'z', и: 'i', ӣ: 'i', й: 'i', к: 'k', қ: 'k', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ӯ: 'u', ў: 'u', ф: 'f', х: 'h', ҳ: 'h', ц: 'c', ч: 'ch', ҷ: 'j', ш: 'sh', щ: 'sh', ъ: '', ы: 'i', ь: '', э: 'e', ю: 'u', я: 'a' };
+    return String(s || '').toLowerCase().replace(/[а-яёӣӯқғҳҷў]/g, ch => map[ch] ?? '')
+        .replace(/dzh|dj|zh/g, 'j').replace(/kh|x/g, 'h').replace(/q/g, 'k').replace(/ts/g, 'c').replace(/[yw]/g, m => (m === 'y' ? 'i' : 'v'))
+        .replace(/[^a-z0-9]+/g, ' ').replace(/([a-z])\1+/g, '$1').trim();
+}
+function hotelWords(title) {
+    return latinKey(title).split(' ').filter(w => w.length >= 3 && !/^\d+$/.test(w) && !HOTEL_GENERIC.test(w));
+}
+function hotelPageMatches(title, html) {
+    const words = hotelWords(title);
+    if (!words.length) return false;
+    const h = String(html || '');
+    const head = [(/<title[^>]*>([^<]{1,300})/i.exec(h) || [])[1], (/property=["']og:title["'][^>]*content=["']([^"']{1,300})/i.exec(h) || [])[1],
+        (/content=["']([^"']{1,300})["'][^>]*property=["']og:title["']/i.exec(h) || [])[1], (/<h1[^>]*>([\s\S]{1,300}?)<\/h1>/i.exec(h) || [])[1]]
+        .filter(Boolean).map(x => x.replace(/<[^>]*>/g, ' ')).join(' ');
+    const pageKey = ` ${latinKey(head.replace(/&[a-z]+;|&#\d+;/gi, ' '))} `;
+    return words.some(w => pageKey.includes(` ${w}`));
+}
+// Своя главная страница гостиницы («hyatt.com», «hotel-lal.tj») — тоже страница этой гостиницы
+function hotelOwnSite(title, url) {
+    let host = '';
+    try { host = new URL(url).hostname.replace(/^www\./, ''); } catch { return false; }
+    const hk = latinKey(host.split('.').slice(0, -1).join(' ').replace(/-/g, ' '));
+    return hotelWords(title).some(w => w.length >= 4 && hk.includes(w));
+}
+
 // ---------- «Товары»: одинаковые карточки у Мебели, Одежды, Техники и Телефонов ----------
 // Мебель: Состояние, Материал, Размер. Одежда: Состояние, Размер, Материал. Техника: Состояние, Марка, Диагональ.
 // Телефоны: Состояние, Марка, Память, ОЗУ. Чего нет — «—» (ничего не выдумываем). Лишние найденные характеристики идут после этих.
@@ -3078,6 +3145,7 @@ function fixedSlots(it, lang, mode, extra) {
     if (mode === 'car') return carSlots(it, lang, extra);
     if (mode === 'parts') return partsSlots(it, lang, extra);
     if (mode === 'tour') return tourSlots(it, lang);
+    if (mode === 'hotel') return hotelSlots(it, lang);
     if (mode === 'job') return jobSlots(it, lang, extra);
     if (GOODS_SETS[mode]) return goodsSlots(it, lang, mode, extra);
     return estateSlots(it, lang, mode);
@@ -3495,7 +3563,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
 // Перевод, фото и сверка со страницами — общий хвост для обоих источников.
 async function finishItems(top, kind, lang, debug, fixed = '') {
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
-    const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug)]);
+    const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug, fixed === 'hotel')]);
     if (debug && photos.specs) debug.kwAll = photos.specs.slice(0, 10).map(x => x && x.kw ? x.kw.replace(/, sell, buy, ads on Somon\.tj$/i, '').slice(0, 180) : null);
     // Контакты из полного текста объявления на странице (в списке текст бывает пустым): только то, что продавец написал сам
     top.forEach((t, i) => {
@@ -3680,7 +3748,8 @@ function mergeListings(lists) {
     return out;
 }
 
-async function searchListings({ kind, lang, date, query, debug, somon, spread }) {
+async function searchListings({ kind, lang, date, query, debug, somon, spread, fixed = null }) {
+    const hotel = kind === 'places' && fixed === 'hotel';
     // Сначала готовый список somon.tj: точные ссылки и фото. Мало найдено или сайт не ответил — ищем через модель, как раньше.
     if (somon) {
         let direct = [];
@@ -3709,13 +3778,13 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread })
         })));
         items = mergeListings(lists);
         if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
-    } else items = await webListings({ kind, lang, date, query, debug });
-    const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
+    } else items = await webListings({ kind, lang, date, query, debug, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) });
+    const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
     return kind === 'tickets' ? withTicketLinks(await withTjsForRub(done, date), debug) : done;
 }
 
 // Поиск по интернету: карточки с настоящими ссылками на страницы, которые поиск действительно открыл. task — что искать, skip — какие сайты не брать.
-async function webListings({ kind, lang, date, query, debug, task, skip }) {
+async function webListings({ kind, lang, date, query, debug, task, skip, hotel = false }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${task || KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 ${skip ? 'title — название пункта так, как оно написано на странице-источнике: дословно, без перевода и пересказа, коротко.' : `title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).`}
@@ -3776,12 +3845,13 @@ url — обычная ссылка https://… (без Markdown и скобок
         items = items.filter(it => {
             let path = '/';
             try { path = new URL(it.url).pathname; } catch { path = '/'; }
-            if (/^\/?(?:[a-z]{2}(?:-[a-z]{2})?\/?)?$/i.test(path)) { drop.home = (drop.home || 0) + 1; return false; }
+            // у гостиницы своя главная страница («hyatt.com») — это и есть её страница
+            if (/^\/?(?:[a-z]{2}(?:-[a-z]{2})?\/?)?$/i.test(path) && !(hotel && hotelOwnSite(it.title, it.url))) { drop.home = (drop.home || 0) + 1; return false; }
             const h = hostOf(it.url);
             perHost[h] = (perHost[h] || 0) + 1;
             if (perHost[h] > 3) { drop.sameSite = (drop.sameSite || 0) + 1; return false; }
             return true;
-        }).map(it => ({ ...it, price: '' }));
+        }).map(it => (hotel ? it : { ...it, price: '' }));
     }
     // Билеты и туры: один и тот же маршрут (тур с той же ценой) с разных страниц показываем один раз
     if (kind === 'tickets' || kind === 'tours') {
@@ -3965,7 +4035,8 @@ ${CARD_GLOSSARY[lang] || ''}
 
 function listingsAnswer(items, kind, lang, own) {
     const count = items.length + (own ? own.length : 0);
-    const head = `<div class="iz-lh">🔎 ${count} ${FOUND_LABEL[kind] ? FOUND_LABEL[kind][lang] : ''}</div>`;
+    const label = items.length && items.every(x => x.hotel) ? FOUND_LABEL.hotel : FOUND_LABEL[kind];
+    const head = `<div class="iz-lh">🔎 ${count} ${label ? label[lang] : ''}</div>`;
     const ownList = own && own.length ? ownItems(own, lang) : [];
     // Метку «цена ниже, чем у большинства найденных» считаем по всем карточкам выдачи вместе (свои и с других сайтов), только для объявлений
     const flags = kind === 'ads' ? cheapFlags([...ownList, ...items]) : [];
@@ -4191,7 +4262,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return fallback || text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -4226,7 +4297,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             }
             if (openai && KIND_TASK[kind]) {
                 try {
-                    const items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread });
+                    const items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed });
                     if (items.length) {
                         return { body: { answer: listingsAnswer(items, kind, lang, ownRows), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: ttlFor(mode) };
                     }
@@ -4436,7 +4507,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null }));
+        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null }));
         return res.json(r.body);
     } catch (err) {
         console.error('chat failed:', err);
@@ -5014,18 +5085,21 @@ app.get('/img', handleImg);
 
 // Фото для каждой карточки: со страницы объявления; фото от модели — только если оно с того же сайта и прошло проверку.
 // Ссылка на общую страницу списка (без номера объявления) не говорит, чьё это фото, — такие карточки остаются без фото.
-async function resolvePhotos(items, debug) {
+async function resolvePhotos(items, debug, hotel = false) {
     if (process.env.PHOTO_CHECK === 'off') return items.map(it => it.image || null);
     const stat = { items: items.length, fromPage: 0, fromModel: 0, none: 0, why: {}, samples: [] };
     const why = (r) => { stat.why[r] = (stat.why[r] || 0) + 1; };
     const one = async (it) => {
-        if (!isListingUrl(it.url)) return { img: null, why: 'общая страница списка' };
+        // у гостиниц страница — это страница самой гостиницы (проверяем по заголовку ниже), а не номер объявления
+        if (!(hotel ? /^https:\/\//i.test(it.url || '') : isListingUrl(it.url))) return { img: null, why: 'общая страница списка' };
         const hit = PHOTO_CACHE.get(it.url);
         if (hit && Date.now() - hit.at < PHOTO_CACHE_MS) return { img: hit.img, why: hit.why, cached: true, gallery: hit.gallery || [], desc: hit.desc || '', specs: hit.specs || null };
         const cands = [];
         let how = '', page = null, gallery = [], desc = '', specs = null;
         try {
             page = await getPage(it.url);
+            // гостиница: фото берём, только если страница действительно про неё (а не общий список гостиниц)
+            if (hotel && !hotelPageMatches(it.title, page.html)) return { img: null, why: 'страница не про эту гостиницу' };
             for (const c of pageImages(page.html, page.url)) cands.push({ url: c, from: 'page' });
             if (it.trusted) { gallery = pageGallery(page.html, it.photoCount || 16); desc = pageDescription(page.html); specs = pageSpecs(page.html); }
             if (!cands.length) how = 'на странице нет фото в тегах';
@@ -6617,6 +6691,7 @@ async function timed(fn) {
 
 // Пункты меню для проверки карточек: /diag?cards=1&lang=tg&item=jobs (jobs, livestock, tickets, tours, land, sale, rent, landcom, electric, plumber, mechanic, master)
 const DIAG_TOPICS = {
+    hotels: '2. Нақлиёт ва сафар - Меҳмонхонаҳо',
     clinics: '4. Повседневное - Врачи и клиники',
     jobs: '5. Молия ва тиҷорат - Кор ва шуғл',
     livestock: '7. Кишоварзӣ - Чорводорӣ',
