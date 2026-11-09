@@ -2583,7 +2583,8 @@ function latinKey(s) {
         .replace(/[^a-z0-9]+/g, ' ').replace(/([a-z])\1+/g, '$1').trim();
 }
 function hotelWords(title) {
-    return latinKey(title).split(' ').filter(w => w.length >= 3 && !/^\d+$/.test(w) && !HOTEL_GENERIC.test(w));
+    // «777» в «Hotel 777» — тоже отличительное слово
+    return latinKey(title).split(' ').filter(w => w.length >= 3 && !HOTEL_GENERIC.test(w));
 }
 function hotelPageMatches(title, html) {
     const words = hotelWords(title);
@@ -4322,7 +4323,8 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                 try {
                     const items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed });
                     if (items.length) {
-                        return { body: { answer: listingsAnswer(items, kind, lang, ownRows), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: ttlFor(mode) };
+                        // места (гостиницы, клиники…): поиск то находит пять мест, то одно — скудный ответ держим в памяти недолго, чтобы следующий человек получил полнее
+                        return { body: { answer: listingsAnswer(items, kind, lang, ownRows), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: kind === 'places' && items.length < 3 ? 2 * MIN : ttlFor(mode) };
                     }
                 } catch (err) { console.warn(`[listings Сбой]: ${err.status || ''} ${err.message}`); }
             }
