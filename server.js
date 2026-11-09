@@ -649,19 +649,43 @@ const HEART_SORRY = {
     tg: '🤍 Бубахшед, ман ҳоло ҷавоб дода натавонистам: ин хатои мост, на суханони Шумо. Лутфан, пас аз як дақиқа боз нависед. Агар ҳозир хеле вазнин бошад, ба шахси наздикатон занг занед, ва дар ҳолати хатар — ба 103.',
     uz: "🤍 Kechirasiz, hozir javob bera olmadim: bu bizning xatoyimiz, sizning so'zlaringiz emas. Iltimos, bir daqiqadan keyin yana yozing. Agar hozir juda og'ir bo'lsa, yaqin odamingizga qo'ng'iroq qiling, xavf bo'lsa — 103."
 };
-// Кто отвечает в «Садои дил»: сильные модели через OpenRouter — только у поставщиков, которые не собирают данные
-// (provider.data_collection = 'deny'), затем OpenAI напрямую (данные API не идут на обучение). Бесплатный Gemini сюда не пускаем.
-// Порядок можно поменять переменной HEART_MODELS на Render (через запятую).
-const HEART_MODELS = (process.env.HEART_MODELS || 'anthropic/claude-sonnet-5.5,google/gemini-3.8-flash').split(',').map(x => x.trim()).filter(Boolean);
+// Кто отвечает в «Садои дил» (по порядку):
+// 1) сильные модели через OpenRouter — только у поставщиков, которые не собирают данные (provider.data_collection = 'deny');
+//    для таджикского и узбекского первым идёт Gemini (грамотнее на этих языках), для русского — Claude;
+// 2) OpenAI напрямую (данные API не идут на обучение; ответ у OpenAI не сохраняется — store: false);
+// 3) только если никто из них не ответил — бесплатный Gemini (так написано и в политике конфиденциальности).
+// Порядок моделей OpenRouter можно задать переменной HEART_MODELS на Render (через запятую) — тогда он один для всех языков.
+const HEART_MODELS_ENV = (process.env.HEART_MODELS || '').split(',').map(x => x.trim()).filter(Boolean);
+const HEART_MODELS_BY_LANG = {
+    ru: ['anthropic/claude-sonnet-5.5', 'google/gemini-3.8-flash'],
+    tg: ['google/gemini-3.8-flash', 'anthropic/claude-sonnet-5.5'],
+    uz: ['google/gemini-3.8-flash', 'anthropic/claude-sonnet-5.5']
+};
+const heartModels = lang => HEART_MODELS_ENV.length ? HEART_MODELS_ENV : (HEART_MODELS_BY_LANG[lang] || HEART_MODELS_BY_LANG.tg);
 const HEART_PRIVATE = { provider: { data_collection: 'deny' } };
+// OpenAI без поиска через Responses API; store: false — ответ у OpenAI не хранится
+async function askOpenAIPlain(system, userText, maxTokens = 1000, timeoutMs = 20000) {
+    aiSpend();
+    const resp = await withTimeout(openai.responses.create({ model: OPENAI_MODEL, instructions: system, input: userText, max_output_tokens: maxTokens, store: false }), timeoutMs);
+    const text = String(resp.output_text || (resp.output || []).flatMap(o => (o && o.content) || []).filter(c => c && c.type === 'output_text').map(c => c.text).join('\n') || '').trim();
+    if (!text) throw new Error('Empty response');
+    return { text, sources: [], usage: resp.usage ? { prompt_tokens: resp.usage.input_tokens, completion_tokens: resp.usage.output_tokens } : null };
+}
+function heartRuns(lang, fullMessage) {
+    const runs = [];
+    if (openrouter) heartModels(lang).forEach(m => runs.push([`openrouter:${m}`, (strict, ms) => askChat(openrouter, m, heartPrompt(lang, strict), fullMessage, 1000, HEART_PRIVATE, ms)]));
+    if (openai) {
+        runs.push(['openai', (strict, ms) => askOpenAIPlain(heartPrompt(lang, strict), fullMessage, 1000, ms)]);
+        runs.push(['openai-chat', (strict, ms) => askChat(openai, OPENAI_MODEL, heartPrompt(lang, strict), fullMessage, 1000, null, ms)]);
+    }
+    if (gemini) runs.push(['gemini', (strict, ms) => { if (!geminiUp()) throw new Error('gemini paused'); return askGemini(heartPrompt(lang, strict), fullMessage, false, ms); }]);
+    return runs;
+}
 async function heartReply({ lang, fullMessage }) {
     // Сайт ждёт ответ не дольше минуты: на все попытки — 45 секунд, на одну — до 20
     const until = Date.now() + 45000;
-    const runs = [];
-    if (openrouter) HEART_MODELS.forEach(m => runs.push([`openrouter:${m}`, (strict, ms) => askChat(openrouter, m, heartPrompt(lang, strict), fullMessage, 1000, HEART_PRIVATE, ms)]));
-    if (openai) runs.push(['openai', (strict, ms) => askChat(openai, OPENAI_MODEL, heartPrompt(lang, strict), fullMessage, 1000, null, ms)]);
     let kept = null;
-    for (const [name, run] of runs) {
+    for (const [name, run] of heartRuns(lang, fullMessage)) {
         const left = until - Date.now();
         if (left < 5000) break;
         try {
@@ -6634,10 +6658,12 @@ async function handleDiag(req, res) {
         const labLang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
         const list = HEART_LAB_SAMPLES[labLang];
         const sample = list[Math.max(0, Math.min(list.length - 1, Number(req.query.n) || 0))];
-        const models = String(req.query.m || HEART_MODELS.join(',')).split(',').map(x => x.trim()).filter(x => /^[a-z0-9-]+\/[a-z0-9.\-:]+$/i.test(x)).slice(0, 4);
+        const models = String(req.query.m || heartModels(labLang).join(',')).split(',').map(x => x.trim()).filter(x => x === 'openai' || x === 'gemini' || /^[a-z0-9-]+\/[a-z0-9.\-:]+$/i.test(x)).slice(0, 4);
         const results = await Promise.all(models.map(m => timed(async () => {
-            if (!openrouter) throw new Error('нет OpenRouter');
-            const r = await askChat(openrouter, m, heartPrompt(labLang), sample, 1000, HEART_PRIVATE, 20000);
+            let r;
+            if (m === 'openai') { if (!openai) throw new Error('нет OpenAI'); r = await askOpenAIPlain(heartPrompt(labLang), sample, 1000, 20000); }
+            else if (m === 'gemini') { if (!gemini) throw new Error('нет Gemini'); r = await askGemini(heartPrompt(labLang), sample, false, 20000); }
+            else { if (!openrouter) throw new Error('нет OpenRouter'); r = await askChat(openrouter, m, heartPrompt(labLang), sample, 1000, HEART_PRIVATE, 20000); }
             const text = heartText(r.text);
             return { model: m, mixed: mixedLanguage(text, labLang), tokens: r.usage ? [r.usage.prompt_tokens, r.usage.completion_tokens] : null, text };
         }).then(x => (x.ok ? x : { ...x, model: m }))));
