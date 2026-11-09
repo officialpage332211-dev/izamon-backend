@@ -225,7 +225,9 @@ const PORTAL_RULES = [
       query: 'Найди рестораны, кафе, фастфуд и самбусахоны в Таджикистане: название, адрес и город, телефон, часы работы, есть ли доставка, сайт или страница, что там едят и средний чек (только если опубликован). Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай бары, пабы, ночные клубы, кальянные и места, где подают алкоголь или свинину.' },
     // «Врачи и клиники»: только где лечиться — название, адрес, телефон, часы, направления; без цен, диагнозов и советов по лечению
     { re: /^(?:духтурон\s+ва\s+клиникаҳо|врачи\s+и\s+клиники|shifokorlar\s+va\s+klinikalar)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places',
-      query: 'Найди клиники, медицинские центры, больницы и лаборатории в Таджикистане: название, адрес и город, телефон, часы работы, какие врачи и направления там есть (терапевт, педиатр, стоматолог, гинеколог, УЗИ, анализы и т.п.), сайт или страница клиники. Телефон и адрес — только как написано на странице клиники, не выдумывай. Цены не указывай; диагнозов, советов по лечению и доз лекарств не давай.' },
+      query: 'Найди клиники, медицинские центры, больницы и лаборатории в Таджикистане — государственные и частные: название, адрес и город, телефон, часы работы, какие врачи и направления там есть (терапевт, педиатр, стоматолог, гинеколог, УЗИ, анализы и т.п.), сайт или страница клиники. Телефон и адрес — только как написано на странице клиники, не выдумывай. Цены не указывай; диагнозов, советов по лечению и доз лекарств не давай.',
+      // второй поиск одновременно с первым — клиники других городов (первый почти всегда находит только Душанбе)
+      spread: ['Найди клиники, больницы, медицинские центры и лаборатории в городах Таджикистана, кроме Душанбе: Худжанд, Бохтар, Куляб, Хорог, Истаравшан, Пенджикент, Турсунзаде, Исфара, Вахдат, Гиссар — государственные и частные: название, город и адрес, телефон, часы работы, какие врачи и направления там есть, страница клиники. Телефон и адрес — только как написано на странице клиники, не выдумывай. Цены не указывай; диагнозов, советов по лечению и доз лекарств не давай.'] },
     // «Растаможка»: правила с официальных и новостных сайтов, без выдуманных ставок; ссылки — всегда
     { re: /^(?:гумрук|растаможка|bojxona)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'customs',
       query: 'Найди актуальные правила растаможки в Таджикистане для обычных людей: ввоз автомобиля (из чего складывается сумма, какие документы нужны, где оформлять) и телефонов (регистрация IMEI, как узнать сумму). Бери официальные сайты (egov.tj, imei.tj) и новостные (khovar.tj, asiaplustj.info, avesta.tj). Ставки, проценты и суммы пошлин не называй вообще (источники часто расходятся, например «20%» и «20 евро»): пиши только, что нужно сделать, какие ограничения действуют, где оформить и где узнать точную сумму. Ничего не выдумывай. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение.' },
@@ -544,6 +546,7 @@ function routeRequest({ cleaned, topic, category = '' }) {
             kind: rule.kind || KIND_OF_MODE[rule.mode] || null,
             factual: true,
             somon: rule.somon || null,
+            spread: rule.spread || null,
             userText: (q => topic ? q : `${q} Запрос пользователя: «${cleaned}».`)(typeof rule.query === 'function' ? rule.query(todayTJ()) : rule.query)
         };
     }
@@ -3547,7 +3550,27 @@ async function withTjsForRub(items, date) {
     });
 }
 
-async function searchListings({ kind, lang, date, query, debug, somon }) {
+// Несколько списков карточек → один: по очереди из каждого (разнообразие), без повторов ссылки и названия, с одного сайта — не больше 3
+function mergeListings(lists) {
+    const out = [], seenU = new Set(), seenT = new Set(), perHost = {};
+    const max = Math.max(0, ...lists.map(l => l.length));
+    for (let k = 0; k < max; k++) for (const l of lists) {
+        const it = l[k];
+        if (!it) continue;
+        const u = String(it.url || '').replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+        const t = (String(it.title || '') + '|' + String(it.place || '')).toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}|]+/gu, '');
+        if ((u && seenU.has(u)) || seenT.has(t)) continue;
+        const h = hostOf(it.url);
+        perHost[h] = (perHost[h] || 0) + 1;
+        if (perHost[h] > 3) continue;
+        if (u) seenU.add(u);
+        seenT.add(t);
+        out.push(it);
+    }
+    return out;
+}
+
+async function searchListings({ kind, lang, date, query, debug, somon, spread }) {
     // Сначала готовый список somon.tj: точные ссылки и фото. Мало найдено или сайт не ответил — ищем через модель, как раньше.
     if (somon) {
         let direct = [];
@@ -3566,7 +3589,16 @@ async function searchListings({ kind, lang, date, query, debug, somon }) {
             return mixed;
         }
     }
-    const items = await webListings({ kind, lang, date, query, debug });
+    let items;
+    if (Array.isArray(spread) && spread.length) {
+        // «Врачи и клиники»: основной поиск и поиск по другим городам — одновременно; ответ ждём не дольше одного поиска
+        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: n ? null : debug }).catch(err => {
+            console.warn(`[listings spread Сбой]: ${err && err.status || ''} ${scrub(err && err.message || err)}`);
+            return [];
+        })));
+        items = mergeListings(lists);
+        if (debug) debug.spread = lists.map(l => l.length);
+    } else items = await webListings({ kind, lang, date, query, debug });
     const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : ''));
     return kind === 'tickets' ? withTicketLinks(await withTjsForRub(done, date), debug) : done;
 }
@@ -4047,7 +4079,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return fallback || text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -4082,7 +4114,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             }
             if (openai && KIND_TASK[kind]) {
                 try {
-                    const items = await searchListings({ kind, lang, date, query: fullMessage, somon });
+                    const items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread });
                     if (items.length) {
                         return { body: { answer: listingsAnswer(items, kind, lang, ownRows), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: ttlFor(mode) };
                     }
@@ -4286,7 +4318,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword) }));
+        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null }));
         return res.json(r.body);
     } catch (err) {
         console.error('chat failed:', err);
