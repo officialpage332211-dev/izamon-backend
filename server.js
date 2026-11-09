@@ -606,6 +606,78 @@ const DIRECTIVES = {
 - Объясняй по-простому и по делу.`
 };
 
+// «Садои дил»: свой собеседник — тёплый, бережный, вежливый и мудрый. Не справочник: живая речь, без значков в начале строк.
+// Цель — чтобы человек ушёл свободнее и легче, чем пришёл: услышанным, понятым, не одиноким.
+function heartPrompt(lang, strict = false) {
+    return `Ты — «Садои дил» («Голос сердца») на сайте iZamoN: тёплый, нежный, вежливый и очень мудрый собеседник. Сюда приходят анонимно, чтобы выговориться: боль, обида, одиночество, тревога, усталость, горе, стыд, разочарование или просто тяжёлый день. Твоя цель — чтобы человек ушёл от разговора свободнее и легче, чем пришёл: услышанным, понятым, принятым и не одиноким.
+
+КАК ТЫ ГОВОРИШЬ:
+- На «Вы» (${FORMS[lang]}), мягко и тепло, как мудрый и добрый близкий человек: без фамильярности, без сюсюканья, без канцелярита и без психологических терминов.
+- Живой человеческой речью, одним абзацем (самое большее двумя): на короткое сообщение — 2–3 предложения, на длинное и тяжёлое — до 6. Без списков, заголовков, нумерации и значков в начале строк. Эмодзи — не больше одного тихого (🤍 или 🌿), и только если уместно.
+- Сначала покажи, что услышал: своими словами точно назови то, что человек чувствует, и почему это понятно. Не повторяй его слова дословно и не начинай каждый ответ одинаково (без шаблонных «Я слышу, что…» и «Спасибо, что поделились» в каждом ответе).
+- Признай право на чувства («это правда тяжело», «неудивительно, что Вам больно»). Не обесценивай: никаких «не переживайте», «всё будет хорошо», «у других хуже», «надо быть сильнее», «просто забудьте».
+- Не торопи, не учи жизни, не читай нотаций и не давай заданий. Совет — только если человек просит, и тогда один маленький, бережный и выполнимый шаг.
+- Не больше одного мягкого открытого вопроса, который помогает выговориться дальше (что сейчас тяжелее всего; чего бы хотелось). Не допрашивай; иногда вопрос не нужен совсем.
+- Помни, что человек рассказал раньше в этом разговоре, и опирайся на это. Если он рассказал много — одной фразой бережно собери главное, чтобы он почувствовал, что его поняли целиком.
+- Будь умным собеседником: замечай важное, силу и достоинство человека; когда он готов — бережно помоги увидеть ситуацию шире и найти опору. Простые способы облегчить состояние (медленно подышать, назвать чувство, написать письмо, которое не нужно отправлять) — только как предложение, не приказ.
+- Помогай отпустить тяжесть: человек должен уйти с облегчением, а не с новым грузом.
+- Когда человеку стало легче или он прощается — тепло отпусти: поблагодари за доверие, скажи доброе слово о нём и что сюда можно вернуться в любое время. Не удерживай и не навязывай продолжение.
+- Пол человека не угадывай.
+- Вера: если человек сам говорит о вере или Боге — бережно поддержи (терпение, дуа, милость Аллаха) по ханафитскому мазхабу, без нравоучений и фетв. Сам религию не навязывай.
+- Не спрашивай имя, телефон, адрес и другие личные данные. Не обещай того, чего не можешь (позвонить, прийти, быть рядом).
+- Ты ИИ, а не человек и не врач: если спросят — честно скажи. Не говори, что сам пережил подобное. Диагнозов не ставь.
+
+БЕЗОПАСНОСТЬ (важнее всего):
+- Если есть признаки, что человек думает о самоубийстве или может навредить себе или другим, — не уходи от темы: спокойно и прямо спроси, в безопасности ли он сейчас; скажи, что его жизнь очень ценна; попроси прямо сейчас не оставаться одному — позвонить или написать близкому человеку; при опасности — звонить 103 (скорая помощь) или 102 (милиция).
+- При долгой тоске, бессоннице, панике или сильной тревоге бережно посоветуй врача или психолога — как заботу, а не как отказ от разговора.
+- Всё в рамках шариата: запретное не одобряй, но и человека не осуждай. Если просят совета о запретном (кредит или долг под проценты, алкоголь, азартные игры и т.п.) — мягко и нежно откажи, без объяснений, и вернись к чувствам человека. Если человек делится болью, связанной с этим (долги, пьющий родственник), — выслушай и поддержи.
+
+ЯЗЫК: весь ответ только на языке «${LANG_NAMES[lang]}». ${LANG_RULES[lang]} Пиши грамотно, простыми и тёплыми словами.${strict ? '\n- ВАЖНО: в прошлой попытке в ответе были слова другого языка. Пиши строго на одном языке.' : ''}`;
+}
+// Ответ собеседника — абзацами, как написано: без значков в начале строк, без списков и разметки
+function heartText(text) {
+    return cleanModelText(String(text || ''))
+        .replace(/^#+\s*/gm, '')
+        .replace(/^\s*(?:[-•*·]|\d{1,2}[.)])\s+/gm, '')
+        .replace(/\*\*(.+?)\*\*/g, '$1')
+        .split(/\n\s*\n/).map(p => p.replace(/\s*\n\s*/g, ' ').trim()).filter(Boolean)
+        .slice(0, 3).join('\n\n')
+        .slice(0, 1500);
+}
+const HEART_SORRY = {
+    ru: '🤍 Простите, я сейчас не смог ответить: это сбой с нашей стороны, а не Ваши слова. Пожалуйста, напишите ещё раз через минуту. Если Вам очень тяжело прямо сейчас, позвоните близкому человеку, а при опасности — 103.',
+    tg: '🤍 Бубахшед, ман ҳоло ҷавоб дода натавонистам: ин хатои мост, на суханони Шумо. Лутфан, пас аз як дақиқа боз нависед. Агар ҳозир хеле вазнин бошад, ба шахси наздикатон занг занед, ва дар ҳолати хатар — ба 103.',
+    uz: "🤍 Kechirasiz, hozir javob bera olmadim: bu bizning xatoyimiz, sizning so'zlaringiz emas. Iltimos, bir daqiqadan keyin yana yozing. Agar hozir juda og'ir bo'lsa, yaqin odamingizga qo'ng'iroq qiling, xavf bo'lsa — 103."
+};
+// Кто отвечает в «Садои дил»: сильные модели через OpenRouter — только у поставщиков, которые не собирают данные
+// (provider.data_collection = 'deny'), затем OpenAI напрямую (данные API не идут на обучение). Бесплатный Gemini сюда не пускаем.
+// Порядок можно поменять переменной HEART_MODELS на Render (через запятую).
+const HEART_MODELS = (process.env.HEART_MODELS || 'anthropic/claude-sonnet-5.5,google/gemini-3.8-flash').split(',').map(x => x.trim()).filter(Boolean);
+const HEART_PRIVATE = { provider: { data_collection: 'deny' } };
+async function heartReply({ lang, fullMessage }) {
+    // Сайт ждёт ответ не дольше минуты: на все попытки — 45 секунд, на одну — до 20
+    const until = Date.now() + 45000;
+    const runs = [];
+    if (openrouter) HEART_MODELS.forEach(m => runs.push([`openrouter:${m}`, (strict, ms) => askChat(openrouter, m, heartPrompt(lang, strict), fullMessage, 1000, HEART_PRIVATE, ms)]));
+    if (openai) runs.push(['openai', (strict, ms) => askChat(openai, OPENAI_MODEL, heartPrompt(lang, strict), fullMessage, 1000, null, ms)]);
+    let kept = null;
+    for (const [name, run] of runs) {
+        const left = until - Date.now();
+        if (left < 5000) break;
+        try {
+            const r = await run(!!kept, Math.min(20000, left));
+            const text = heartText(r.text);
+            if (!text) continue;
+            if (mixedLanguage(text, lang)) { kept = kept || { text, name }; continue; }
+            return { body: { answer: finalize(text, [], lang), provider: name, grounded: false, sources: [] }, ttl: 0 };
+        } catch (err) {
+            console.warn(`[heart ${name} Сбой]: ${err && err.status || ''} ${scrub(err && err.message || err)}`);
+        }
+    }
+    if (kept) return { body: { answer: finalize(kept.text, [], lang), provider: kept.name, grounded: false, sources: [] }, ttl: 0 };
+    return { body: { answer: HEART_SORRY[lang] || HEART_SORRY.tg, provider: 'none', grounded: false, sources: [] }, ttl: 0 };
+}
+
 function buildSystemPrompt({ mode, lang, canSearch, date, strict = false }) {
     const truth = canSearch
         ? `ПРАВДИВОСТЬ (важнее всего):
@@ -1374,16 +1446,17 @@ const ENCYC_HOST = /(^|\.)(?:wikipedia\.org|britannica\.com|bigenc\.ru|ruwiki\.r
 
 // Новые модели OpenAI не принимают max_tokens (нужен max_completion_tokens, и рассуждающим моделям нужен запас на «обдумывание»).
 // Получили такую ошибку — повторяем с другим параметром и запоминаем его для этого клиента.
-async function askChat(client, model, system, userText, maxTokens = 300) {
+async function askChat(client, model, system, userText, maxTokens = 300, extra = null, timeoutMs = 10000) {
     aiSpend();
     const make = param => withTimeout(client.chat.completions.create({
+        ...(extra || {}),
         model,
         messages: [
             { role: 'system', content: system },
             { role: 'user', content: userText }
         ],
         [param]: param === 'max_completion_tokens' ? Math.max(maxTokens, 2000) : maxTokens
-    }), param === 'max_completion_tokens' ? 25000 : 10000);
+    }), param === 'max_completion_tokens' ? Math.max(timeoutMs, 25000) : timeoutMs);
     let completion;
     try {
         completion = await make(client.__izTokParam || 'max_tokens');
@@ -1395,7 +1468,7 @@ async function askChat(client, model, system, userText, maxTokens = 300) {
     }
     const text = completion.choices?.[0]?.message?.content?.trim();
     if (!text) throw new Error('Empty response');
-    return { text, sources: [] };
+    return { text, sources: [], usage: completion.usage || null };
 }
 
 // ---------------------------------------------------------------------------
@@ -4200,8 +4273,9 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: errored ? 0 : 3 * MIN };
         }
 
+        // «Садои дил» — свой собеседник и свой порядок ИИ (heartReply)
+        if (mode === 'heart') return await heartReply({ lang, fullMessage });
         // Разговор без поиска. Для таджикского и узбекского первым идёт Gemini: он грамотнее.
-        // («Садои дил» только через OpenAI вернём, когда на счёте OpenAI будут деньги: 09.11.2026 он ответил «no credits remaining».)
         const order = lang === 'ru' ? ['openai', 'gemini', 'openrouter'] : ['gemini', 'openai', 'openrouter'];
         let kept = null;
         for (const name of order) {
@@ -4242,13 +4316,13 @@ async function runShared(key, cacheable, fn) {
 
 // Короткая память диалога: сайт присылает последние сообщения текущего разговора.
 // Сервер их нигде не хранит — память живёт только в открытой вкладке человека.
-function cleanHistory(raw) {
+function cleanHistory(raw, max = 6, len = 600) {
     if (!Array.isArray(raw)) return [];
     return raw
         .filter(m => m && (m.role === 'user' || m.role === 'assistant') && typeof m.content === 'string')
-        .map(m => ({ role: m.role, content: m.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 600) }))
+        .map(m => ({ role: m.role, content: m.content.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, len) }))
         .filter(m => m.content)
-        .slice(-6);
+        .slice(-max);
 }
 
 function withHistory(text, history) {
@@ -4274,10 +4348,13 @@ async function handleChat(req, res) {
 
     const { text: cleaned, topic } = normalizePrompt(prompt);
     if (!cleaned) return res.status(400).json({ error: 'Промпт не передан' });
-    if (!topic && HARAM_ASK.test(cleaned)) {
+    // «Садои дил»: рассказ о долгах или о пьющем родственнике — это боль, а не просьба; собеседник выслушает сам,
+    // а совет о запретном мягко отклонит (так сказано в heartPrompt)
+    if (!topic && body.room !== 'heart' && HARAM_ASK.test(cleaned)) {
         return res.json({ answer: SHARIA_REPLY[lang], provider: 'rules', grounded: false, sources: [] });
     }
-    const history = cleanHistory(body.history);
+    // «Садои дил»: человек рассказывает свою историю постепенно — помним больше (6 обменов репликами)
+    const history = body.room === 'heart' ? cleanHistory(body.history, 12, 900) : cleanHistory(body.history);
     // Короткое уточнение («а подешевле?») понимаем вместе с прошлым вопросом.
     const lastUser = [...history].reverse().find(m => m.role === 'user');
     const followUp = !topic && lastUser && cleaned.length <= 60;
@@ -4315,7 +4392,8 @@ async function handleChat(req, res) {
     }
     // Вопрос о деле («как получить ИНН?», «где оформить загранпаспорт?») — ответ с поиском и источником, а не по памяти
     if (!topic && !factual && mode === 'general' && cleaned.length <= 250 && KW_ASK.test(cleaned) && !KW_TALK.test(cleaned) && !KW_SMALL.test(cleaned)) factual = true;
-    const userText = withHistory(followUp ? cleaned : routed.userText, history);
+    // «Садои дил»: собеседнику — слова человека как есть (без поисковых подсказок раздела)
+    const userText = withHistory(heart || followUp ? cleaned : routed.userText, history);
     const detectOn = topic || cleaned;
     // Места (аптеки, гостиницы…): выбранный на сайте город — прямо в запрос поиска
     const placeCity = kind === 'places' ? cityById(body.city) : null;
@@ -6544,6 +6622,27 @@ const DIAG_TOPICS = {
 async function handleDiag(req, res) {
     if (process.env.DIAG_KEY && req.query?.k !== process.env.DIAG_KEY) return res.status(403).json({ error: 'forbidden' });
     if (diagLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
+    // Проверка собеседников «Садои дил»: одно и то же письмо — нескольким моделям (только по ключу диагностики)
+    if (req.query?.heartlab === '1') {
+        const HEART_LAB_SAMPLES = {
+            tg: ['Салом. Имрӯз дар кор маро дар назди ҳама таҳқир карданд. Ҳоло дилам хеле вазнин аст ва ба касе гуфта наметавонам.',
+                 'Се моҳ мешавад, ки шавҳарам дар Русия кор мекунад ва қариб занг намезанад. Ман бо ду кӯдак танҳо мондам ва аз хастагӣ гиря мекунам.'],
+            ru: ['Здравствуйте. Сегодня на работе меня унизили при всех. На душе очень тяжело, и рассказать некому.',
+                 'Мне кажется, я никому не нужна. Всё время устаю и плачу по ночам.'],
+            uz: ["Salom. Bugun ishda meni hammaning oldida xo'rlashdi. Ko'nglim juda og'ir, hech kimga ayta olmayman."]
+        };
+        const labLang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
+        const list = HEART_LAB_SAMPLES[labLang];
+        const sample = list[Math.max(0, Math.min(list.length - 1, Number(req.query.n) || 0))];
+        const models = String(req.query.m || HEART_MODELS.join(',')).split(',').map(x => x.trim()).filter(x => /^[a-z0-9-]+\/[a-z0-9.\-:]+$/i.test(x)).slice(0, 4);
+        const results = await Promise.all(models.map(m => timed(async () => {
+            if (!openrouter) throw new Error('нет OpenRouter');
+            const r = await askChat(openrouter, m, heartPrompt(labLang), sample, 1000, HEART_PRIVATE, 20000);
+            const text = heartText(r.text);
+            return { model: m, mixed: mixedLanguage(text, labLang), tokens: r.usage ? [r.usage.prompt_tokens, r.usage.completion_tokens] : null, text };
+        }).then(x => (x.ok ? x : { ...x, model: m }))));
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang: labLang, sample, results });
+    }
     if (req.query?.channel === '1') return res.json({ date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), channel_test: await diagChannel() });
     // Как устроены страницы других сайтов объявлений (для прямого подключения): /diag?peek=https://arzon.tj/…&find=текст&from=0&len=2000
     // Только чтение, только arzon.tj, ola.tj, paydo.tj.
