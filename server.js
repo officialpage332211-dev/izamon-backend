@@ -3862,7 +3862,8 @@ function listingsAnswer(items, kind, lang, own) {
     const sus = kind === 'ads' ? suspectFlags([...ownList, ...items]) : [];
     const mark = (it, i) => (sus[i] ? { ...it, suspect: true } : flags[i] ? { ...it, cheap: true } : it);
     const ownHtml = ownList.map((it, i) => cardHtml(mark(it, i), 'ads', lang)).join('');
-    return `<div class="iz-lcs">${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
+    // места (клиники, аптеки…): пометка для сайта — над карточками подсказка «выберите свой город», без фильтра цены
+    return `<div class="iz-lcs"${kind === 'places' ? ' data-kind="places"' : ''}>${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
 }
 
 // ---------------------------------------------------------------------------
