@@ -1537,7 +1537,7 @@ const KIND_EMOJI = { ads: '🏷️', jobs: '💼', tickets: '✈️', tours: '�
 const HOTEL_TASK = 'Найди до 10 реальных гостиниц в Таджикистане (то, что просит запрос) из разных источников. Для каждой — ссылка на страницу именно этой гостиницы: её собственный сайт или её страница на сайте бронирования, в справочнике или на картах; не общий список гостиниц. price — цена за ночь, только если она опубликована на странице (с валютой, например «от 450 TJS за ночь»). contact — телефон, только если он написан на странице. points — только с этой страницы: «Звёзды: 4», «Оценка: 8,7 из 10», «Адрес: улица, дом». Ничего не выдумывай.';
 
 // «Н/Д», «Цены уточняются», «не указано» — это не данные, такие значения в карточке не показываем.
-const BLANK_VALUE = new RegExp('^(?:н/?д|n/?a|na|нет|нет\\s+данных|данных\\s+нет|не\\s+указан[а-яё]*|не\\s+известн[а-яё]*|неизвестн[а-яё]*|уточня[а-яё]*|уточните|цен[а-яё]*\\s+уточня[а-яё]*|цена\\s+не\\s+указана|информации\\s+нет|' +
+const BLANK_VALUE = new RegExp('^(?:н/?д|n/?a|na|нет|нет\\s+данных|данных\\s+нет|не\\s*указан[а-яё]*|не\\s+известн[а-яё]*|неизвестн[а-яё]*|уточня[а-яё]*|уточните|цен[а-яё]*\\s+уточня[а-яё]*|цена\\s+не\\s+указана|информации\\s+нет|' +
     'маълумот\\s+нест|номаълум|нишон\\s+дода\\s+нашуда[а-яёӣӯқғҳҷ]*|ошкор\\s+нашуда[а-яёӣӯқғҳҷ]*|нарх(?:и)?\\s+(?:маълум\\s+карда\\s+мешавад|ошкор\\s+нашудааст)|' +
     "ma.?lumot\\s+yo.?q|noma.?lum|ko.?rsatilmagan|aniqlanmoqda|narx\\s+aniqlanadi|null|none|undefined|[-—–?.]+)$", 'i');
 function blankValue(v) {
@@ -2567,7 +2567,8 @@ function hotelSlots(it, lang) {
     return {
         hotel: true,
         fixed: [{ label: T.stars, value: stars }, { label: T.rate, value: rate }, { label: T.addr, value: addr, row: true }],
-        points: pts.filter((_, k) => !used.has(k))
+        // город уже в строке «📍»; пустые значения не показываем; не больше двух дополнительных плиток
+        points: pts.filter((x, k) => !used.has(k) && !/^(?:город|шаҳр|shahar|city)\s*:/i.test(String(x).trim()) && !blankValue(valueOf(x))).slice(0, 2)
     };
 }
 // Страница точно про эту гостиницу? Отличительное слово названия («Лал», «Hyatt», «Серена») должно быть в заголовке страницы.
@@ -3728,6 +3729,25 @@ async function withTjsForRub(items, date) {
     });
 }
 
+// «Гостиницы»: цена в рублях («от 4042 рублей за ночь», сайты бронирования из России) — рядом примерно в сомони по курсу Нацбанка
+const RUB_IN_TEXT = /(\d[\d\s\u00a0]*(?:[.,]\d{1,2})?)\s*(?:₽|руб(?:\.|л[а-яё]*)?|rub(?:les?)?)(?![\p{L}])/iu;
+async function withTjsForRubText(items, date) {
+    if (!items.some(it => RUB_IN_TEXT.test(String(it.price || '')) && !/TJS|сомон/i.test(String(it.price || '')))) return items;
+    let rates = null;
+    try { rates = await nbtRatesFor(date); } catch { rates = null; }
+    const k = rates && rates.RUB;
+    if (!(k > 0)) return items;
+    return items.map(it => {
+        const p = String(it.price || '').trim();
+        const m = RUB_IN_TEXT.exec(p);
+        if (!m || /TJS|сомон/i.test(p)) return it;
+        const n = Number(m[1].replace(/[\s\u00a0]/g, '').replace(',', '.'));
+        if (!(n > 0)) return it;
+        const tjs = Math.round(n * k).toLocaleString('ru-RU').replace(/\u00a0/g, ' ');
+        return { ...it, price: `${p} (≈ ${tjs} TJS)` };
+    });
+}
+
 // Несколько списков карточек → один: по очереди из каждого (разнообразие), без повторов ссылки и названия, с одного сайта — не больше 3
 function mergeListings(lists) {
     const out = [], seenU = new Set(), seenT = new Set(), perHost = {};
@@ -3780,6 +3800,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
         if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
     } else items = await webListings({ kind, lang, date, query, debug, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) });
     const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
+    if (hotel) return withTjsForRubText(done, date);
     return kind === 'tickets' ? withTicketLinks(await withTjsForRub(done, date), debug) : done;
 }
 
@@ -6794,7 +6815,7 @@ async function handleDiag(req, res) {
         const places = [...html.matchAll(/<div class="iz-lc-m">📍 ([^<·]*)/g)].map(m => m[1].trim());
         // full=1: текст первых карточек целиком (что видит человек), для проверки цен и контактов
         const full = req.query.full === '1' ? html.split('class="iz-lc"').slice(1, 4).map(c => c.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400)) : undefined;
-        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, imgs: (html.match(/<div class="iz-lc-img"[^>]*><img /g) || []).length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
     }
     // /diag?orders=1: проверка таблиц заявок на настоящей базе. Пишет одну пробную строку (заявка с номером 0 и продавцом «diag») и сразу её удаляет.
     if (req.query?.orders === '1') {
@@ -6856,12 +6877,13 @@ async function handleDiag(req, res) {
         out.cards_test = await timed(async () => {
             let kind = 'ads';
             let query = 'Найди актуальные объявления на сегодня: сначала на somon.tj. Раздел: «Хона».';
-            let routed = null, somon = null, spreadQ = null;
+            let routed = null, somon = null, spreadQ = null, fixedQ = null;
             if (diagTopic) {
                 // тот же путь, что и у настоящей кнопки раздела
                 const r = routeRequest({ cleaned: diagTopic, topic: diagTopic });
                 spreadQ = r.spread || null;
-                routed = { mode: r.mode, kind: r.kind, somon: !!r.somon };
+                fixedQ = r.fixed || null;
+                routed = { mode: r.mode, kind: r.kind, somon: !!r.somon, fixed: fixedQ };
                 kind = r.kind;
                 somon = r.somon;
                 query = withDictionary(r.userText, diagTopic);
@@ -6885,7 +6907,7 @@ async function handleDiag(req, res) {
                 return { lang: diagLang, routed, steps: req.query?.trace === '1' ? steps : undefined, provider: res.body.provider, view: res.body.view || null, tips: (String(res.body.answer || '').match(/class="iz-tip"/g) || []).length, plain, sources: (res.body.sources || []).length, trace };
             }
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
-            const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon, spread: spreadQ });
+            const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon, spread: spreadQ, fixed: fixedQ });
             const f = items[0];
             return { lang: diagLang, routed, items: items.length, spread: dbgL.spread, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points, fixed: f.fixed } : null, fixedAll: items.map(x => x.fixed ? x.fixed.map(y => y.value || '—').join('/') : null).slice(0, 10),
             fullLens: items.slice(0, 10).map(x => String(x.full || '').length), slugsAll: kind === 'jobs' ? items.map(x => x.sphereSlug || null).slice(0, 10) : undefined, pointsAll: items.slice(0, 10).map(x => `${String(x.title || '').slice(0, 60)} => ${(x.points || []).join(' ; ')}`), sort: { priced: items.filter(x => x.pn > 0).length, aged: items.filter(x => Number.isFinite(x.age)).length, cheap: cheapFlags(items).filter(Boolean).length, prices: items.map(x => x.pn > 0 ? x.pn + x.pc : '-').join(' '), ages: items.map(x => Number.isFinite(x.age) ? x.age : '-').join(' ') }, ...dbgL };
