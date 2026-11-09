@@ -1372,16 +1372,27 @@ async function askOpenAISearch(system, userText) {
 // даже если модель не поставила ссылку-цитату.
 const ENCYC_HOST = /(^|\.)(?:wikipedia\.org|britannica\.com|bigenc\.ru|ruwiki\.ru|encyclopedia\.com|nationalgeographic\.com|kids\.britannica\.com)$/i;
 
+// Новые модели OpenAI не принимают max_tokens (нужен max_completion_tokens, и рассуждающим моделям нужен запас на «обдумывание»).
+// Получили такую ошибку — повторяем с другим параметром и запоминаем его для этого клиента.
 async function askChat(client, model, system, userText, maxTokens = 300) {
     aiSpend();
-    const completion = await withTimeout(client.chat.completions.create({
+    const make = param => withTimeout(client.chat.completions.create({
         model,
         messages: [
             { role: 'system', content: system },
             { role: 'user', content: userText }
         ],
-        max_tokens: maxTokens
-    }), 10000);
+        [param]: param === 'max_completion_tokens' ? Math.max(maxTokens, 2000) : maxTokens
+    }), param === 'max_completion_tokens' ? 25000 : 10000);
+    let completion;
+    try {
+        completion = await make(client.__izTokParam || 'max_tokens');
+    } catch (err) {
+        if (!(err && err.status === 400 && /max_tokens|max_completion_tokens|unsupported parameter/i.test(String(err.message)))) throw err;
+        client.__izTokParam = (client.__izTokParam || 'max_tokens') === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens';
+        aiSpend();
+        completion = await make(client.__izTokParam);
+    }
     const text = completion.choices?.[0]?.message?.content?.trim();
     if (!text) throw new Error('Empty response');
     return { text, sources: [] };
@@ -6634,6 +6645,9 @@ async function handleDiag(req, res) {
             const r = await askOpenAISearch('Ищи в интернете и отвечай коротко.', question);
             return { text: r.text.slice(0, 60), sources: r.sources.length };
         });
+        // обычный разговор без поиска (так отвечает «Садои дил» и болтовня): модель и точная ошибка, если есть
+        out.openai_plain = await timed(async () => ({ model: OPENAI_MODEL, text: (await askChat(openai, OPENAI_MODEL, 'Отвечай одним словом.', 'Скажи: привет', 20)).text.slice(0, 40) }));
+        if (!out.openai_plain.ok) out.openai_plain.model = OPENAI_MODEL;
     } else {
         out.openai = 'ключ OpenAI не задан';
     }
