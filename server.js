@@ -511,6 +511,41 @@ function cityOf(text) {
 }
 function cityById(id) { return CITIES.find(c => c.id === String(id || '')) || null; }
 
+// Районы города (выбор на сайте: body.district). Пока — Душанбе: 4 района по официальному делению + микрорайоны, которые названы в источниках.
+// Остальные города добавляются сюда же — на сайте (izamon-city.js, DIST) список районов должен совпадать по id.
+// Тексты пишем в нормальном виде kwNorm: «ҳ»→«х», «ӣ»→«и», апострофы убраны. any — название района где угодно (место или заголовок),
+// loc — слова, которым верим только в поле «место» («Сомони» в заголовке бывает валютой).
+const DISTRICT_DEFS = {
+    dushanbe: [
+        { id: 'ismoili', ru: 'Исмоили Сомони',
+          any: String.raw`исмоили\s*сомони|исмоили|ismoili|шотемур|umari\s*хайям|умари\s*хайям|umari\s*hayyom|umari\s*xayyom`,
+          loc: String.raw`сомони|somoni` },
+        { id: 'sino', ru: 'Сино',
+          any: String.raw`(?<!ибни\s)(?<!ибн\s)(?<!ibni\s)(?<!ibn\s)(?:сино|sino)|зарафшон|zarafshon|(?:82|91|92)\s*-?\s*(?:й\s*)?(?:мкр|микр\p{L}*|mkr|mikr\p{L}*)` },
+        { id: 'firdavsi', ru: 'Фирдавси',
+          any: String.raw`фирдавс\p{L}*|фирдоус\p{L}*|firdavs\p{L}*|firdous\p{L}*|firdaus\p{L}*` },
+        { id: 'shohmansur', ru: 'Шоҳмансур',
+          any: String.raw`шохмансур|шахмансур|shohmansur|shokhmansur|shoxmansur|192\s*-?\s*(?:й\s*)?(?:мкр|микр\p{L}*|mkr|mikr\p{L}*)` }
+    ]
+};
+const DISTRICTS = {};
+for (const [cid, list] of Object.entries(DISTRICT_DEFS)) {
+    DISTRICTS[cid] = list.map(d => ({
+        id: d.id, city: cid, ru: d.ru,
+        any: new RegExp(`(?<![\\p{L}\\d])(?:${d.any})(?![\\p{L}])`, 'u'),
+        loc: d.loc ? new RegExp(`(?<![\\p{L}\\d])(?:${d.loc})(?![\\p{L}])`, 'u') : null
+    }));
+}
+function districtById(cityId, id) { return (DISTRICTS[cityId] || []).find(d => d.id === String(id || '')) || null; }
+// Объявление из выбранного района? Район назван в «месте» или заголовке — да. В «месте» назван другой район этого города — нет.
+// В «месте» только город («Душанбе») — смотрим начало текста объявления.
+function districtMatch(a, d) {
+    const loc = kwNorm(a.location);
+    if (d.any.test(`${loc} ${kwNorm(a.title)}`) || (d.loc && d.loc.test(loc))) return true;
+    if (DISTRICTS[d.city].some(x => x.any.test(loc) || (x.loc && x.loc.test(loc)))) return false;
+    return d.any.test(kwNorm(String(a.description || '').slice(0, 400)));
+}
+
 // Запросы про жильё и землю ведём сразу в свой раздел (там подключены все сайты): «сниму квартиру» → аренда, «куплю дом» → продажа.
 const KW_HOME = /(?<![\p{L}])(?:квартир|комнат|жиль|жил(?:ой|ая|ое|ые|ого|ую|ищ)|недвижимост|дом(?:а|у|ом)?(?![\p{L}])|хавли|ҳавлӣ|хона(?![\p{L}])|хонаи|kvartira|xonadon|uy(?![\p{L}])|hovli)/iu;
 const KW_RENT = /(?<![\p{L}])(?:сним|снять|снимаю|аренд|сда[её]т|сдам|сдаю|посуточн|иҷора|ижара|ijara|kiraga)/iu;
@@ -3538,6 +3573,8 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             if (spec.stems && spec.stems.length && !keywordHas(kwLoose ? `${a.title} ${a.description}` : a.title, spec.stems)) continue;
             // выбран город: только объявления из него (город — в поле «место», у некоторых сайтов только в названии)
             if (spec.city && !spec.city.re.test(kwNorm(`${a.location} ${a.title}`))) { stat.otherCity = (stat.otherCity || 0) + 1; continue; }
+            // выбран район города: только объявления из него
+            if (spec.district && !districtMatch(a, spec.district)) { stat.otherDistrict = (stat.otherDistrict || 0) + 1; continue; }
             // задана цена «от–до» (в сомони): объявления без цены или вне диапазона не показываем
             if (spec.price) {
                 const v = priceInTjs(a.price || a.priceNote, spec.price.rates);
@@ -3827,6 +3864,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
                 : null;
             const [main, extra] = await Promise.all([finishItems(direct, kind, lang, debug, somon.fixed || ''), extraP || { items: [] }]);
             const extraItems = extra.items.filter(x => (!somon.city || somon.city.re.test(kwNorm(`${x.place} ${x.title}`)))
+                && (!somon.district || districtMatch({ location: x.place, title: x.title, description: '' }, somon.district))
                 && (!somon.price || (v => v !== null && (!somon.price.min || v >= somon.price.min) && (!somon.price.max || v <= somon.price.max))(priceInTjs(x.price, somon.price.rates))));
             const mixed = extraP ? mixFeeds(main, extraItems) : main;
             if (debug && extraP) debug.web = { n: extra.items.length, shown: mixed.filter(x => !SOMON_HOST.test(hostOf(x.url))).length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), list: extra.items.map(x => `${String(x.title).slice(0, 36)} | ${x.price || '-'} | ${hostOf(x.url)}${(() => { try { return new URL(x.url).pathname.slice(0, 28); } catch { return ''; } })()}`), ...(extra.dbg ? { err: extra.dbg.error, text: extra.dbg.textStart, parseError: extra.dbg.parseError, retry: extra.dbg.retry, confirm: extra.dbg.confirm, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
@@ -4555,6 +4593,9 @@ async function handleChat(req, res) {
     // Город: выбранный на сайте или названный в запросе — только для лент объявлений, вакансий и услуг
     const city = cityById(body.city) || (somon ? cityOf(routeOn) : null);
     if (somon && city) somon = { ...somon, city };
+    // Район: только вместе с выбранным городом (список районов задан для города)
+    const district = city ? districtById(city.id, body.district) : null;
+    if (somon && district) somon = { ...somon, district };
     // Цена «от–до»: выбранная на сайте (pmin/pmax, сомони) или названная в запросе («до 3000», «до 500$»)
     const pText = somon ? priceRange(routeOn) : null;
     const pBody = { min: Math.max(0, Math.round(Number(body.pmin) || 0)), max: Math.max(0, Math.round(Number(body.pmax) || 0)) };
@@ -4574,13 +4615,14 @@ async function handleChat(req, res) {
     const detectOn = topic || cleaned;
     // Места (аптеки, гостиницы…): выбранный на сайте город — прямо в запрос поиска
     const placeCity = kind === 'places' ? cityById(body.city) : null;
-    const placeNote = placeCity && TG_CITY_NAMES[placeCity.id] ? `\nТолько места в городе ${TG_CITY_NAMES[placeCity.id].ru}.` : '';
+    const placeDist = placeCity ? districtById(placeCity.id, body.district) : null;
+    const placeNote = placeCity && TG_CITY_NAMES[placeCity.id] ? `\nТолько места в городе ${TG_CITY_NAMES[placeCity.id].ru}${placeDist ? `, район ${placeDist.ru}` : ''}.` : '';
     const fullMessage = (category ? `[Подраздел: ${category}] ${userText}` : userText) + placeNote;
     const date = todayTJ();
 
     // С историей ответ зависит от разговора — такие ответы не кэшируем.
     const cacheable = factual && !history.length;
-    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id : placeCity ? 'p:' + placeCity.id : '-'}|${somon && somon.price ? `${somon.price.min}-${somon.price.max}` : '-'}|${norm(detectOn)}`;
+    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id + (somon.district ? ':' + somon.district.id : '') : placeCity ? 'p:' + placeCity.id + (placeDist ? ':' + placeDist.id : '') : '-'}|${somon && somon.price ? `${somon.price.min}-${somon.price.max}` : '-'}|${norm(detectOn)}`;
     if (cacheable) {
         const hit = answerCache.get(key);
         if (hit) return res.json({ ...hit, cached: true });
