@@ -1698,22 +1698,35 @@ function priceParts(raw) {
     return c ? { n, c } : null;
 }
 
-// Подозрительно низкая цена: меньше 30% от средней (медианы) у тех же объявлений в той же валюте, если цен с чем сравнить не меньше 5.
-// Цены ниже 5% медианы не трогаем — это обычно «1 сомони» вместо «договорная», а не обман.
+// Подозрительно низкая цена: сравниваем только одинаковые товары — та же марка и модель в названии («Samsung Galaxy S26 Ultra»,
+// «Toyota Camry 2016»), та же валюта. Цена меньше 35% от середины цен таких же товаров в выдаче — предупреждение.
+// Разные товары между собой не сравниваем (яйца и корова, чехол и телефон). Цены ниже 5% не трогаем: это «1 сомони» вместо «договорная».
 const SUSPECT_LABEL = {
     ru: '⚠️ Цена намного ниже других. Не платите заранее — сначала посмотрите товар.',
     tg: '⚠️ Нарх аз дигарон хеле паст аст. Пешакӣ пул напардозед — аввал молро бинед.',
     uz: "⚠️ Narx boshqalarnikidan ancha past. Oldindan pul to'lamang — avval mahsulotni ko'ring."
 };
+const MODEL_MORE = /^(?:ultra|pro|max|plus|mini|lite|fe|promax)$/;
+function modelKey(title) {
+    const w = latinKey(String(title || '').split(/[,(]/)[0] + ' ' + (String(title || '').split(',')[1] || '')).split(' ').filter(Boolean);
+    if (w.length < 2 || !/^[a-z]{3,}$/.test(w[0])) return '';
+    const d = w.findIndex((x, i) => i > 0 && /\d/.test(x));
+    if (d < 1 || d > 4) return '';
+    let end = d + 1;
+    while (end < w.length && MODEL_MORE.test(w[end])) end++;
+    return w.slice(0, end).join(' ');
+}
 function suspectFlags(list) {
     const out = list.map(() => false);
-    const byCur = Object.create(null);
-    list.forEach((x, i) => { if (x && x.pn > 0 && x.pc) (byCur[x.pc] = byCur[x.pc] || []).push(i); });
-    for (const idx of Object.values(byCur)) {
-        if (idx.length < 5) continue;
-        const sorted = idx.map(i => list[i].pn).sort((a, b) => a - b);
-        const mid = sorted.length % 2 ? sorted[(sorted.length - 1) / 2] : (sorted[sorted.length / 2 - 1] + sorted[sorted.length / 2]) / 2;
-        for (const i of idx) if (list[i].pn < mid * 0.3 && list[i].pn >= mid * 0.05) out[i] = true;
+    const groups = Object.create(null);
+    list.forEach((x, i) => { if (!(x && x.pn > 0 && x.pc)) return; const k = modelKey(x.title); if (k) (groups[`${x.pc}|${k}`] = groups[`${x.pc}|${k}`] || []).push(i); });
+    for (const idx of Object.values(groups)) {
+        if (idx.length < 2) continue;
+        for (const i of idx) {
+            const others = idx.filter(j => j !== i).map(j => list[j].pn).sort((a, b) => a - b);
+            const mid = others.length % 2 ? others[(others.length - 1) / 2] : (others[others.length / 2 - 1] + others[others.length / 2]) / 2;
+            if (list[i].pn < mid * 0.35 && list[i].pn >= mid * 0.05) out[i] = true;
+        }
     }
     return out;
 }
@@ -1758,6 +1771,35 @@ function firstCallable(contact) {
     return '';
 }
 
+// Цена в карточке — в одном виде на любом сайте-источнике: «сом.», «сомони», «TJS», «смн» → «сомонӣ / сомони / somoni» (по языку сайта);
+// «Торг», «Цена договорная», «Kelishilgan» → одно слово; «в месяц», «за ночь», «от» — на языке сайта. Без ИИ, по словарю.
+const PRICE_CUR_WORD = { tg: 'сомонӣ', ru: 'сомони', uz: 'somoni' };
+const PRICE_FIXED = {
+    deal: { tg: 'Тавофуқӣ', ru: 'Договорная', uz: 'Kelishilgan' }, // подходит и цене, и зарплате
+    free: { tg: 'Ройгон', ru: 'Бесплатно', uz: 'Bepul' },
+    swap: { tg: 'Мубодила', ru: 'Обмен', uz: 'Ayirboshlash' }
+};
+const PRICE_FIXED_RE = [
+    [/^(?:цена\s+)?договорн[а-яё]*$|^торг(?:\s+уместен)?$|^(?:нарх(?:и)?\s+)?тавофуқӣ$|^kelishilgan$|^narxi\s+kelishiladi$|^по\s+договор[её]нности$/i, 'deal'],
+    [/^(?:бесплатно|даром|ройгон|bepul)$/i, 'free'],
+    [/^(?:обмен|мубодила|ayirboshlash)$/i, 'swap']
+];
+const PRICE_TAIL = {
+    tg: [[/\s+в\s+месяц/i, ' дар як моҳ'], [/\s+за\s+ночь/i, ' барои як шаб'], [/\s+в\s+сутки/i, ' дар як шабонарӯз'], [/^от\s+/i, 'аз ']],
+    uz: [[/\s+в\s+месяц/i, ' oyiga'], [/\s+за\s+ночь/i, ' bir kecha uchun'], [/\s+в\s+сутки/i, ' sutkasiga'], [/^от\s+(.+)$/i, '$1 dan']],
+    ru: [[/^аз\s+/i, 'от ']]
+};
+function unifyPrice(price, lang) {
+    let p = String(price || '').trim();
+    if (!p) return '';
+    const bare = p.replace(/[.!]+$/, '').trim();
+    for (const [re, key] of PRICE_FIXED_RE) if (re.test(bare)) return PRICE_FIXED[key][lang] || PRICE_FIXED[key].ru;
+    const cur = PRICE_CUR_WORD[lang] || PRICE_CUR_WORD.ru;
+    p = p.replace(/(\d)\s*(?:TJS|сомон[иӣ]|сом\.?|смн\.?|somoni)(?![\p{L}])/giu, `$1 ${cur}`);
+    for (const [re, to] of PRICE_TAIL[lang] || []) p = p.replace(re, to);
+    return p;
+}
+
 function cardHtml(it, kind, lang) {
     const host = hostOf(it.url);
     const phone = firstCallable(it.contact);
@@ -1779,7 +1821,7 @@ function cardHtml(it, kind, lang) {
             : `<div class="iz-lc-img iz-noimg"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[look] || '🏷️'}</i></div>`,
         badges,
         `<div class="iz-lc-t">${escapeHtml(it.title)}</div>`,
-        it.price ? `<div class="iz-lc-p">${escapeHtml(it.price)}</div>` : '',
+        it.price ? `<div class="iz-lc-p">${escapeHtml(unifyPrice(it.price, lang))}</div>` : '',
         it.suspect && SUSPECT_LABEL[lang] ? `<div class="iz-lc-pl iz-lc-warn">${escapeHtml(SUSPECT_LABEL[lang])}</div>`
             : it.cheap && CHEAP_LABEL[lang] ? `<div class="iz-lc-pl">↓ ${escapeHtml(CHEAP_LABEL[lang])}</div>` : '',
         it.sellerSince && it.sellerCount > 0 && SELLER_LINE[lang] ? `<div class="iz-lc-sl">${escapeHtml(SELLER_LINE[lang](it.sellerSince, it.sellerCount))}</div>` : '',
@@ -7037,5 +7079,5 @@ module.exports = {
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
