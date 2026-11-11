@@ -261,6 +261,15 @@ function partsRule(item) {
     };
 }
 
+// Подарки и цветы: что считать цветами, подарками, игрушками (по названию и тексту объявления)
+const GIFT_W = {
+    flowers: String.raw`(?<![\p{L}])(?:цвет(?:ы|ов|ам|ами|очк\p{L}*|очн\p{L}*)|букет\p{L}*|роз(?:а|ы|ой|очк\p{L}*)|тюльпан\p{L}*|хризантем\p{L}*|пион(?:ы|ов)?|орхиде\p{L}*|гул(?:ҳо|ҳои|и|даста\p{L}*)?|gul(?:lar|dasta\p{L}*)?)(?![\p{L}])`,
+    gifts: String.raw`(?<![\p{L}])(?:подар(?:ок|ки|ков|ка|кам)|подарочн\p{L}*|сувенир\p{L}*|т[уӯ]ҳфа\p{L}*|sovg['ʻ’]?a\p{L}*)(?![\p{L}])`,
+    toys: String.raw`(?<![\p{L}])(?:игрушк\p{L}*|бозича\p{L}*|o['ʻ’]?yinchoq\p{L}*|lego|лего|кукл(?:а|ы|у|ой)|плюшев\p{L}*)(?![\p{L}])`
+};
+// по названию: семена и рассада — это «Посев»; «… в подарок» — к товару прилагается подарок, это не подарок
+const GIFT_NOT = /семен|саженц|рассад|удобрен|грунт|в\s+подарок|подарок\s+(?:при|к\s)|(?<![\p{L}])цвет\s*[:—-]/iu;
+
 const PORTAL_RULES = [
     { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest', kind: 'services',
       somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/Kompyuter-i-internet/' }], boards: [{ host: 'paydo.tj', path: 'obuchenie', words: /программ|it|айти|компьютер|1с|1c|дизайн|python|java|web|веб|frontend|backend|excel/i }, { host: 'ola.tj', path: 'obuchenie', words: /программ|it|айти|компьютер|1с|1c|дизайн|python|java|web|веб|frontend|backend|excel/i }],  facts: 'course', fixed: 'itc' },
@@ -364,6 +373,21 @@ const PORTAL_RULES = [
       somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], boards: [{ host: 'paydo.tj', path: 'zapchasti-prodazha' }, { host: 'ola.tj', path: 'zapchasti-i-aksessuary' }],  facts: 'parts', fixed: 'parts' },
       query: 'Найди актуальные объявления о продаже автозапчастей, шин и дисков в Таджикистане, сначала на somon.tj: что за деталь, для какой машины, состояние, цена, город, контакт продавца.' },
     { re: /^(?:қисмҳо|запчасти|qismlar):\s*\S/u, mode: 'ads', make: partsRule },
+    // «Тӯҳфаҳо ва гулҳо» (подарки и цветы) и вкладки: цветы, подарки, игрушки. Своей рубрики на somon.tj нет — поиск по словам
+    // и строгий отбор по названию и тексту объявления («цвет: белый» — не цветы; «чехол в подарок» — не подарок).
+    { re: /^(?:тӯҳфаҳо\s+ва\s+гулҳо|подарки\s+и\s+цветы|sovg['ʻ’]?alar\s+va\s+gullar)$/u, portal: /бозор|товары|bozor/, mode: 'ads',
+      somon: { sources: [{ q: 'цветы' }, { q: 'букет' }, { q: 'подарок' }, { q: 'игрушки' }], boards: [{ host: 'paydo.tj', q: 'цветы' }, { host: 'paydo.tj', q: 'подарки' }],
+        words: new RegExp(`${GIFT_W.flowers}|${GIFT_W.gifts}|${GIFT_W.toys}`, 'iu'), notWords: GIFT_NOT },
+      query: 'Найди актуальные объявления о продаже цветов и букетов, подарков и сувениров, детских игрушек в Таджикистане, сначала на somon.tj: что продаётся, цена, город, контакт продавца. Без алкоголя и запретного.' },
+    { re: /^(?:гулҳо|цветы|gullar)$/u, portal: /бозор|товары|bozor/, mode: 'ads',
+      somon: { sources: [{ q: 'цветы' }, { q: 'букет' }, { q: 'букет цветов' }], boards: [{ host: 'paydo.tj', q: 'цветы' }], words: new RegExp(GIFT_W.flowers, 'iu'), notWords: GIFT_NOT },
+      query: 'Найди актуальные объявления о продаже цветов и букетов (живые цветы, розы, тюльпаны, цветы в горшках, доставка) в Таджикистане, сначала на somon.tj: что продаётся, цена, город, контакт продавца.' },
+    { re: /^(?:тӯҳфаҳо|подарки|sovg['ʻ’]?alar)$/u, portal: /бозор|товары|bozor/, mode: 'ads',
+      somon: { sources: [{ q: 'подарок' }, { q: 'подарки' }, { q: 'сувенир' }, { q: 'подарочный набор' }], boards: [{ host: 'paydo.tj', q: 'подарки' }], words: new RegExp(GIFT_W.gifts, 'iu'), notWords: GIFT_NOT },
+      query: 'Найди актуальные объявления о продаже подарков, сувениров и подарочных наборов в Таджикистане, сначала на somon.tj: что продаётся, цена, город, контакт продавца. Без алкоголя и запретного.' },
+    { re: /^(?:бозичаҳо|игрушки|o['ʻ’]?yinchoqlar)$/u, portal: /бозор|товары|bozor/, mode: 'ads',
+      somon: { sources: [{ q: 'игрушки' }, { q: 'мягкие игрушки' }, { q: 'детские игрушки' }], boards: [{ host: 'paydo.tj', q: 'игрушки' }], words: new RegExp(GIFT_W.toys, 'iu'), notWords: GIFT_NOT },
+      query: 'Найди актуальные объявления о продаже детских игрушек в Таджикистане, сначала на somon.tj: что за игрушка, цена, город, контакт продавца.' },
     { re: /^(?:мебел|мебель|mebel)$/, mode: 'ads',
       somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], boards: [{ host: 'paydo.tj', path: 'mebel-i-interer' }, { host: 'ola.tj', path: 'mebel' }],  notWords: /компьютер(?!н)|ноутбук|монитор|системн\w*\s+блок|процессор|видеокарт|принтер|моноблок|(?<![\p{L}])пк(?![\p{L}])|копилк/iu, facts: 'furniture', fixed: 'furniture' },
       query: 'Найди актуальные объявления о продаже мебели в Таджикистане, сначала на somon.tj: что за мебель, размер, материал, состояние, цена, город, контакт продавца.' },
@@ -6994,6 +7018,8 @@ const DIAG_TOPICS = {
     parts_petrol_toyota: '2. Нақлиёт ва сафар - Қисмҳо: бензинӣ: Toyota',
     furniture: '3. Бозор ва молу ашё - Мебел',
     clothes: '3. Бозор ва молу ашё - Либос',
+    gifts: '3. Бозор ва молу ашё - Тӯҳфаҳо ва гулҳо',
+    flowers: '3. Бозор ва молу ашё - Гулҳо',
     tech: '3. Бозор ва молу ашё - Техника',
     phones: '3. Бозор ва молу ашё - Телефонҳо',
     langs: '6. Маориф ва илм - Забонҳо',
