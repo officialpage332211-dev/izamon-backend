@@ -730,6 +730,7 @@ function heartPrompt(lang, strict = false) {
 - Будь умным собеседником: замечай важное, силу и достоинство человека; когда он готов — бережно помоги увидеть ситуацию шире и найти опору. Простые способы облегчить состояние (медленно подышать, назвать чувство, написать письмо, которое не нужно отправлять) — только как предложение, не приказ.
 - Помогай отпустить тяжесть: человек должен уйти с облегчением, а не с новым грузом.
 - Когда человеку стало легче или он прощается — тепло отпусти: поблагодари за доверие, скажи доброе слово о нём и что сюда можно вернуться в любое время. Не удерживай и не навязывай продолжение.
+- Люди пишут как говорят: разговорный таджикский, шевы (северные — худжандские, южные — кулябские, памирские и другие), городской сленг, смесь с русскими словами, без особых букв («х» вместо «ҳ», «ч» вместо «ҷ») или латиницей («chi hel», «dilam tang»). Пойми смысл по всему сообщению; если в нём есть подсказка «Местные слова в сообщении» — опирайся на неё. Отвечай всё равно на литературном языке, но тепло и просто. Если слово непонятно — не угадывай и не делай вид, что понял: мягко спроси, что оно значит.
 - Пол человека не угадывай.
 - Вера: если человек сам говорит о вере или Боге — бережно поддержи (терпение, дуа, милость Аллаха) по ханафитскому мазхабу, без нравоучений и фетв. Сам религию не навязывай.
 - Не спрашивай имя, телефон, адрес и другие личные данные. Не обещай того, чего не можешь (позвонить, прийти, быть рядом).
@@ -6743,9 +6744,28 @@ async function loadDictionary() {
 }
 loadDictionary.reset = () => { dictCache = { at: 0, rows: [] }; };
 
+// Как пишут на самом деле: «ҳ» и «х», «ҷ» и «ч», без особых букв или латиницей («chi hel» = «чӣ хел»).
+// Сравниваем «скелеты» слов: латиницу переводим в кириллицу, особые буквы — в обычные. Слово из словаря ищем
+// в начале слова сообщения (окончания разрешены: «бачаҳо» находит «бача»), фразу — целиком.
+const LAT2CYR = [['shch', 'щ'], ['sh', 'ш'], ['ch', 'ч'], ['zh', 'ж'], ['kh', 'х'], ['gh', 'г'], ['yo', 'е'], ['yu', 'ю'], ['ya', 'я'], ['ts', 'ц'],
+    ['a', 'а'], ['b', 'б'], ['v', 'в'], ['g', 'г'], ['d', 'д'], ['e', 'е'], ['z', 'з'], ['i', 'и'], ['y', 'й'], ['j', 'ч'], ['k', 'к'], ['l', 'л'], ['m', 'м'],
+    ['n', 'н'], ['o', 'о'], ['p', 'п'], ['r', 'р'], ['s', 'с'], ['t', 'т'], ['u', 'у'], ['f', 'ф'], ['h', 'х'], ['q', 'к'], ['x', 'х'], ['c', 'к'], ['w', 'в']];
+function dictSkel(text) {
+    let t = String(text || '').toLowerCase().replace(/[ʻʼ'’`]/g, '');
+    if (/[a-z]/.test(t)) for (const [l, c] of LAT2CYR) t = t.split(l).join(c);
+    return kwNorm(t).replace(/[ъь]/g, '').replace(/[^\p{L}\d]+/gu, ' ').trim();
+}
 function dictionaryHints(text, rows) {
-    const t = ` ${String(text || '').toLowerCase()} `;
-    return (rows || []).filter(r => r.word && t.includes(String(r.word).toLowerCase())).slice(0, 8);
+    const t = ` ${dictSkel(text)} `;
+    const seen = new Set();
+    return (rows || []).filter(r => {
+        const w = dictSkel(r.word);
+        if (!w || w.length < 2 || seen.has(w)) return false;
+        // короткие слова (2–3 буквы) — только целиком, чтобы «ош» не находилось в «кошки»
+        const hit = w.length <= 3 ? t.includes(` ${w} `) : t.includes(` ${w}`);
+        if (hit) seen.add(w);
+        return hit;
+    }).slice(0, 12);
 }
 
 let dictRowsNow = [];
@@ -6775,13 +6795,18 @@ async function handleDictAdd(req, res) {
     const user = await getUser(req);
     if (!isAdmin(user)) return res.status(403).json({ ok: false, error: 'admin_only' });
     const b = req.body || {};
-    const row = { word: clip(b.word, 60).toLowerCase(), meaning: clip(b.meaning, 200), region: clip(b.region, 60) || null, lang: ['tg', 'ru', 'uz'].includes(b.lang) ? b.lang : 'tg' };
-    if (!row.word || !row.meaning) return res.status(400).json({ ok: false, error: 'word_meaning_required' });
+    const one = x => ({ word: clip(x.word, 60).toLowerCase(), meaning: clip(x.meaning, 200), region: clip(x.region, 60) || null, lang: ['tg', 'ru', 'uz'].includes(x.lang || b.lang) ? (x.lang || b.lang) : 'tg' });
+    // много слов сразу: items — список (до 200); повторы и уже записанные (то же слово с тем же значением) не добавляем
+    const have = new Set(((await loadDictionary()) || []).map(r => `${dictSkel(r.word)}|${String(r.meaning).toLowerCase()}`));
+    const rows = (Array.isArray(b.items) ? b.items.slice(0, 200) : [b]).map(one).filter(r => r.word && r.meaning)
+        .filter(r => { const k = `${dictSkel(r.word)}|${r.meaning.toLowerCase()}`; if (have.has(k)) return false; have.add(k); return true; });
+    if (!rows.length) return res.status(400).json({ ok: false, error: Array.isArray(b.items) ? 'nothing_new' : 'word_meaning_required' });
+    const row = rows.length === 1 ? rows[0] : rows;
     try {
         await sb('dictionary', { method: 'POST', body: row, prefer: 'return=minimal' });
         loadDictionary.reset();
         dictRowsNow = await loadDictionary();
-        return res.json({ ok: true });
+        return res.json({ ok: true, added: rows.length });
     } catch (err) {
         return res.status(503).json({ ok: false, error: 'store_failed' });
     }
@@ -7191,7 +7216,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    districtMatch, districtById, partsRule, resolvePortal,
+    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT,
     app, handleChat, handleImport, handleSpeak,
