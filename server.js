@@ -269,6 +269,8 @@ const GIFT_W = {
 };
 // по названию: семена и рассада — это «Посев»; «… в подарок» — к товару прилагается подарок, это не подарок
 const GIFT_NOT = /семен|саженц|рассад|удобрен|грунт|в\s+подарок|подарок\s+(?:при|к\s)|(?<![\p{L}])цвет\s*[:—-]/iu;
+// во вкладке «Гулҳо» — только сами цветы: «Чайный сервиз „Мейсенский букет“», подставки и вазы — не цветы
+const GIFT_NOT_FLOWERS = new RegExp(`${GIFT_NOT.source}|сервиз|сервис|посуд|чашк|тарелк|подставк|ваз(?:а|ы|у)(?![\\p{L}])`, 'iu');
 
 const PORTAL_RULES = [
     { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest', kind: 'services',
@@ -380,7 +382,7 @@ const PORTAL_RULES = [
         words: new RegExp(`${GIFT_W.flowers}|${GIFT_W.gifts}|${GIFT_W.toys}`, 'iu'), notWords: GIFT_NOT },
       query: 'Найди актуальные объявления о продаже цветов и букетов, подарков и сувениров, детских игрушек в Таджикистане, сначала на somon.tj: что продаётся, цена, город, контакт продавца. Без алкоголя и запретного.' },
     { re: /^(?:гулҳо|цветы|gullar)$/u, portal: /бозор|товары|bozor/, mode: 'ads',
-      somon: { sources: [{ q: 'цветы' }, { q: 'букет' }, { q: 'букет цветов' }], boards: [{ host: 'paydo.tj', q: 'цветы' }], words: new RegExp(GIFT_W.flowers, 'iu'), notWords: GIFT_NOT },
+      somon: { sources: [{ q: 'цветы' }, { q: 'букет' }, { q: 'букет цветов' }], boards: [{ host: 'paydo.tj', q: 'цветы' }], words: new RegExp(GIFT_W.flowers, 'iu'), notWords: GIFT_NOT_FLOWERS },
       query: 'Найди актуальные объявления о продаже цветов и букетов (живые цветы, розы, тюльпаны, цветы в горшках, доставка) в Таджикистане, сначала на somon.tj: что продаётся, цена, город, контакт продавца.' },
     { re: /^(?:тӯҳфаҳо|подарки|sovg['ʻ’]?alar)$/u, portal: /бозор|товары|bozor/, mode: 'ads',
       somon: { sources: [{ q: 'подарок' }, { q: 'подарки' }, { q: 'сувенир' }, { q: 'подарочный набор' }], boards: [{ host: 'paydo.tj', q: 'подарки' }], words: new RegExp(GIFT_W.gifts, 'iu'), notWords: GIFT_NOT },
