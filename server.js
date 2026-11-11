@@ -4453,6 +4453,12 @@ function withHistory(text, history) {
     return `Предыдущие сообщения этого разговора (для понимания контекста, не повторяй их):\n${lines.join('\n')}\n\nНовое сообщение пользователя: ${text}`;
 }
 
+const HELLO_ASK = /^(?:(?:ас)?сал[оа]м(?:у\s+ала?йкум)?|(?:as)?salom(?:u\s+alaykum)?|привет|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|hello|hi)(?:[\s,!.]+(?:iZamoN|изамон))?[\s,!.?]*(?:(?:ту|шумо|ты|вы|sen|siz)?\s*(?:чӣ\s+кор\s+(?:карда\s+)?(?:метавон[ӣи]|метавонед)|что\s+(?:ты\s+|вы\s+)?уме(?:ешь|ете)|nima\s+qila\s+olas(?:an|iz))[\s?!.]*)?$|^(?:ту\s+|шумо\s+|ты\s+|вы\s+)?(?:чӣ\s+кор\s+(?:карда\s+)?(?:метавон[ӣи]|метавонед)|что\s+(?:ты\s+|вы\s+)?уме(?:ешь|ете)|nima\s+qila\s+olas(?:an|iz)|кто\s+(?:ты|вы)|ту\s+кистӣ|kimsan)[\s?!.]*$/iu;
+const HELLO_REPLY = {
+    tg: '👋 Салом! Ман ёрдамчии iZamoN ҳастам.\n🔎 Ҷустуҷӯ: нависед, ки чӣ лозим аст — «иҷораи хона», «iPhone 13», «кор дар Душанбе».\n💱 Маълумот: қурби асъор, гумрук, пардохти коммуналӣ, хизматрасониҳои давлатӣ.\n❓ Савол: масалан, «чӣ тавр ИНН гирам?» — бо манбаъ ҷавоб медиҳам.\n🤍 «Садои дил» — агар дил танг бошад, он ҷо метавонед дарди дил гӯед.',
+    ru: '👋 Здравствуйте! Я помощник iZamoN.\n🔎 Поиск: напишите, что нужно — «аренда квартиры», «iPhone 13», «работа в Душанбе».\n💱 Справки: курсы валют, растаможка, коммунальные платежи, госуслуги.\n❓ Вопрос: например, «как получить ИНН?» — отвечу с источником.\n🤍 «Садои дил» — если тяжело на душе, там можно выговориться.',
+    uz: "👋 Salom! Men iZamoN yordamchisiman.\n🔎 Qidiruv: nima kerakligini yozing — «kvartira ijarasi», «iPhone 13», «Dushanbeda ish».\n💱 Ma'lumot: valyuta kurslari, bojxona, kommunal to'lovlar, davlat xizmatlari.\n❓ Savol: masalan, «INN qanday olinadi?» — manba bilan javob beraman.\n🤍 «Sadoi dil» — ko'ngil og'ir bo'lsa, o'sha yerda dardlashish mumkin."
+};
 async function handleChat(req, res) {
     const body = req.body || {};
     const prompt = typeof body.prompt === 'string' ? body.prompt.trim() : '';
@@ -4470,6 +4476,10 @@ async function handleChat(req, res) {
 
     const { text: cleaned, topic } = normalizePrompt(prompt);
     if (!cleaned) return res.status(400).json({ error: 'Промпт не передан' });
+    // Приветствие и «что ты умеешь?» — готовый дружелюбный ответ без ИИ: мгновенно и работает, даже когда ИИ недоступен
+    if (!topic && body.room !== 'heart' && cleaned.length <= 60 && HELLO_ASK.test(cleaned)) {
+        return res.json({ answer: HELLO_REPLY[lang], provider: 'rules', grounded: false, sources: [] });
+    }
     // «Садои дил»: рассказ о долгах или о пьющем родственнике — это боль, а не просьба; собеседник выслушает сам,
     // а совет о запретном мягко отклонит (так сказано в heartPrompt)
     if (!topic && body.room !== 'heart' && HARAM_ASK.test(cleaned)) {
