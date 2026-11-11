@@ -198,7 +198,7 @@ function factTopics(iso) {
 // Отбор по словам в названии и тексте объявления: у марки — её название (кириллицей и латиницей); у дизельных «Hyundai», «Kia»,
 // «Mercedes» — ещё и дизельные модели (Porter, Bongo, Sprinter…), потому что эти марки делают и бензиновые машины.
 const PB = x => `(?<![\\p{L}\\d])(?:${x})(?![\\p{L}])`;
-const PARTS_DIESEL_W = String.raw`дизел\p{L}*|diesel|dizel\p{L}*|tdi|crdi|cdi|tdci|d-?4d|солярк\p{L}*|тнвд`;
+const PARTS_DIESEL_W = String.raw`дизел\p{L}*|diesel|dizel\p{L}*|tdi|crdi|cdi|tdci|d-?4d|солярк\p{L}*`; // ТНВД — не признак: он есть и у бензиновых GDI
 const PARTS_EV_W = String.raw`электромобил\p{L}*|электрокар\p{L}*|электро\s*-?\s*авто\p{L}*|ev|тягов\p{L}*\s+батаре\p{L}*|высоковольт\p{L}*`;
 const PARTS_BRAND_RE = {
     'toyota': String.raw`toyota|тойот\p{L}*`, 'lexus': String.raw`lexus|лексус\p{L}*`,
@@ -252,7 +252,8 @@ function partsRule(item) {
             : new RegExp(b, brand === 'man' ? 'u' : 'iu'); // «MAN» — только заглавными
     } else if (fuelId === 'diesel') words = new RegExp(PB(PARTS_DIESEL_ANY), 'iu');
     else if (fuelId === 'ev') words = new RegExp(PB(PARTS_EV_ANY), 'iu');
-    const q = brand ? [{ q: `запчасти ${partsName(brand).replace(/\s*\(.*\)$/, '')}` }] : [];
+    const q = brand ? [{ q: `запчасти ${partsName(brand).replace(/\s*\(.*\)$/, '')}` }]
+        : fuelId === 'diesel' ? [{ q: 'дизель запчасти' }] : fuelId === 'ev' ? [{ q: 'электромобиль запчасти' }] : [];
     return {
         ...base, make: undefined,
         somon: { ...base.somon, sources: [...base.somon.sources, ...q], cat: /\/avtozapchasti-i-prinadlezhnosti\//, words, notWords },
