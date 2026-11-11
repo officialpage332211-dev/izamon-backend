@@ -507,12 +507,19 @@ async function nbtRatesFor(date) {
         const x = await withTimeout(nbtXmlRates(date), 6000);
         if (x && x.rows) {
             const rates = {};
-            for (const r of x.rows) if (['USD', 'EUR', 'RUB'].includes(r.code) && r.rate > 0) rates[r.code] = r.rate;
+            for (const r of x.rows) if (['USD', 'EUR', 'RUB', 'UZS'].includes(r.code) && r.rate > 0) rates[r.code] = r.rate;
             if (rates.USD) nbtRatesMemo = { at: Date.now(), rates };
             return rates;
         }
     } catch {}
     return nbtRatesMemo.rates;
+}
+
+// курсы для цен в карточках — всегда под рукой (карточки собираются без ожидания)
+const ratesNow = () => nbtRatesMemo.rates;
+if (process.env.NODE_ENV !== 'test') {
+    setTimeout(() => { nbtRatesFor(todayTJ()).catch(() => {}); }, 3000).unref();
+    setInterval(() => { nbtRatesFor(todayTJ()).catch(() => {}); }, 3 * 3600e3).unref();
 }
 
 function keywordQuery(text) {
@@ -1894,13 +1901,63 @@ const PRICE_TAIL = {
     uz: [[/\s+в\s+месяц/i, ' oyiga'], [/\s+за\s+ночь/i, ' bir kecha uchun'], [/\s+в\s+сутки/i, ' sutkasiga'], [/^от\s+(.+)$/i, '$1 dan']],
     ru: [[/^аз\s+/i, 'от ']]
 };
-function unifyPrice(price, lang) {
+// Цены — в валюте языка сайта: таджикский — сомони, русский — рубли, узбекский — сумы (выбор владельца сайта).
+// Пересчёт по курсу Нацбанка Таджикистана (rates: сколько сомони за 1 единицу); пересчитанная цена — со знаком «≈».
+// Валюта совпала — как есть, без «≈». Курса нет — цена остаётся в своей валюте (сомони — словом на языке сайта).
+const LANG_CUR = { tg: 'TJS', ru: 'RUB', uz: 'UZS' };
+const CUR_WORD = { TJS: { tg: 'сомонӣ', ru: 'сомони', uz: 'somoni' }, RUB: { tg: '₽', ru: '₽', uz: '₽' }, UZS: { tg: 'сум', ru: 'сум', uz: "so'm" } };
+const MONEY_NUM = String.raw`\d[\d\s\u00a0.,]*\d|\d`;
+const MONEY_CUR = [
+    ['USD', String.raw`\$|usd|долл\p{L}*|dollar\p{L}*`], ['EUR', String.raw`€|eur|евро`],
+    ['RUB', String.raw`₽|rub(?:l\p{L}*)?|руб\.?|рубл\p{L}*`], ['UZS', String.raw`uzs|сум(?:ов|а|ы)?|сўм|so['ʻ’]m`],
+    ['TJS', String.raw`tjs|сомон[иӣ]|сом\.?|смн\.?|somoni`]
+];
+const MONEY_RE = new RegExp(`(?<![\\p{L}\\d])(?:(\\$|€|₽)\\s*(${MONEY_NUM})|(${MONEY_NUM})(?:\\s*[–—-]\\s*(${MONEY_NUM}))?\\s*(${MONEY_CUR.map(c => c[1]).join('|')})(?![\\p{L}]))`, 'giu');
+function moneyNum(t) {
+    t = String(t).replace(/[\s\u00a0]+/g, '');
+    if (/^\d{1,3}(?:[.,]\d{3})+$/.test(t)) t = t.replace(/[.,]/g, '');
+    else t = t.replace(',', '.');
+    const n = Number(t);
+    return isFinite(n) && n > 0 ? n : null;
+}
+function moneyCur(word) {
+    const w = String(word).toLowerCase();
+    for (const [code, re] of MONEY_CUR) if (new RegExp(`^(?:${re})$`, 'iu').test(w)) return code;
+    return null;
+}
+function moneyFmt(v, cur, exact = false) {
+    if (exact) { const [i, d] = String(v).split('.'); return i.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + (d ? ',' + d : ''); }
+    const step = cur === 'UZS' ? (v < 10000 ? 100 : v < 1e6 ? 1000 : 10000)
+        : cur === 'RUB' ? (v < 100 ? 1 : v < 10000 ? 10 : v < 1e6 ? 100 : 1000)
+        : (v < 10 ? 0.1 : 1);
+    const r = Math.max(step, Math.round(v / step) * step);
+    const [i, d] = (step < 1 ? r.toFixed(1) : String(Math.round(r))).split('.');
+    return i.replace(/\B(?=(\d{3})+(?!\d))/g, ' ') + (d && d !== '0' ? ',' + d : '');
+}
+function localizeMoney(text, lang, rates) {
+    const to = LANG_CUR[lang] || 'TJS';
+    const R = c => c === 'TJS' ? 1 : (rates && rates[c] > 0 ? rates[c] : null);
+    return String(text || '').replace(MONEY_RE, (all, preSign, preNum, n1, n2, word) => {
+        const from = preSign ? moneyCur(preSign) : moneyCur(word);
+        const nums = (preSign ? [preNum] : [n1, n2]).filter(Boolean).map(moneyNum);
+        if (!from || nums.some(x => x === null)) return all;
+        const w = c => (CUR_WORD[c] && CUR_WORD[c][lang]) || c;
+        if (from === to) return `${nums.map(x => moneyFmt(x, to, true)).join('–')} ${w(to)}`; // своя валюта — точно, как у продавца
+        if (R(from) && R(to)) return `≈ ${nums.map(x => moneyFmt(x * R(from) / R(to), to)).join('–')} ${w(to)}`;
+        // курса нет: сомони — словом на языке сайта, остальное — как написано
+        return from === 'TJS' ? `${nums.map(x => moneyFmt(x, 'TJS', true)).join('–')} ${w('TJS')}` : all;
+    });
+}
+function unifyPrice(price, lang, rates = null) {
     let p = String(price || '').trim();
     if (!p) return '';
     const bare = p.replace(/[.!]+$/, '').trim();
     for (const [re, key] of PRICE_FIXED_RE) if (re.test(bare)) return PRICE_FIXED[key][lang] || PRICE_FIXED[key].ru;
-    const cur = PRICE_CUR_WORD[lang] || PRICE_CUR_WORD.ru;
-    p = p.replace(/(\d)\s*(?:TJS|сомон[иӣ]|сом\.?|смн\.?|somoni)(?![\p{L}])/giu, `$1 ${cur}`);
+    if (rates) p = localizeMoney(p, lang, rates);
+    else {
+        const cur = PRICE_CUR_WORD[lang] || PRICE_CUR_WORD.ru;
+        p = p.replace(/(\d)\s*(?:TJS|сомон[иӣ]|сом\.?|смн\.?|somoni)(?![\p{L}])/giu, `$1 ${cur}`);
+    }
     for (const [re, to] of PRICE_TAIL[lang] || []) p = p.replace(re, to);
     return p;
 }
@@ -1914,11 +1971,12 @@ function cardHtml(it, kind, lang) {
     // характеристики плитками 2×2, как в образце: «Ключ: значение» → подпись + значение
     // fixed — одинаковый для всех карточек раздела набор плиток (пустая показывается как «—»)
     const fixedTiles = (it.fixed || []).map(f => f.value
-        ? `<div class="iz-tile iz-fx${f.row ? ' iz-row' : ''}"><span>${escapeHtml(f.label)}</span><b>${escapeHtml(f.value)}</b></div>`
+        ? `<div class="iz-tile iz-fx${f.row ? ' iz-row' : ''}"><span>${escapeHtml(f.label)}</span><b>${escapeHtml(ratesNow() ? localizeMoney(f.value, lang, ratesNow()) : f.value)}</b></div>`
         : `<div class="iz-tile iz-fx${f.row ? ' iz-row' : ''} iz-empty"><span>${escapeHtml(f.label)}</span><b>—</b></div>`).join('');
     const tiles = fixedTiles + (it.points || []).map(x => {
         const m = String(x).match(/^([^:]{2,25}):\s*(.+)$/);
-        return m ? `<div class="iz-tile"><span>${escapeHtml(m[1])}</span><b>${escapeHtml(m[2])}</b></div>` : `<div class="iz-tile"><b>${escapeHtml(x)}</b></div>`;
+        const mv = v => ratesNow() ? localizeMoney(v, lang, ratesNow()) : v;
+        return m ? `<div class="iz-tile"><span>${escapeHtml(m[1])}</span><b>${escapeHtml(mv(m[2]))}</b></div>` : `<div class="iz-tile"><b>${escapeHtml(mv(x))}</b></div>`;
     }).join('');
     const parts = [
         it.image
@@ -1926,7 +1984,7 @@ function cardHtml(it, kind, lang) {
             : `<div class="iz-lc-img iz-noimg"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[look] || '🏷️'}</i></div>`,
         badges,
         `<div class="iz-lc-t">${escapeHtml(it.title)}</div>`,
-        it.price ? `<div class="iz-lc-p">${escapeHtml(unifyPrice(it.price, lang))}</div>` : '',
+        it.price ? `<div class="iz-lc-p">${escapeHtml(unifyPrice(it.price, lang, ratesNow()))}</div>` : '',
         it.suspect && SUSPECT_LABEL[lang] ? `<div class="iz-lc-pl iz-lc-warn">${escapeHtml(SUSPECT_LABEL[lang])}</div>`
             : it.cheap && CHEAP_LABEL[lang] ? `<div class="iz-lc-pl">↓ ${escapeHtml(CHEAP_LABEL[lang])}</div>` : '',
         it.sellerSince && it.sellerCount > 0 && SELLER_LINE[lang] ? `<div class="iz-lc-sl">${escapeHtml(SELLER_LINE[lang](it.sellerSince, it.sellerCount))}</div>` : '',
@@ -3863,42 +3921,6 @@ function mixFeeds(main, extra, total = 10) {
     return out;
 }
 
-// Цена билета в рублях (так её пишет сайт): рядом — примерно в сомони по курсу Нацбанка. Курса нет — цена как есть.
-const RUB_PRICE = /^((?:от|аз|dan)\s+)?(\d[\d\s\u00a0]*(?:[.,]\d{1,2})?)\s*(?:₽|руб\.?|rub)$/i;
-async function withTjsForRub(items, date) {
-    if (!items.some(it => RUB_PRICE.test(String(it.price || '').trim()))) return items;
-    let rates = null;
-    try { rates = await nbtRatesFor(date); } catch { rates = null; }
-    const k = rates && rates.RUB;
-    if (!(k > 0)) return items;
-    return items.map(it => {
-        const m = RUB_PRICE.exec(String(it.price || '').trim());
-        if (!m) return it;
-        const n = Number(m[2].replace(/[\s\u00a0]/g, '').replace(',', '.'));
-        if (!(n > 0)) return it;
-        const tjs = Math.round(n * k).toLocaleString('ru-RU').replace(/\u00a0/g, ' ');
-        return { ...it, price: `${String(it.price).trim()} (≈ ${tjs} TJS)` };
-    });
-}
-
-// «Гостиницы»: цена в рублях («от 4042 рублей за ночь», сайты бронирования из России) — рядом примерно в сомони по курсу Нацбанка
-const RUB_IN_TEXT = /(\d[\d\s\u00a0]*(?:[.,]\d{1,2})?)\s*(?:₽|руб(?:\.|л[а-яё]*)?|rub(?:les?)?)(?![\p{L}])/iu;
-async function withTjsForRubText(items, date) {
-    if (!items.some(it => RUB_IN_TEXT.test(String(it.price || '')) && !/TJS|сомон/i.test(String(it.price || '')))) return items;
-    let rates = null;
-    try { rates = await nbtRatesFor(date); } catch { rates = null; }
-    const k = rates && rates.RUB;
-    if (!(k > 0)) return items;
-    return items.map(it => {
-        const p = String(it.price || '').trim();
-        const m = RUB_IN_TEXT.exec(p);
-        if (!m || /TJS|сомон/i.test(p)) return it;
-        const n = Number(m[1].replace(/[\s\u00a0]/g, '').replace(',', '.'));
-        if (!(n > 0)) return it;
-        const tjs = Math.round(n * k).toLocaleString('ru-RU').replace(/\u00a0/g, ' ');
-        return { ...it, price: `${p} (≈ ${tjs} TJS)` };
-    });
-}
 
 // Несколько списков карточек → один: по очереди из каждого (разнообразие), без повторов ссылки и названия, с одного сайта — не больше 3
 function mergeListings(lists) {
@@ -3953,8 +3975,10 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
         if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
     } else items = await webListings({ kind, lang, date, query, debug, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) });
     const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
-    if (hotel) return withTjsForRubText(done, date);
-    return kind === 'tickets' ? withTicketLinks(await withTjsForRub(done, date), debug) : done;
+    // курс — заранее, чтобы карточки показали цену в валюте языка
+    try { await nbtRatesFor(date); } catch {}
+    if (hotel) return done;
+    return kind === 'tickets' ? withTicketLinks(done, debug) : done;
 }
 
 // Поиск по интернету: карточки с настоящими ссылками на страницы, которые поиск действительно открыл. task — что искать, skip — какие сайты не брать.
@@ -4218,7 +4242,9 @@ function listingsAnswer(items, kind, lang, own) {
     const mark = (it, i) => (sus[i] ? { ...it, suspect: true } : flags[i] ? { ...it, cheap: true } : it);
     const ownHtml = ownList.map((it, i) => cardHtml(mark(it, i), 'ads', lang)).join('');
     // места (клиники, аптеки…): пометка для сайта — над карточками подсказка «выберите свой город», без фильтра цены
-    return `<div class="iz-lcs"${kind === 'places' ? ' data-kind="places"' : ''}>${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
+    const rt = ratesNow();
+    const rAttr = rt ? `${rt.RUB > 0 ? ` data-rub="${rt.RUB}"` : ''}${rt.UZS > 0 ? ` data-uzs="${rt.UZS}"` : ''}` : '';
+    return `<div class="iz-lcs"${kind === 'places' ? ' data-kind="places"' : ''}${rAttr}>${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -7216,6 +7242,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+    localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT,
