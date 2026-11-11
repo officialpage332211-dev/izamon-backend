@@ -4363,7 +4363,10 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             }
             if (openai && KIND_TASK[kind]) {
                 try {
-                    const items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed });
+                    const tl0 = Date.now();
+                    let items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed });
+                    // поиск иногда возвращает пусто (сбой разбора, все страницы не открылись) — если время есть, ещё одна попытка: карточки лучше текста
+                    if (!items.length && Date.now() - tl0 < 15000) items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed });
                     if (items.length) {
                         // места (гостиницы, клиники…): поиск то находит пять мест, то одно — скудный ответ держим в памяти недолго, чтобы следующий человек получил полнее
                         return { body: { answer: listingsAnswer(items, kind, lang, ownRows), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: kind === 'places' && items.length < 3 ? 2 * MIN : ttlFor(mode) };
