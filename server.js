@@ -194,6 +194,72 @@ function factTopics(iso) {
 }
 
 // Кнопки разделов: у каждой свой поисковый запрос, чтобы ответ сразу содержал данные, а не описание раздела.
+// Запчасти по виду машины и марке: вкладки «Бензинӣ / Дизелӣ / Барқӣ», внутри — марки (на сайте izamon-trips.js, названия марок те же).
+// Отбор по словам в названии и тексте объявления: у марки — её название (кириллицей и латиницей); у дизельных «Hyundai», «Kia»,
+// «Mercedes» — ещё и дизельные модели (Porter, Bongo, Sprinter…), потому что эти марки делают и бензиновые машины.
+const PB = x => `(?<![\\p{L}\\d])(?:${x})(?![\\p{L}])`;
+const PARTS_DIESEL_W = String.raw`дизел\p{L}*|diesel|dizel\p{L}*|tdi|crdi|cdi|tdci|d-?4d|солярк\p{L}*|тнвд`;
+const PARTS_EV_W = String.raw`электромобил\p{L}*|электрокар\p{L}*|электро\s*-?\s*авто\p{L}*|ev|тягов\p{L}*\s+батаре\p{L}*|высоковольт\p{L}*`;
+const PARTS_BRAND_RE = {
+    'toyota': String.raw`toyota|тойот\p{L}*`, 'lexus': String.raw`lexus|лексус\p{L}*`,
+    'hyundai': String.raw`hyundai|хендай\p{L}*|хундай\p{L}*|хёндай\p{L}*|хюндай\p{L}*`, 'kia': String.raw`kia|киа`,
+    'chevrolet': String.raw`chevrolet|шевроле|cobalt|кобальт|lacetti|лачетти|spark|спарк|captiva|каптива`,
+    'daewoo': String.raw`daewoo|дэу|nexia|нексия|нексиа|matiz|матиз|damas|дамас`, 'opel': String.raw`opel|опель\p{L}*`,
+    'mercedes-benz': String.raw`mercedes\p{L}*|мерседес\p{L}*|мерс|benz|бенц`, 'bmw': String.raw`bmw|бмв`,
+    'volkswagen': String.raw`volkswagen|фольксваген\p{L}*|vw`, 'nissan': String.raw`nissan|ниссан\p{L}*`,
+    'lada': String.raw`lada|лада|ваз|vaz|жигул\p{L}*|priora|приора|niva|нива|granta|гранта|vesta|веста`,
+    'isuzu': String.raw`isuzu|исузу`, 'kamaz': String.raw`kamaz|камаз\p{L}*`, 'maz': String.raw`maz|маз`, 'man': String.raw`MAN|МАН`,
+    'howo': String.raw`howo|хово|хаво|sinotruk|синотрук`, 'shacman': String.raw`shacman|шакман|шахман`, 'iveco': String.raw`iveco|ивеко`,
+    'byd': String.raw`byd`, 'zeekr': String.raw`zeekr|зикр|зекр`, 'tesla': String.raw`tesla|тесл\p{L}*`,
+    'leapmotor': String.raw`leapmotor|лип\s*мотор`, 'li auto': String.raw`li\s*auto|lixiang|li\s*xiang|ли\s*сян|лисян`,
+    'voyah': String.raw`voyah|воях`, 'xpeng': String.raw`xpeng|икспенг|сяопэн`, 'deepal': String.raw`deepal|дипал`,
+    'avatr': String.raw`avatr|аватр`, 'volkswagen id': String.raw`(?:volkswagen|vw|фольксваген)\s*id\.?\s*\d|id\.?\s*[4-7]`
+};
+// у дизельных вкладок марка, которая делает и бензиновые машины, — вместе с дизельными моделями или словом «дизель»
+const PARTS_DIESEL_MODELS = {
+    'hyundai': String.raw`porter|портер\p{L}*|starex|старекс\p{L}*|county|каунти|mighty|hd\s*-?\s*\d{2,3}|universe`,
+    'kia': String.raw`bongo|бонго|granbird|k\s*-?\s*(?:2500|2700|3000)`,
+    'mercedes-benz': String.raw`sprinter|спринтер\p{L}*|actros|актрос|atego|атего|vario|варио`,
+    'toyota': String.raw`hilux|хайлюкс|хайлакс|land\s*cruiser|ленд\s*крузер|dyna|дюна`
+};
+const PARTS_FUELS = {
+    petrol: { re: /^(?:бензинӣ|бензин|benzin)$/u, ru: 'бензиновых', brands: ['toyota', 'lexus', 'hyundai', 'kia', 'chevrolet', 'daewoo', 'opel', 'mercedes-benz', 'bmw', 'volkswagen', 'nissan', 'lada'] },
+    diesel: { re: /^(?:дизелӣ|дизель|dizel)$/u, ru: 'дизельных', brands: ['hyundai', 'kia', 'mercedes-benz', 'toyota', 'isuzu', 'kamaz', 'maz', 'man', 'howo', 'shacman', 'iveco'] },
+    ev: { re: /^(?:барқӣ|электро|elektr)$/u, ru: 'электрических', brands: ['byd', 'zeekr', 'tesla', 'leapmotor', 'li auto', 'voyah', 'xpeng', 'deepal', 'avatr', 'volkswagen id'] }
+};
+// «MAN» в общий список не берём: без заглавных букв это таджикское «ман» («я»)
+const PARTS_DIESEL_ONLY = Object.keys(PARTS_BRAND_RE).filter(b => PARTS_FUELS.diesel.brands.includes(b) && !PARTS_DIESEL_MODELS[b] && b !== 'man');
+const PARTS_DIESEL_ANY = [PARTS_DIESEL_W, ...PARTS_DIESEL_ONLY.map(b => PARTS_BRAND_RE[b]), ...Object.values(PARTS_DIESEL_MODELS)].join('|');
+const PARTS_EV_ANY = [PARTS_EV_W, ...PARTS_FUELS.ev.brands.map(b => PARTS_BRAND_RE[b])].join('|');
+const PARTS_NAME = { 'mercedes-benz': 'Mercedes-Benz', 'lada': 'Lada (ВАЗ)', 'kamaz': 'КамАЗ', 'maz': 'МАЗ', 'man': 'MAN', 'byd': 'BYD', 'bmw': 'BMW', 'li auto': 'Li Auto', 'volkswagen id': 'Volkswagen ID' };
+const partsName = b => PARTS_NAME[b] || b.replace(/(^|\s)\p{L}/gu, m => m.toUpperCase());
+function partsRule(item) {
+    const m = String(item).match(/^(?:қисмҳо|запчасти|qismlar):\s*([^:]+?)\s*(?::\s*(.+?)\s*)?$/u);
+    if (!m) return null;
+    const fuelId = Object.keys(PARTS_FUELS).find(k => PARTS_FUELS[k].re.test(m[1].toLowerCase()));
+    if (!fuelId) return null;
+    const fuel = PARTS_FUELS[fuelId];
+    const key = m[2] ? m[2].toLowerCase() : '';
+    const brand = m[2] ? fuel.brands.find(b => b === key || partsName(b).toLowerCase() === key || b === key.replace(/\s*\(.*\)$/, '')) : null;
+    if (m[2] && !brand) return null;
+    const base = PORTAL_RULES.find(r => !r.make && r.re.test('қисмҳои эҳтиётӣ'));
+    let words = null, notWords = null;
+    if (fuelId === 'petrol') notWords = new RegExp(PB(`${PARTS_DIESEL_ANY}|${PARTS_EV_ANY}`), 'iu');
+    if (brand) {
+        const b = PB(PARTS_BRAND_RE[brand]);
+        words = fuelId === 'diesel' && PARTS_DIESEL_MODELS[brand]
+            ? new RegExp(`${PB(PARTS_DIESEL_MODELS[brand])}|^(?=[\\s\\S]*${b})(?=[\\s\\S]*${PB(PARTS_DIESEL_W)})`, 'iu') // модель (Porter) — уже марка; иначе марка + «дизель»
+            : new RegExp(b, brand === 'man' ? 'u' : 'iu'); // «MAN» — только заглавными
+    } else if (fuelId === 'diesel') words = new RegExp(PB(PARTS_DIESEL_ANY), 'iu');
+    else if (fuelId === 'ev') words = new RegExp(PB(PARTS_EV_ANY), 'iu');
+    const q = brand ? [{ q: `запчасти ${partsName(brand).replace(/\s*\(.*\)$/, '')}` }] : [];
+    return {
+        ...base, make: undefined,
+        somon: { ...base.somon, sources: [...base.somon.sources, ...q], cat: /\/avtozapchasti-i-prinadlezhnosti\//, words, notWords },
+        query: `Найди актуальные объявления о продаже автозапчастей для ${fuel.ru} машин${brand ? ` марки ${partsName(brand)}` : ''} в Таджикистане, сначала на somon.tj: что за деталь, для какой машины, состояние, цена, город, контакт продавца. Только запчасти${brand ? ` для ${partsName(brand)}` : ''}.`
+    };
+}
+
 const PORTAL_RULES = [
     { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest', kind: 'services',
       somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/Kompyuter-i-internet/' }], boards: [{ host: 'paydo.tj', path: 'obuchenie', words: /программ|it|айти|компьютер|1с|1c|дизайн|python|java|web|веб|frontend|backend|excel/i }, { host: 'ola.tj', path: 'obuchenie', words: /программ|it|айти|компьютер|1с|1c|дизайн|python|java|web|веб|frontend|backend|excel/i }],  facts: 'course', fixed: 'itc' },
@@ -296,6 +362,7 @@ const PORTAL_RULES = [
     { re: /^(?:қисмҳои\s+эҳтиётӣ|запчасти|qismlar)$/, mode: 'ads',
       somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], boards: [{ host: 'paydo.tj', path: 'zapchasti-prodazha' }, { host: 'ola.tj', path: 'zapchasti-i-aksessuary' }],  facts: 'parts', fixed: 'parts' },
       query: 'Найди актуальные объявления о продаже автозапчастей, шин и дисков в Таджикистане, сначала на somon.tj: что за деталь, для какой машины, состояние, цена, город, контакт продавца.' },
+    { re: /^(?:қисмҳо|запчасти|qismlar):\s*\S/u, mode: 'ads', make: partsRule },
     { re: /^(?:мебел|мебель|mebel)$/, mode: 'ads',
       somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], boards: [{ host: 'paydo.tj', path: 'mebel-i-interer' }, { host: 'ola.tj', path: 'mebel' }],  notWords: /компьютер(?!н)|ноутбук|монитор|системн\w*\s+блок|процессор|видеокарт|принтер|моноблок|(?<![\p{L}])пк(?![\p{L}])|копилк/iu, facts: 'furniture', fixed: 'furniture' },
       query: 'Найди актуальные объявления о продаже мебели в Таджикистане, сначала на somon.tj: что за мебель, размер, материал, состояние, цена, город, контакт продавца.' },
@@ -321,7 +388,8 @@ function resolvePortal(topic) {
     const parts = String(topic).split(' - ');
     const item = parts.pop().trim().toLowerCase();
     const portal = parts.join(' - ').toLowerCase();
-    return PORTAL_RULES.find(r => r.re.test(item) && (!r.portal || r.portal.test(portal))) || null;
+    const rule = PORTAL_RULES.find(r => r.re.test(item) && (!r.portal || r.portal.test(portal))) || null;
+    return rule && rule.make ? rule.make(item) : rule;
 }
 
 function portalQuery(mode, topic) {
@@ -6829,6 +6897,9 @@ const DIAG_TOPICS = {
     master: '8. Хизматрасонӣ - Усто',
     cars: '2. Нақлиёт ва сафар - Мошинҳо',
     parts: '2. Нақлиёт ва сафар - Қисмҳои эҳтиётӣ',
+    parts_diesel: '2. Нақлиёт ва сафар - Қисмҳо: дизелӣ',
+    parts_ev: '2. Нақлиёт ва сафар - Қисмҳо: барқӣ',
+    parts_petrol_toyota: '2. Нақлиёт ва сафар - Қисмҳо: бензинӣ: Toyota',
     furniture: '3. Бозор ва молу ашё - Мебел',
     clothes: '3. Бозор ва молу ашё - Либос',
     tech: '3. Бозор ва молу ашё - Техника',
@@ -7119,7 +7190,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    districtMatch, districtById,
+    districtMatch, districtById, partsRule, resolvePortal,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT,
     app, handleChat, handleImport, handleSpeak,
