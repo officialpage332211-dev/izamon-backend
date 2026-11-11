@@ -5567,8 +5567,60 @@ function speechText(raw) {
         .slice(0, 700);
 }
 
+// Живой голос: OpenAI (gpt-4o-mini-tts) или Gemini TTS (gemini-3.8-flash-tts: таджикский, русский и узбекский — в списке языков).
+// Счёт OpenAI пуст или тот не отвечает — 10 минут сразу идём к Gemini. Оба не смогли — сайт читает голосом телефона.
+// Голос из настроек (мужской/женский, мягкий/глубокий…) — ближайший по характеру голос Gemini.
+const GEMINI_VOICE = { ash: 'Achird', onyx: 'Charon', echo: 'Umbriel', verse: 'Schedar', ballad: 'Sadachbia', coral: 'Vindemiatrix' };
+let ttsOpenaiDownUntil = 0;
+async function openaiSpeech(text, lang, voice) {
+    const audio = await withTimeout(openai.audio.speech.create({
+        model: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
+        voice,
+        input: text,
+        instructions: voiceInstructions(lang),
+        response_format: 'mp3'
+    }, HEART_NO_RETRY), 20000);
+    return { buf: Buffer.from(await audio.arrayBuffer()), type: 'audio/mpeg' };
+}
+async function geminiSpeech(text, lang, voice) {
+    const r = await withTimeout(fetch('https://generativelanguage.googleapis.com/v1beta/interactions', {
+        method: 'POST',
+        headers: { 'x-goog-api-key': geminiKey, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            model: process.env.GEMINI_TTS_MODEL || 'gemini-3.8-flash-tts',
+            input: [{ type: 'user_input', content: [{ type: 'text', text, annotations: [{ type: 'speech_metadata', style: voiceInstructions(lang) }] }] }],
+            response_format: { type: 'audio' },
+            generation_config: { speech_config: [{ voice: GEMINI_VOICE[voice] || 'Achird' }] }
+        })
+    }), 25000);
+    if (!r.ok) { const e = new Error(`Gemini TTS ${r.status}`); e.status = r.status; throw e; }
+    const j = await r.json();
+    const out = (j.steps || []).filter(x => x && x.type === 'model_output').flatMap(x => x.content || []).filter(c => c && c.type === 'audio' && c.data).pop();
+    if (!out) throw new Error('Gemini TTS: нет звука');
+    const buf = Buffer.from(out.data, 'base64');
+    return { buf, type: buf.slice(0, 4).toString() === 'RIFF' ? 'audio/wav' : (out.mime_type || 'audio/wav') };
+}
+async function speakAny(text, lang, voice, tried) {
+    const runs = [];
+    if (openai && Date.now() > ttsOpenaiDownUntil) runs.push(['openai', () => openaiSpeech(text, lang, voice)]);
+    if (geminiKey) runs.push(['gemini', () => geminiSpeech(text, lang, voice)]);
+    for (const [name, run] of runs) {
+        try {
+            aiSpend();
+            const r = await run();
+            if (r.buf && r.buf.length > 500) return { ...r, provider: name };
+            if (tried) tried.push(`${name}: пусто`);
+        } catch (err) {
+            if (name === 'openai') ttsOpenaiDownUntil = Date.now() + 10 * MIN;
+            if (tried) tried.push(`${name}: ${err.status || ''} ${String(err.message || err).slice(0, 90)}`);
+            console.warn(`[tts ${name} Сбой]: ${err.status || ''} ${err.message}`);
+        }
+    }
+    return null;
+}
+
 async function handleSpeak(req, res) {
-    if (!openai) return res.status(503).json({ error: 'tts_unavailable' });
+    if (!openai && !geminiKey) return res.status(503).json({ error: 'tts_unavailable' });
     if (speakLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
     const lang = ['tg', 'ru', 'uz'].includes(req.body?.lang) ? req.body.lang : 'tg';
     const text = speechText(req.body?.text);
@@ -5576,27 +5628,15 @@ async function handleSpeak(req, res) {
     if (!text) return res.status(400).json({ error: 'empty' });
 
     const key = crypto.createHash('sha1').update(`${voice}|${lang}|${text}`).digest('hex');
-    let buf = ttsCache.get(key);
-    if (!buf) {
-        try {
-            aiSpend();
-            const audio = await withTimeout(openai.audio.speech.create({
-                model: process.env.TTS_MODEL || 'gpt-4o-mini-tts',
-                voice,
-                input: text,
-                instructions: voiceInstructions(lang),
-                response_format: 'mp3'
-            }), 20000);
-            buf = Buffer.from(await audio.arrayBuffer());
-            ttsCache.set(key, buf, 24 * 60 * MIN);
-        } catch (err) {
-            console.warn(`[tts Сбой]: ${err.status || ''} ${err.message}`);
-            return res.status(503).json({ error: 'tts_failed' });
-        }
+    let got = ttsCache.get(key);
+    if (!got) {
+        got = await speakAny(text, lang, voice);
+        if (!got) return res.status(503).json({ error: 'tts_failed' });
+        ttsCache.set(key, got, 24 * 60 * MIN);
     }
-    res.set('Content-Type', 'audio/mpeg');
+    res.set('Content-Type', got.type || 'audio/mpeg');
     res.set('Cache-Control', 'private, max-age=86400');
-    return res.send(buf);
+    return res.send(got.buf);
 }
 
 app.post('/api/speak', handleSpeak);
@@ -7026,6 +7066,14 @@ async function handleDiag(req, res) {
             };
         }) });
     }
+    if (req.query?.tts === '1') {
+        const tl = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
+        const sample = { tg: 'Салом! Ман ёрдамчии iZamoN ҳастам.', ru: 'Здравствуйте! Я помощник iZamoN.', uz: "Salom! Men iZamoN yordamchisiman." }[tl];
+        const tried = [];
+        const t0 = Date.now();
+        const got = await speakAny(sample, tl, VOICES.has(req.query.voice) ? req.query.voice : 'ash', tried);
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang: tl, ms: Date.now() - t0, provider: got ? got.provider : null, type: got ? got.type : null, bytes: got ? got.buf.length : 0, tried });
+    }
     // Набранный запрос так, как его пишет человек: /diag?ask=iphone%2013&lang=ru — что увидит человек (вид ответа, карточки, сайты)
     if (typeof req.query?.ask === 'string' && req.query.ask.trim()) {
         const askLang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'ru';
@@ -7242,6 +7290,7 @@ if (require.main === module) {
 }
 
 module.exports = {
+    speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
