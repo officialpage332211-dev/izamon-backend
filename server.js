@@ -4460,8 +4460,15 @@ async function webListings({ kind, lang, date, query, debug, task, skip, hotel =
 ${skip ? 'title — название пункта так, как оно написано на странице-источнике: дословно, без перевода и пересказа, коротко.' : `title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).`}
 price — с валютой, как в источнике. place — город/район. date — дата публикации или вылета. contact — только то, что дословно написано в источнике (на странице объявления или в его описании): телефон, «WhatsApp: номер», «Telegram: @имя», «Instagram: @имя», электронная почта; через «; ». Каналы, которых в источнике нет, не добавляй. Номера, @имена и почту не придумывай и не достраивай (не делай @имя или почту из имени продавца). Нет контактов в источнике — пустая строка. Имя продавца сюда не пиши (оно в who). who — продавец/компания/авиакомпания.
 url — обычная ссылка https://… (без Markdown и скобок) на страницу этого пункта; если отдельной страницы нет — на страницу из результатов поиска, где он найден (например, страница списка). Не пропускай пункт только из-за отсутствия отдельной страницы. image — прямая ссылка на фото с этой страницы, если оно есть. points — до 4 характеристик именно этого пункта в виде «Название: значение», только из источника. Название выбирай по смыслу пункта: у недвижимости — площадь, этаж, год; у машин — пробег, год; у вакансий — график, опыт; у услуг — вид услуги, опыт, выезд на дом, график. Значения не придумывай и не переноси с других пунктов; нет данных — такую характеристику пропусти. Ничего не выдумывай: нет данных — пустая строка (кроме url). Без кредитов, процентов, алкоголя и другого запретного по шариату.`;
-    const resp = await openaiSearchRaw(system, query, tokens);
-    const { text, cites, consulted } = readSearch(resp);
+    const resp = await openaiSearchRaw(local ? `${system}\nimage — оставь пустым "" (фото возьмём со страницы заведения).` : system, query, tokens);
+    const read = readSearch(resp);
+    const { cites, consulted } = read;
+    // Модель иногда «зацикливается» на ссылке фото («…e8e8e8e8…» до конца ответа) — весь JSON ломается. Обрезаем ответ там, где начался повтор:
+    // целые карточки до него спасёт salvageItems.
+    let text = read.text;
+    const loopAt = text.search(/(.{2,8}?)\1{15,}/);
+    const looped = loopAt > 0;
+    if (looped) text = text.slice(0, loopAt);
     // Сайт считается «открытым поиском», если на него есть цитата или он в списке просмотренных страниц.
     const citedHosts = new Set([...cites, ...consulted].map(c => hostOf(c.url || c.uri)).filter(Boolean));
     let items = [];
@@ -4533,7 +4540,7 @@ url — обычная ссылка https://… (без Markdown и скобок
             return true;
         });
     }
-    if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), textLen: text.length, textEnd: text.slice(-160), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
+    if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), textLen: read.text.length, textEnd: text.slice(-160), looped, parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
     return items;
 }
 
