@@ -4933,11 +4933,13 @@ function foreignWord(text, lang, asked = '') {
     return (t.match(/(?<![A-Za-z\u00C0-\u024F])[A-Z\u00C0-\u00DE][a-z\u00DF-\u024F]{3,}(?![A-Za-z\u00C0-\u024F])/g) || [])
         .some(w => !LATIN_OK.has(w.toLowerCase()) && !own.has(w.toLowerCase()));
 }
-// Одна и та же мысль дважды (перевод иногда повторяет предложение) — оставляем первую. Строки-ссылки «( сайт )» не трогаем.
+// Одна и та же мысль дважды (перевод иногда повторяет предложение) — оставляем первую. Строки только со ссылкой «( сайт )» убираем.
 function dropRepeats(text) {
     const seen = [];
     const key = l => String(l).toLowerCase().replace(/ё/g, 'е').replace(/\([^)]*\)/g, ' ').replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim();
     return String(text).split('\n').filter(l => {
+        // строка только со ссылкой «🔹 ( ru.wikipedia.org )» — сайт и так стоит в «🔎 Источники» внизу
+        if (/^[^\p{L}\p{N}(]*\(\s*(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\s*\)[\s.]*$/iu.test(l)) return false;
         const k = key(l);
         if (k.length < 25) return true;
         if (seen.some(x => x === k || x.includes(k) || (k.includes(x) && x.length > 40))) return false;
