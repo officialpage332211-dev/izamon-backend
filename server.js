@@ -306,10 +306,14 @@ const PORTAL_RULES = [
     // «Рестораны»: рестораны, кафе, фастфуд, самбуса. Только без алкоголя и свинины; «халяль» — со слов самого заведения
     // «Ошхонаҳо / Кафе и рестораны / Oshxonalar» (раньше «Тарабхонаҳо / Рестораны»): все места, где поесть, — и маленькие:
     // бургерные, шаурма, пиццерии, самбусахоны, чайханы, кофейни, пекарни. Три поиска одновременно: всё вместе, мелкие заведения Душанбе, другие города
-    { re: /^(?:ошхонаҳо|ошхона|кафе\s+и\s+рестораны|oshxonalar|oshxona|тарабхонаҳо|тарабхона|рестораны|ресторан|restoranlar|restoran)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places',
-      query: 'Найди, где поесть в Таджикистане: кафе, рестораны, ошхоны и столовые, фастфуд (бургерные, шаурма и донер, пиццерии), самбусахоны, чайханы, кофейни, пекарни и кондитерские: название, адрес и город, телефон, часы работы, есть ли доставка, сайт или страница, что там едят и средний чек (только если опубликован). Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай бары, пабы, ночные клубы, кальянные и места, где подают алкоголь или свинину.',
-      spread: ['Найди небольшие заведения быстрого питания и кофейни в Душанбе: бургерные, шаурму и донер, пиццерии, лаваш и хот-доги, самбусахоны, кофейни, пекарни и кондитерские — название, адрес, телефон, часы работы, есть ли доставка, страница заведения (сайт, Instagram, Telegram или карточка на карте). Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай бары, пабы, ночные клубы, кальянные и места, где подают алкоголь или свинину.',
-        'Найди кафе, ошхоны, чайханы, самбусахоны и фастфуд в городах Таджикистана, кроме Душанбе: Худжанд, Бохтар, Куляб, Хорог, Истаравшан, Пенджикент, Турсунзаде, Исфара, Вахдат, Гиссар — название, город и адрес, телефон, часы работы, страница заведения. Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай бары, пабы, ночные клубы, кальянные и места, где подают алкоголь или свинину.'] },
+    // «Ошхонаҳо / Кафе и рестораны / Oshxonalar» (раньше «Тарабхонаҳо / Рестораны»): все места, где поесть, — и маленькие:
+    // бургерные, шаурма, пиццерии, самбусахоны, чайханы, кофейни, пекарни. Четыре поиска одновременно: вся страна, мелкие заведения Душанбе,
+    // Согд, Хатлон с остальными городами. Ссылки — только таджикские сайты, карты и страницы самих заведений (opts.local), до 20 карточек.
+    { re: /^(?:ошхонаҳо|ошхона|кафе\s+и\s+рестораны|oshxonalar|oshxona|тарабхонаҳо|тарабхона|рестораны|ресторан|restoranlar|restoran)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places', opts: { local: true, max: 20, perHost: 6 },
+      query: 'Найди, где поесть в Таджикистане: кафе, рестораны, ошхоны и столовые, фастфуд (бургерные, шаурма и донер, пиццерии), самбусахоны, чайханы, кофейни, пекарни и кондитерские: название, адрес и город, телефон, часы работы, есть ли доставка, сайт или страница, что там едят и средний чек (только если опубликован). Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай бары, пабы, ночные клубы, кальянные и места, где подают алкоголь или свинину. Бери только таджикские сайты (адреса на .tj), карты (Яндекс Карты, Google Карты) и страницы самого заведения (Instagram, Telegram, Facebook); зарубежные справочники и каталоги не используй.',
+      spread: ['Найди небольшие заведения быстрого питания и кофейни в Душанбе: бургерные, шаурму и донер, пиццерии, лаваш и хот-доги, самбусахоны, кофейни, пекарни и кондитерские — название, адрес, телефон, часы работы, есть ли доставка, страница заведения (сайт, Instagram, Telegram или карточка на карте). Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай бары, пабы, ночные клубы, кальянные и места, где подают алкоголь или свинину. Бери только таджикские сайты (адреса на .tj), карты (Яндекс Карты, Google Карты) и страницы самого заведения (Instagram, Telegram, Facebook); зарубежные справочники и каталоги не используй.',
+        'Найди кафе, ошхоны, чайханы, самбусахоны, рестораны и фастфуд в Согдийской области Таджикистана: Худжанд, Истаравшан, Пенджикент, Исфара, Канибадам, Бустон, Гафуров, Гулистон — название, город и адрес, телефон, часы работы, страница заведения. Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай бары, пабы, ночные клубы, кальянные и места, где подают алкоголь или свинину. Бери только таджикские сайты (адреса на .tj), карты (Яндекс Карты, Google Карты) и страницы самого заведения (Instagram, Telegram, Facebook); зарубежные справочники и каталоги не используй.',
+        'Найди кафе, ошхоны, чайханы, самбусахоны, рестораны и фастфуд в Хатлоне и других городах Таджикистана, кроме Душанбе и Согда: Бохтар, Куляб, Дангара, Восе, Нурек, Яван, Турсунзаде, Вахдат, Гиссар, Рогун, Хорог — название, город и адрес, телефон, часы работы, страница заведения. Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай бары, пабы, ночные клубы, кальянные и места, где подают алкоголь или свинину. Бери только таджикские сайты (адреса на .tj), карты (Яндекс Карты, Google Карты) и страницы самого заведения (Instagram, Telegram, Facebook); зарубежные справочники и каталоги не используй.'] },
     // «Врачи и клиники»: только где лечиться — название, адрес, телефон, часы, направления; без цен, диагнозов и советов по лечению
     { re: /^(?:духтурон\s+ва\s+клиникаҳо|врачи\s+и\s+клиники|shifokorlar\s+va\s+klinikalar)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places',
       query: 'Найди клиники, медицинские центры, больницы и лаборатории в Таджикистане — государственные и частные: название, адрес и город, телефон, часы работы, какие врачи и направления там есть (терапевт, педиатр, стоматолог, гинеколог, УЗИ, анализы и т.п.), сайт или страница клиники. Телефон и адрес — только как написано на странице клиники, не выдумывай. Цены не указывай; диагнозов, советов по лечению и доз лекарств не давай.',
@@ -836,6 +840,7 @@ function routeRequest({ cleaned, topic, category = '' }) {
             factual: true,
             somon: rule.somon || null,
             spread: rule.spread || null,
+            opts: rule.opts || null,
             fixed: rule.fixed || null,
             userText: (q => topic ? q : `${q} Запрос пользователя: «${cleaned}».`)(typeof rule.query === 'function' ? rule.query(todayTJ()) : rule.query)
         };
@@ -4360,7 +4365,17 @@ function mixFeeds(main, extra, total = 10) {
 
 
 // Несколько списков карточек → один: по очереди из каждого (разнообразие), без повторов ссылки и названия, с одного сайта — не больше 3
-function mergeListings(lists) {
+// Места в Таджикистане (opts.local): только таджикские сайты, карты и страницы самого заведения — без зарубежных справочников
+// (bizkontakte.com, top-rated.online и т.п.)
+const LOCAL_PLACE_HOST = /(?:^|\.)(?:[a-z0-9-]+\.tj|instagram\.com|facebook\.com|fb\.com|t\.me|telegram\.me|wa\.me|yandex\.[a-z]{2,3}|google\.[a-z.]{2,6}|maps\.app\.goo\.gl|goo\.gl)$/i;
+function localPlaceUrl(url) {
+    const h = hostOf(url);
+    if (!h || !LOCAL_PLACE_HOST.test(h)) return false;
+    // у Яндекса и Google — только карточки на картах, не поиск и не другие сервисы
+    if (/(?:^|\.)(?:yandex|google)\./i.test(h) && !/\/maps\b/.test(String(url))) return false;
+    return true;
+}
+function mergeListings(lists, hostMax = 3) {
     const out = [], seenU = new Set(), seenT = new Set(), perHost = {};
     const max = Math.max(0, ...lists.map(l => l.length));
     for (let k = 0; k < max; k++) for (const l of lists) {
@@ -4371,7 +4386,7 @@ function mergeListings(lists) {
         if ((u && seenU.has(u)) || seenT.has(t)) continue;
         const h = hostOf(it.url);
         perHost[h] = (perHost[h] || 0) + 1;
-        if (perHost[h] > 3) continue;
+        if (perHost[h] > hostMax) continue;
         if (u) seenU.add(u);
         seenT.add(t);
         out.push(it);
@@ -4390,8 +4405,9 @@ async function widenCity(spec, direct, kind, lang) {
     if (direct.length + more.length < 3) return null;
     return { items: [...direct, ...more].slice(0, 10), wide: { city: spec.city, n: direct.length } };
 }
-async function searchListings({ kind, lang, date, query, debug, somon, spread, fixed = null }) {
+async function searchListings({ kind, lang, date, query, debug, somon, spread, fixed = null, opts = null }) {
     const hotel = kind === 'places' && fixed === 'hotel';
+    const local = !!(opts && opts.local);
     // Сначала готовый список somon.tj: точные ссылки и фото. Мало найдено или сайт не ответил — ищем через модель, как раньше.
     if (somon) {
         let direct = [];
@@ -4418,14 +4434,14 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
     if (Array.isArray(spread) && spread.length) {
         // «Врачи и клиники»: основной поиск и поиск по другим городам — одновременно; ответ ждём не дольше одного поиска
         const dbgs = [query, ...spread].map((q, n) => (debug ? (n ? {} : debug) : null));
-        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: dbgs[n], ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }).catch(err => {
+        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: dbgs[n], local, hostMax: opts && opts.perHost || 3, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }).catch(err => {
             console.warn(`[listings spread Сбой]: ${err && err.status || ''} ${scrub(err && err.message || err)}`);
             return [];
         })));
-        items = mergeListings(lists);
+        items = mergeListings(lists, opts && opts.perHost || 3);
         if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
-    } else items = await webListings({ kind, lang, date, query, debug, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) });
-    const done = await finishItems(items.slice(0, 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
+    } else items = await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) });
+    const done = await finishItems(items.slice(0, opts && opts.max || 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
     // курс — заранее, чтобы карточки показали цену в валюте языка
     try { await nbtRatesFor(date); } catch {}
     if (hotel) return done;
@@ -4433,7 +4449,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
 }
 
 // Поиск по интернету: карточки с настоящими ссылками на страницы, которые поиск действительно открыл. task — что искать, skip — какие сайты не брать.
-async function webListings({ kind, lang, date, query, debug, task, skip, hotel = false }) {
+async function webListings({ kind, lang, date, query, debug, task, skip, hotel = false, local = false, hostMax = 3 }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${task || KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"","image":"","points":["",""]}]}
 ${skip ? 'title — название пункта так, как оно написано на странице-источнике: дословно, без перевода и пересказа, коротко.' : `title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).`}
@@ -4474,6 +4490,7 @@ url — обычная ссылка https://… (без Markdown и скобок
         const h = hostOf(it.url);
         // Ссылка должна вести на сайт, который поиск действительно открыл, — выдуманные адреса отсекаются.
         if (!h || BAD_SOURCES.test(h) || (citedHosts.size && !citedHosts.has(h))) { drop.notOpened++; return false; }
+        if (local && !localPlaceUrl(it.url)) { drop.foreign = (drop.foreign || 0) + 1; return false; }
         if (skip && skip.test(h)) { drop.skipped = (drop.skipped || 0) + 1; return false; }
         if (itemForbidden(it, kind)) { drop.forbidden++; return false; }
         // Одну и ту же страницу объявления дважды не показываем. Если ссылка ведёт на общую страницу списка
@@ -4497,7 +4514,7 @@ url — обычная ссылка https://… (без Markdown и скобок
             if (/^\/?(?:[a-z]{2}(?:-[a-z]{2})?\/?)?$/i.test(path) && !(hotel && hotelOwnSite(it.title, it.url))) { drop.home = (drop.home || 0) + 1; return false; }
             const h = hostOf(it.url);
             perHost[h] = (perHost[h] || 0) + 1;
-            if (perHost[h] > 3) { drop.sameSite = (drop.sameSite || 0) + 1; return false; }
+            if (perHost[h] > hostMax) { drop.sameSite = (drop.sameSite || 0) + 1; return false; }
             return true;
         }).map(it => (hotel ? it : { ...it, price: '' }));
     }
@@ -4916,7 +4933,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return fallback || text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null, few = null }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null, few = null, opts = null }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -4953,9 +4970,9 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             if (openai && KIND_TASK[kind]) {
                 try {
                     const tl0 = Date.now();
-                    let items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed });
+                    let items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed, opts });
                     // поиск иногда возвращает пусто (сбой разбора, все страницы не открылись) — если время есть, ещё одна попытка: карточки лучше текста
-                    if (!items.length && Date.now() - tl0 < 15000) items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed });
+                    if (!items.length && Date.now() - tl0 < 15000) items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed, opts });
                     if (items.length) {
                         // места (гостиницы, клиники…): поиск то находит пять мест, то одно — скудный ответ держим в памяти недолго, чтобы следующий человек получил полнее
                         return { body: { answer: listingsAnswer(items, kind, lang, ownRows, items.wide), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: kind === 'places' && items.length < 3 ? 2 * MIN : ttlFor(mode) };
@@ -5191,7 +5208,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few }));
+        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null }));
         return res.json(r.body);
     } catch (err) {
         console.error('chat failed:', err);
@@ -7456,6 +7473,7 @@ async function timed(fn) {
 const DIAG_TOPICS = {
     hotels: '2. Нақлиёт ва сафар - Меҳмонхонаҳо',
     clinics: '4. Повседневное - Врачи и клиники',
+    food: '4. Рӯзмарра - Ошхонаҳо',
     jobs: '5. Молия ва тиҷорат - Кор ва шуғл',
     livestock: '7. Кишоварзӣ - Чорводорӣ',
     tickets: '2. Нақлиёт ва сафар - Чиптаҳо',
@@ -7632,11 +7650,12 @@ async function handleDiag(req, res) {
         out.cards_test = await timed(async () => {
             let kind = 'ads';
             let query = 'Найди актуальные объявления на сегодня: сначала на somon.tj. Раздел: «Хона».';
-            let routed = null, somon = null, spreadQ = null, fixedQ = null;
+            let routed = null, somon = null, spreadQ = null, fixedQ = null, optsQ = null;
             if (diagTopic) {
                 // тот же путь, что и у настоящей кнопки раздела
                 const r = routeRequest({ cleaned: diagTopic, topic: diagTopic });
                 spreadQ = r.spread || null;
+                optsQ = r.opts || null;
                 fixedQ = r.fixed || null;
                 routed = { mode: r.mode, kind: r.kind, somon: !!r.somon, fixed: fixedQ };
                 kind = r.kind;
@@ -7662,7 +7681,7 @@ async function handleDiag(req, res) {
                 return { lang: diagLang, routed, steps: req.query?.trace === '1' ? steps : undefined, provider: res.body.provider, view: res.body.view || null, tips: (String(res.body.answer || '').match(/class="iz-tip"/g) || []).length, plain, sources: (res.body.sources || []).length, trace };
             }
             if (!KIND_TASK[kind]) return { routed, note: 'для этого раздела карточки не строятся' };
-            const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon, spread: spreadQ, fixed: fixedQ });
+            const items = await searchListings({ kind, lang: diagLang, date: todayTJ(), query, debug: dbgL, somon, spread: spreadQ, fixed: fixedQ, opts: optsQ });
             const f = items[0];
             return { lang: diagLang, routed, items: items.length, spread: dbgL.spread, firstHost: f ? hostOf(f.url) : null, firstUrl: f ? String(f.url).slice(0, 80) : null, firstImage: f && f.image ? f.image.slice(0, 90) : null, withImage: items.filter(x => x.image).length, sample: f ? { title: f.title, price: f.price, who: f.who, date: f.date, points: f.points, fixed: f.fixed } : null, fixedAll: items.map(x => x.fixed ? x.fixed.map(y => y.value || '—').join('/') : null).slice(0, 10),
             fullLens: items.slice(0, 10).map(x => String(x.full || '').length), slugsAll: kind === 'jobs' ? items.map(x => x.sphereSlug || null).slice(0, 10) : undefined, pointsAll: items.slice(0, 10).map(x => `${String(x.title || '').slice(0, 60)} => ${(x.points || []).join(' ; ')}`), sort: { priced: items.filter(x => x.pn > 0).length, aged: items.filter(x => Number.isFinite(x.age)).length, cheap: cheapFlags(items).filter(Boolean).length, prices: items.map(x => x.pn > 0 ? x.pn + x.pc : '-').join(' '), ages: items.map(x => Number.isFinite(x.age) ? x.age : '-').join(' ') }, ...dbgL };
@@ -7778,7 +7797,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, stripCity, somonUrl, TG_CITY_NAMES,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
