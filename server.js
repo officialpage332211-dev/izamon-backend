@@ -4385,7 +4385,8 @@ function mergeListings(lists, hostMax = 3) {
     for (let k = 0; k < max; k++) for (const l of lists) {
         const it = l[k];
         if (!it) continue;
-        const u = String(it.url || '').replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase();
+        // одна и та же страница на разных языках сайта («sufra.tj/ru/v/x», «sufra.tj/v/x», «sufra.tj/en/v/x») — одна карточка
+        const u = String(it.url || '').replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase().replace(/^https?:\/\/(?:www\.)?/, '').replace(/^([^/]+)\/(?:ru|en|tg|uz)(?=\/)/, '$1');
         const t = (String(it.title || '') + '|' + String(it.place || '')).toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}|]+/gu, '');
         if ((u && seenU.has(u)) || seenT.has(t)) continue;
         const h = hostOf(it.url);
@@ -4443,7 +4444,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
             return [];
         })));
         items = mergeListings(lists, opts && opts.perHost || 3);
-        if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
+        if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, len: dbgs[n] && dbgs[n].textLen, end: dbgs[n] && dbgs[n].parseError ? dbgs[n].textEnd : undefined, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
     } else items = await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) });
     const done = await finishItems(items.slice(0, opts && opts.max || 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
     // курс — заранее, чтобы карточки показали цену в валюте языка
@@ -4532,7 +4533,7 @@ url — обычная ссылка https://… (без Markdown и скобок
             return true;
         });
     }
-    if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
+    if (debug) Object.assign(debug, { status: resp.status || null, incomplete: resp.incomplete_details ? resp.incomplete_details.reason || true : null, textStart: text.slice(0, 120), textLen: text.length, textEnd: text.slice(-160), parseError, salvaged, repaired, parseAt, rawItems, rawFirst, rawUrls, drop, cites: cites.length, consulted: consulted.length, hosts: citedHosts.size, kept: items.length });
     return items;
 }
 
