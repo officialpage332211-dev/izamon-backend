@@ -467,6 +467,8 @@ const KW_SYN_GROUPS = [
     'врач духтур табиб shifokor', 'бухгалтер хисобчи buxgalter', 'продавец фурушанда sotuvchi сотувчи', 'охранник посбон qoriqchi',
     'строитель бинокор quruvchi', 'электрик барқчи elektrik', 'швея дарзи tikuvchi портной', 'уборщица тозакунанда farrosh уборщик',
     'сварщик кафшергар payvandchi', 'грузчик борбардор hammol', 'няня доя enaga', 'официант пешхизмат ofitsiant',
+    // профессии с «Вашей полки» (izamon-shelf.js): медсестра, мужской парикмахер (барбер), рабочий, автомеханик
+    'медсестра хамшира hamshira медбрат', 'барбер сартарош sartarosh', 'рабочий коргар ishchi разнорабочий', 'автомеханик avtomexanik автослесарь',
     // дом и вещи
     'холодильник яхдон muzlatgich xolodilnik', 'шкаф чевон shkaf', 'кровать karavot', 'ковер гилем колин gilam', 'одежда либос kiyim',
     'обувь пойафзол poyabzal', 'часы соат soat', 'компьютер компютер kompyuter', 'велосипед velosiped', 'машина мошин мошина mashina', 'телефон telefon',
@@ -482,7 +484,7 @@ const KW_SYN_GROUPS = [
     'camry камри', 'corolla королла', 'prius приус', 'matiz матиз', 'nexia нексия', 'spark спарк', 'cobalt кобальт', 'gentra джентра', 'galaxy галакси', 'macbook макбук'
 ].map(g => g.split(' '));
 const kwNorm = w => String(w || '').toLowerCase().replace(/ё/g, 'е').replace(/ҳ/g, 'х').replace(/ӣ/g, 'и').replace(/ӯ/g, 'у').replace(/ҷ/g, 'ч')
-    .replace(/қ/g, 'к').replace(/ғ/g, 'г').replace(/ў/g, 'у').replace(/[ʻʼ'’`]/g, '');
+    .replace(/қ/g, 'к').replace(/ғ/g, 'г').replace(/ў/g, 'у').replace(/[ʻʼ'‘’`]/g, '');
 const KW_SYN = new Map();
 for (const g of KW_SYN_GROUPS) for (const w of g) if (!KW_SYN.has(kwNorm(w))) KW_SYN.set(kwNorm(w), g);
 // Слово целиком или с окончанием («поваром», «ошпази», «yanqi»): ищем группу по самому слову, затем по корню не короче 4 букв
