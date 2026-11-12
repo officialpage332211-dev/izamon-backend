@@ -273,6 +273,11 @@ const GIFT_NOT = /семен|саженц|рассад|удобрен|грунт
 const GIFT_NOT_FLOWERS = new RegExp(`${GIFT_NOT.source}|сервиз|сервис|посуд|чашк|тарелк|подставк|ваз(?:а|ы|у)(?![\\p{L}])`, 'iu');
 
 const PORTAL_RULES = [
+    // «9. Миграция»: постоянные справки с проверенными фактами и официальными ссылками (MIG_GUIDES), без поиска и без ИИ
+    { re: /^(?:ҳуҷҷатҳо\s+ва\s+патент|документы\s+и\s+патент|hujjatlar\s+va\s+patent)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_docs', query: 'Мигрантам: документы и патент' },
+    { re: /^(?:кор\s+дар\s+хориҷа|работа\s+за\s+рубежом|chet\s+elda\s+ish)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_work', query: 'Мигрантам: работа за рубежом' },
+    { re: /^(?:манзил|жильё|жилье|uy-joy)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_home', query: 'Мигрантам: жильё' },
+    { re: /^(?:ёрӣ\s+ва\s+телефонҳо|помощь\s+и\s+телефоны|yordam\s+va\s+telefonlar)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_help', query: 'Мигрантам: помощь и телефоны' },
     { re: /курсҳои\s+it|it\s+курсы|курсы\s+it|^it$/, mode: 'digest', kind: 'services',
       somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/Kompyuter-i-internet/' }], boards: [{ host: 'paydo.tj', path: 'obuchenie', words: /программ|it|айти|компьютер|1с|1c|дизайн|python|java|web|веб|frontend|backend|excel/i }, { host: 'ola.tj', path: 'obuchenie', words: /программ|it|айти|компьютер|1с|1c|дизайн|python|java|web|веб|frontend|backend|excel/i }],  facts: 'course', fixed: 'itc' },
       query: 'Найди актуальные IT-курсы в Таджикистане (программирование, дизайн, 1С и др.): название школы, цена, длительность, сайт или контакт.' },
@@ -1253,6 +1258,107 @@ const GOV_GUIDE = {
 function govButtons(lang) { return guideBlock(GOV_GUIDE[lang] || GOV_GUIDE.ru); }
 function utilButtons(lang) { return guideBlock(UTIL_GUIDE[lang] || UTIL_GUIDE.ru); }
 function mmtButtons(lang) { return guideBlock(MMT_GUIDE[lang] || MMT_GUIDE.ru); }
+
+// «9. Миграция» — постоянные справки (проверено 12.11.2026, только факты из источников):
+// RuID: заявка в «Госуслуги RuID» за 72 часа до границы — фото, данные паспорта (Inc. Russia, 30.06.2025; harant.ru, 18.05.2026);
+// проверка запрета на въезд до поездки — в Службе миграции (Orda, 17.10.2025; Asia-Plus, 24.04.2026);
+// закон РТ «О миграции» (подписан 21.10.2026): работа за рубежом с 18 лет, оргнабор через организации с правом набора,
+// Служба миграции бесплатно сообщает о вакансиях, зарплатах и условиях (Economist.kg, 09.11.2026);
+// учёт: гражданам Таджикистана — 15 дней, ставит принимающая сторона через МВД, МФЦ или почту (visasam.ru, 08.05.2026);
+// патент: 30 дней после въезда, штраф до 15 000 ₽ (ст. 18.20 КоАП), документы, уведомление о работе за 2 месяца, ежемесячный
+// аванс НДФЛ — пропуск прекращает патент (Финансы Mail, 29.07.2026); Москва — 10 000 ₽ в месяц с 2026 (360.ru, 11.11.2025);
+// проверка доходов МВД с 01.10.2026 (Приказ МВД №728), 3 рабочих дня на сведения (ppt.ru, 05.10.2026);
+// реестр контролируемых лиц — мвд.рф/rkl: ФИО, дата рождения, паспорт (Сбис, 05.11.2026), МВД не обязано извещать (ppt.ru);
+// трудоустройство через Минтруд РТ: >1 800 человек за январь–март 2026, телефоны Агентства занятости и представительства в РФ
+// (Asia-Plus, 04.05.2026); Служба миграции — Душанбе, ул. С. Айни 121, тел. 225-05-75, 225-05-91, 225-05-89, Telegram t.me/mlmert
+// (migration.tj); жалоба на невыплату зарплаты — Онлайнинспекция.рф, «Сообщить о проблеме», вход через Госуслуги (Финансы Mail, 15.08.2026);
+// фиктивная регистрация — ст. 322.3 УК РФ; при беде — посольство или консульство (Orda, 17.10.2025); 112 — экстренные службы России.
+const RKL_URL = 'https://xn--b1aew.xn--p1ai/rkl';
+const GIT_URL = 'https://xn--80akibcicpdbetz7e2g.xn--p1ai/';
+const MIG_REP = [['+7 495 967-98-44', 'tel:+74959679844'], ['+7 999 912-58-68', 'tel:+79999125868'], ['+7 988 676-00-00', 'tel:+79886760000'], ['+7 936 174-19-92', 'tel:+79361741992']];
+const MIG_GUIDES = {
+    mig_docs: {
+        ru: [
+            { head: '✈️ Перед поездкой в Россию', text: ['Узнайте в Службе миграции, нет ли у Вас запрета на въезд.', 'Не позже чем за 72 часа до границы заполните заявку в приложении «Госуслуги RuID»: фото и данные паспорта.', 'По новому закону Таджикистана ехать на работу за границу можно с 18 лет.'] },
+            { head: '🏠 Регистрация', text: ['Гражданам Таджикистана — не позже 15 дней после приезда.', 'На учёт ставит хозяин жилья или организация: через МВД, МФЦ или почту.'] },
+            { head: '📄 Патент на работу', text: ['Подать — в течение 30 дней после въезда. Опоздали — штраф до 15 000 рублей.', 'Нужны: паспорт с нотариальным переводом, полис ДМС, ИНН, медсправки, сертификат о знании русского языка, истории и основ права, уведомление о регистрации, фото.', 'В Москве в 2026 году патент стоит 10 000 рублей в месяц. Пропустили оплату — патент перестаёт действовать.'] },
+            { head: '⚠️ После патента', text: ['В течение 2 месяцев подайте в МВД уведомление о работе (копию трудового договора), иначе патент аннулируют.', 'С 1 октября 2026 года МВД сверяет доходы по налоговым данным. Пришло уведомление о проверке — за 3 рабочих дня можно подать сведения о доходе.'] },
+            { head: '🔎 Проверьте себя в реестре МВД', text: ['Реестр контролируемых лиц: нужны ФИО, дата рождения и данные паспорта.', 'МВД не обязано Вам сообщать — проверяйте сами.'], btns: [{ label: '🔎 Проверить на сайте МВД', href: RKL_URL, main: true }] },
+            { head: '🛡 Осторожно', text: ['Патент, регистрацию и справки оформляйте только в официальных местах. Регистрация «за деньги» без проживания и купленные документы — уголовное преступление.'] }
+        ],
+        tg: [
+            { head: '✈️ Пеш аз сафар ба Русия', text: ['Дар Хадамоти муҳоҷират санҷед, ки манъи вуруд надоред.', 'На дертар аз 72 соат пеш аз сарҳад дар барномаи «Госуслуги RuID» ариза пур кунед: акс ва маълумоти шиноснома.', 'Тибқи қонуни нави Тоҷикистон ба кор ба хориҷа аз 18-солагӣ рафтан мумкин аст.'] },
+            { head: '🏠 Бақайдгирӣ', text: ['Барои шаҳрвандони Тоҷикистон — на дертар аз 15 рӯзи омадан.', 'Ба қайд соҳиби манзил ё ташкилот мегирад: тавассути ВКД-и Русия, МФЦ ё почта.'] },
+            { head: '📄 Патент барои кор', text: ['Дар давоми 30 рӯзи баъди вуруд супоред. Дер кардед — ҷарима то 15 000 рубл.', 'Лозим: шиноснома бо тарҷумаи нотариалӣ, полиси ДМС, ИНН, маълумотномаҳои тиббӣ, сертификати донистани забони русӣ, таърих ва асосҳои ҳуқуқ, огоҳинома дар бораи бақайдгирӣ, акс.', 'Дар Маскав соли 2026 патент моҳе 10 000 рубл аст. Пардохтро гузарондед — патент амал намекунад.'] },
+            { head: '⚠️ Баъди патент', text: ['Дар давоми 2 моҳ ба ВКД-и Русия огоҳинома дар бораи кор (нусхаи шартномаи меҳнатӣ) супоред, вагарна патент бекор мешавад.', 'Аз 1 октябри 2026 ВКД-и Русия даромадро аз рӯи маълумоти андоз месанҷад. Огоҳиномаи санҷиш омад — дар 3 рӯзи корӣ метавонед маълумоти даромадро супоред.'] },
+            { head: '🔎 Худро дар феҳристи ВКД санҷед', text: ['Феҳристи шахсони назоратшаванда: ному насаб, санаи таваллуд ва маълумоти шиноснома лозим.', 'ВКД-и Русия ба Шумо хабар доданӣ нест — худатон санҷед.'], btns: [{ label: '🔎 Санҷиш дар сомонаи ВКД-и Русия', href: RKL_URL, main: true }] },
+            { head: '🛡 Эҳтиёт шавед', text: ['Патент, бақайдгирӣ ва маълумотномаҳоро танҳо дар ҷойҳои расмӣ гиред. Бақайдгирии «бо пул» бе зиндагӣ ва ҳуҷҷатҳои харидашуда — ҷиноят аст.'] }
+        ],
+        uz: [
+            { head: '✈️ Rossiyaga safardan oldin', text: ["Migratsiya xizmatida kirish taqiqi yo'qligini tekshiring.", "Chegaradan kamida 72 soat oldin «Госуслуги RuID» ilovasida ariza to'ldiring: surat va pasport ma'lumotlari.", "Tojikistonning yangi qonuniga ko'ra chet elga ishga 18 yoshdan borish mumkin."] },
+            { head: "🏠 Ro'yxatga olish", text: ['Tojikiston fuqarolari uchun — kelganidan keyin 15 kundan kechiktirmay.', "Ro'yxatga uy egasi yoki tashkilot qo'yadi: Rossiya IIV, MFC yoki pochta orqali."] },
+            { head: '📄 Ishlash uchun patent', text: ['Kirgandan keyin 30 kun ichida topshiring. Kechiksangiz — 15 000 rublgacha jarima.', "Kerak: notarial tarjimali pasport, DMS polisi, INN, tibbiy ma'lumotnomalar, rus tili, tarix va huquq asoslarini bilish sertifikati, ro'yxatga olish xabarnomasi, surat.", "Moskvada 2026-yilda patent oyiga 10 000 rubl. To'lovni o'tkazib yuborsangiz — patent amal qilmaydi."] },
+            { head: '⚠️ Patentdan keyin', text: ['2 oy ichida Rossiya IIVga ish haqida xabarnoma (mehnat shartnomasi nusxasi) topshiring, aks holda patent bekor qilinadi.', "2026-yil 1-oktyabrdan Rossiya IIV daromadni soliq ma'lumotlari bo'yicha tekshiradi. Tekshiruv haqida xabar kelsa — 3 ish kuni ichida daromad ma'lumotlarini topshirishingiz mumkin."] },
+            { head: "🔎 O'zingizni IIV reyestrida tekshiring", text: ["Nazoratdagi shaxslar reyestri: F.I.Sh., tug'ilgan sana va pasport ma'lumotlari kerak.", "Rossiya IIV sizga xabar berishi shart emas — o'zingiz tekshiring."], btns: [{ label: '🔎 Rossiya IIV saytida tekshirish', href: RKL_URL, main: true }] },
+            { head: "🛡 Ehtiyot bo'ling", text: ["Patent, ro'yxat va ma'lumotnomalarni faqat rasmiy joylarda rasmiylashtiring. Yashamasdan «pulga» ro'yxat va sotib olingan hujjatlar — jinoyat."] }
+        ]
+    },
+    mig_work: {
+        ru: [
+            { head: '🤝 Работа через Минтруд Таджикистана', text: ['Министерство помогает найти постоянную и сезонную работу в России по договорам между странами. За январь–март 2026 года так нашли работу больше 1 800 человек.', 'По новому закону «О миграции» Служба миграции бесплатно рассказывает о вакансиях за рубежом, зарплатах и условиях работы.'], btns: [{ label: '📞 Агентство занятости · +992 918 88-86-79', href: 'tel:+992918888679', main: true }, { label: '📞 Представительство в России · +7 495 967-98-44', href: 'tel:+74959679844' }] },
+            { head: '📝 Договор и зарплата', text: ['Работайте по трудовому договору: его копия нужна для уведомления о работе после патента.', 'Не платят зарплату — подайте жалобу в трудовую инспекцию России онлайн: «Сообщить о проблеме», вход через Госуслуги.'], btns: [{ label: '⚖️ Онлайнинспекция.рф', href: GIT_URL }] },
+            { head: '🛡 Осторожно', text: ['Не платите посредникам за «гарантированную работу». Ищите работу сами или через организации, у которых есть право на набор.'] }
+        ],
+        tg: [
+            { head: '🤝 Кор тавассути Вазорати меҳнат', text: ['Вазорат дар ёфтани кори доимӣ ва мавсимӣ дар Русия тибқи созишномаҳои байни давлатҳо кӯмак мекунад. Дар январ–марти 2026 ҳамин тавр зиёда аз 1 800 нафар кор ёфтанд.', 'Тибқи қонуни нави «Дар бораи муҳоҷират» Хадамоти муҳоҷират дар бораи ҷойҳои кори хориҷа, музд ва шароити кор ройгон маълумот медиҳад.'], btns: [{ label: '📞 Агентии шуғл · +992 918 88-86-79', href: 'tel:+992918888679', main: true }, { label: '📞 Намояндагӣ дар Русия · +7 495 967-98-44', href: 'tel:+74959679844' }] },
+            { head: '📝 Шартнома ва музд', text: ['Бо шартномаи меҳнатӣ кор кунед: нусхаи он барои огоҳинома баъди патент лозим аст.', 'Музд намедиҳанд — ба нозироти меҳнати Русия онлайн шикоят кунед: «Сообщить о проблеме», воридшавӣ бо Госуслуги.'], btns: [{ label: '⚖️ Онлайнинспекция.рф', href: GIT_URL }] },
+            { head: '🛡 Эҳтиёт шавед', text: ['Ба миёнаравҳо барои «кори кафолатнок» пул надиҳед. Корро худатон ё тавассути ташкилотҳое ҷӯед, ки ҳуқуқи ҷалби коргар доранд.'] }
+        ],
+        uz: [
+            { head: '🤝 Tojikiston Mehnat vazirligi orqali ish', text: ["Vazirlik davlatlararo shartnomalar asosida Rossiyada doimiy va mavsumiy ish topishga yordam beradi. 2026-yil yanvar–mart oylarida shu yo'l bilan 1 800 dan ortiq kishi ish topdi.", "Yangi «Migratsiya to'g'risida»gi qonunga ko'ra Migratsiya xizmati chet eldagi bo'sh ish o'rinlari, maosh va ish sharoitlari haqida bepul ma'lumot beradi."], btns: [{ label: '📞 Bandlik agentligi · +992 918 88-86-79', href: 'tel:+992918888679', main: true }, { label: '📞 Rossiyadagi vakolatxona · +7 495 967-98-44', href: 'tel:+74959679844' }] },
+            { head: '📝 Shartnoma va maosh', text: ['Mehnat shartnomasi bilan ishlang: uning nusxasi patentdan keyingi xabarnoma uchun kerak.', 'Maosh berilmasa — Rossiya mehnat inspeksiyasiga onlayn shikoyat qiling: «Сообщить о проблеме», Госуслуги orqali kirish.'], btns: [{ label: '⚖️ Онлайнинспекция.рф', href: GIT_URL }] },
+            { head: "🛡 Ehtiyot bo'ling", text: ["«Kafolatli ish» uchun vositachilarga pul to'lamang. Ishni o'zingiz yoki ishchi yollash huquqi bor tashkilotlar orqali qidiring."] }
+        ]
+    },
+    mig_home: {
+        ru: [
+            { head: '🏠 Регистрация по месту жительства', text: ['Регистрируйтесь там, где действительно живёте: на учёт ставит хозяин жилья — через МВД, МФЦ или почту.', 'Уведомление о регистрации нужно для патента — попросите хозяина оформить его сразу.'] },
+            { head: '🔑 Как снять жильё', text: ['Ищите через крупные сайты объявлений и людей, которым доверяете.', 'Не переводите залог, пока не увидели квартиру и документы хозяина.', 'Договоритесь о регистрации до того, как платить.'] },
+            { head: '🛡 Осторожно', text: ['Регистрация «за деньги» по адресу, где Вы не живёте, — уголовное преступление в России. Такую регистрацию не покупайте.'] }
+        ],
+        tg: [
+            { head: '🏠 Бақайдгирӣ дар ҷои зист', text: ['Дар ҳамон ҷое ба қайд гиред, ки воқеан зиндагӣ мекунед: ба қайд соҳиби манзил мегирад — тавассути ВКД-и Русия, МФЦ ё почта.', 'Огоҳинома дар бораи бақайдгирӣ барои патент лозим аст — аз соҳиби манзил хоҳиш кунед, ки онро зуд расмӣ кунад.'] },
+            { head: '🔑 Чӣ тавр манзил гирифтан', text: ['Тавассути сомонаҳои калони эълонҳо ва одамоне ҷӯед, ки ба онҳо бовар доред.', 'То хона ва ҳуҷҷатҳои соҳибашро надидаед, гарав нафиристед.', 'Пеш аз пардохт дар бораи бақайдгирӣ созиш кунед.'] },
+            { head: '🛡 Эҳтиёт шавед', text: ['Бақайдгирии «бо пул» дар суроғае, ки дар он зиндагӣ намекунед, дар Русия ҷиноят аст. Чунин бақайдгириро нахаред.'] }
+        ],
+        uz: [
+            { head: "🏠 Yashash joyida ro'yxatga olish", text: ["Haqiqatan yashaydigan joyingizda ro'yxatdan o'ting: ro'yxatga uy egasi qo'yadi — Rossiya IIV, MFC yoki pochta orqali.", "Ro'yxatga olish xabarnomasi patent uchun kerak — uy egasidan uni darhol rasmiylashtirishni so'rang."] },
+            { head: '🔑 Uy-joyni qanday ijaraga olish', text: ["Katta e'lon saytlari va ishonadigan odamlaringiz orqali qidiring.", "Kvartira va uy egasining hujjatlarini ko'rmaguningizcha garov pulini o'tkazmang.", "To'lashdan oldin ro'yxatga olish haqida kelishib oling."] },
+            { head: "🛡 Ehtiyot bo'ling", text: ["Yashamaydigan manzilingizga «pulga» ro'yxat Rossiyada jinoyat hisoblanadi. Bunday ro'yxatni sotib olmang."] }
+        ]
+    },
+    mig_help: {
+        ru: [
+            { head: '🇹🇯 Представительство Минтруда Таджикистана в России', text: ['Звоните, если нужна помощь с работой в России.'], btns: MIG_REP.map(([l, h], i) => ({ label: '📞 ' + l, href: h, main: !i })) },
+            { head: '🏢 Служба миграции (Душанбе)', text: ['Адрес: ул. С. Айни, 121.', 'Телефоны: 225-05-75, 225-05-91, 225-05-89.'], btns: [{ label: '🌐 Сайт migration.tj', href: 'https://migration.tj/' }, { label: '📢 Минтруд в Telegram', href: 'https://t.me/mlmert' }] },
+            { head: '🌍 Посольство и консульство', text: ['Потеряли паспорт, задержали, нужна справка — обращайтесь в посольство или консульство Таджикистана.'], btns: [{ label: '🌍 Консульская служба МИД (consular.tj)', href: 'https://consular.tj/' }] },
+            { head: '🚨 Экстренная помощь в России', text: ['Единый номер экстренных служб — 112.'], btns: [{ label: '📞 112', href: 'tel:112' }] }
+        ],
+        tg: [
+            { head: '🇹🇯 Намояндагии Вазорати меҳнат дар Русия', text: ['Агар дар кор дар Русия кӯмак лозим бошад, занг занед.'], btns: MIG_REP.map(([l, h], i) => ({ label: '📞 ' + l, href: h, main: !i })) },
+            { head: '🏢 Хадамоти муҳоҷират (Душанбе)', text: ['Суроға: кӯчаи С. Айнӣ, 121.', 'Телефонҳо: 225-05-75, 225-05-91, 225-05-89.'], btns: [{ label: '🌐 Сомонаи migration.tj', href: 'https://migration.tj/' }, { label: '📢 Вазорати меҳнат дар Telegram', href: 'https://t.me/mlmert' }] },
+            { head: '🌍 Сафорат ва консулгарӣ', text: ['Шиносномаро гум кардед, боздошт шудед, маълумотнома лозим — ба сафорат ё консулгарии Тоҷикистон муроҷиат кунед.'], btns: [{ label: '🌍 Хадамоти консулии ВКХ (consular.tj)', href: 'https://consular.tj/' }] },
+            { head: '🚨 Ёрии фаврӣ дар Русия', text: ['Рақами ягонаи хадамоти фаврӣ — 112.'], btns: [{ label: '📞 112', href: 'tel:112' }] }
+        ],
+        uz: [
+            { head: '🇹🇯 Tojikiston Mehnat vazirligining Rossiyadagi vakolatxonasi', text: ["Rossiyada ish bo'yicha yordam kerak bo'lsa, qo'ng'iroq qiling."], btns: MIG_REP.map(([l, h], i) => ({ label: '📞 ' + l, href: h, main: !i })) },
+            { head: '🏢 Migratsiya xizmati (Dushanbe)', text: ["Manzil: S. Ayniy ko'chasi, 121.", 'Telefonlar: 225-05-75, 225-05-91, 225-05-89.'], btns: [{ label: '🌐 migration.tj sayti', href: 'https://migration.tj/' }, { label: '📢 Mehnat vazirligi Telegramda', href: 'https://t.me/mlmert' }] },
+            { head: '🌍 Elchixona va konsullik', text: ["Pasportni yo'qotdingiz, ushlandingiz, ma'lumotnoma kerak — Tojikiston elchixonasi yoki konsulligiga murojaat qiling."], btns: [{ label: '🌍 TIV konsullik xizmati (consular.tj)', href: 'https://consular.tj/' }] },
+            { head: '🚨 Rossiyada shoshilinch yordam', text: ['Favqulodda xizmatlarning yagona raqami — 112.'], btns: [{ label: '📞 112', href: 'tel:112' }] }
+        ]
+    }
+};
+function migButtons(kind, lang) { const g = MIG_GUIDES[kind]; return g ? guideBlock(g[lang] || g.ru) : ''; }
 const CUSTOMS_LINKS = {
     ru: '⚠️ Цифры здесь ориентировочные: точную сумму уточняйте на таможне или у таможенного брокера.',
     tg: '⚠️ Рақамҳо тахминӣ мебошанд: маблағи дақиқро дар гумрук ё аз брокери гумрукӣ пурсед.',
@@ -4562,6 +4668,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
     active++;
     try {
         if (factual && kind === 'gov') return { body: { answer: govButtons(lang), provider: 'none', grounded: true, sources: [] }, ttl: 60 * MIN };
+        if (factual && MIG_GUIDES[kind]) return { body: { answer: migButtons(kind, lang), provider: 'none', grounded: true, sources: [] }, ttl: 60 * MIN };
         if (factual) {
             // Сначала объявления самого iZamoN (с контактом автора), затем поиск по интернету.
             let ownBlock = '';
