@@ -5074,7 +5074,9 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             if (kind === 'sowing') return { body: { answer: finalize(sowingNone(lang, date), [], lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             if (kind === 'utilities') return { body: { answer: utilButtons(lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
             if (kind === 'customs') return { body: { answer: finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang) + customsButtons(lang), provider: 'none', grounded: false, sources: [] }, ttl: 3 * MIN };
-            return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: errored ? 0 : 3 * MIN };
+            // Вопрос о понятии («Фотосинтез чист»): поиск не дал ответа на языке человека (переводчик недоступен) — объясняем без поиска,
+            // как обычный разговор (с защитой от смеси языков), а не «данных нет»
+            if (!(mode === 'general' && !kind)) return { body: { answer: NO_DATA[lang], provider: 'none', grounded: false, sources: [] }, ttl: errored ? 0 : 3 * MIN };
         }
 
         // «Садои дил» — свой собеседник и свой порядок ИИ (heartReply)
@@ -5125,6 +5127,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
 // ---------------------------------------------------------------------------
 const WIKI_UA = 'iZamoN/1.0 (https://izamon.vercel.app)';
 const WIKI_CACHE = new Map();
+const WIKI_LAST = { at: null, term: null, tries: [] }; // для проверки (/diag?ask=…): что ответила Википедия в последний раз
 const WIKI_LABEL = { tg: 'Сурат аз Википедия', ru: 'Картинка из Википедии', uz: 'Vikipediyadan rasm' };
 const CONCEPT_ASK = [
     /^(?:что\s+такое|кто\s+так(?:ой|ая|ие)|что\s+значит|что\s+означает|объясни(?:те)?(?:\s+(?:что\s+такое|про))?|расскажи(?:те)?\s+(?:про|о|об)|как\s+(?:устроен[аоы]?|работает|происходит))\s+(.+)$/iu,
@@ -5154,13 +5157,18 @@ async function conceptPicture(text, lang) {
     if (hit && Date.now() - hit.at < 24 * 3600e3) return hit.v;
     const norm = x => String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N} ]/gu, '').trim();
     let v = null;
+    WIKI_LAST.at = new Date().toISOString(); WIKI_LAST.term = term; WIKI_LAST.tries = [];
     for (const wl of lang === 'tg' ? ['tg', 'ru'] : lang === 'uz' ? ['uz', 'ru'] : ['ru']) {
+        const tr = { wl };
+        WIKI_LAST.tries.push(tr);
         try {
             const title = (term.charAt(0).toUpperCase() + term.slice(1)).replace(/\s+/g, '_');
             const r = await withTimeout(fetch(`https://${wl}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { headers: { 'User-Agent': WIKI_UA, Accept: 'application/json' } }), 3500);
+            tr.status = r && r.status;
             if (!r || !r.ok) continue;
             const d = await r.json();
             const th = d && d.thumbnail && d.thumbnail.source;
+            tr.type = d && d.type; tr.title = d && d.title; tr.thumb = !!th;
             if (!d || d.type !== 'standard' || !th || !/^https:\/\/upload\.wikimedia\.org\//.test(th)) continue;
             // статья о том же слове («Фотосинтез» → «Фотосинтез»), а не перенаправление на что-то другое
             const a = norm(d.title), b = norm(term);
@@ -5169,7 +5177,7 @@ async function conceptPicture(text, lang) {
             const img = ow >= 640 ? th.replace(/\/\d{2,4}px-/, '/640px-') : th;
             v = { img, title: d.title, page: (d.content_urls && d.content_urls.desktop && d.content_urls.desktop.page) || `https://${wl}.wikipedia.org/wiki/${encodeURIComponent(title)}` };
             break;
-        } catch { /* нет связи с Википедией — без картинки */ }
+        } catch (e) { tr.err = String(e && e.message || e).slice(0, 120); /* нет связи с Википедией — без картинки */ }
     }
     WIKI_CACHE.set(key, { at: Date.now(), v });
     if (WIKI_CACHE.size > 500) WIKI_CACHE.delete(WIKI_CACHE.keys().next().value);
@@ -7708,7 +7716,7 @@ async function handleDiag(req, res) {
         const places = [...html.matchAll(/<div class="iz-lc-m">📍 ([^<·]*)/g)].map(m => m[1].trim());
         // full=1: текст первых карточек целиком (что видит человек), для проверки цен и контактов
         const full = req.query.full === '1' ? html.split('class="iz-lc"').slice(1, 4).map(c => c.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400)) : undefined;
-        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, imgs: (html.match(/<div class="iz-lc-img"[^>]*><img /g) || []).length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, wiki: WIKI_LAST, pic: /iz-wpic/.test(html), view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, imgs: (html.match(/<div class="iz-lc-img"[^>]*><img /g) || []).length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
     }
     // /diag?orders=1: проверка таблиц заявок на настоящей базе. Пишет одну пробную строку (заявка с номером 0 и продавцом «diag») и сразу её удаляет.
     if (req.query?.orders === '1') {
