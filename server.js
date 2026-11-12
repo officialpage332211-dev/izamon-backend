@@ -4073,7 +4073,8 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
         // Возраст объявления; у билетов и туров дата — это день вылета/поездки, а не публикации, поэтому возраста у них нет
         const age = kind === 'tickets' || kind === 'tours' || kind === 'places' ? null : (t.pub ? t.pub.ageMin : ageFromDate(it.date));
         const base = { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: kind === 'places' ? '' : dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
-            full: kind === 'tickets' || kind === 'tours' ? '' : fullText(photos.descs && photos.descs[i], sameLoose(t.listDesc, it.place || t.place) ? '' : t.listDesc),
+            // описание, которое на деле просто адрес («Душанбе | Исмоили Сомони»), за описание не считаем
+            full: kind === 'tickets' || kind === 'tours' ? '' : fullText(...[photos.descs && photos.descs[i], t.listDesc].map(d => sameLoose(d, it.place || t.place) ? '' : d)),
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
         return fixed ? { ...base, ...fixedSlots(base, lang, fixed, { specs: photos.specs && photos.specs[i], desc: t.trusted ? photos.descs && photos.descs[i] : '', title0: t.title }) } : base;
     });
