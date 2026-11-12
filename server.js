@@ -305,12 +305,12 @@ const PORTAL_RULES = [
       query: 'Найди аптеки в Таджикистане: название, адрес и город, телефон, часы работы (круглосуточно или нет), сайт или страница. Наличие лекарств и цены на лекарства не указывай и не обещай; советов по лечению и дозам не давай.' },
     // «Аптеки» → вкладка «Растительные лекарства»: фитоаптеки и магазины лекарственных трав — только где купить (адрес, телефон, часы);
     // без доз, лечения и обещаний. Ссылки — только таджикские сайты, карты и страницы самих мест (opts.local)
-    { re: /^(?:доруҳои\s+гиёҳӣ|доруҳои\s+гиёҳи|растительные\s+лекарства|o['’]?simlik\s+dorilari)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places', opts: { local: true, max: 15, perHost: 6, tokens: 4000 },
+    { re: /^(?:доруҳои\s+гиёҳӣ|доруҳои\s+гиёҳи|растительные\s+лекарства|o['’]?simlik\s+dorilari)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places', opts: { local: true, home: true, max: 15, perHost: 6, tokens: 4000 },
       query: 'Найди в Таджикистане фитоаптеки и магазины, где продают растительные лекарства и лекарственные травы (травяные сборы и чаи, сиропы, масла и мази на травах): название, адрес и город, телефон, часы работы, страница. Не давай советов по лечению и дозам, не обещай вылечить и не пиши, от чего помогает. Ссылка — на страницу самого места: на его сайте (.tj), в Instagram, Telegram, Facebook или карточка на Яндекс Картах.',
       spread: ['Найди фитоаптеки и магазины лекарственных трав в Худжанде, Бохтаре, Кулябе, Истаравшане, Пенджикенте, Турсунзаде, Вахдате и других городах Таджикистана, кроме Душанбе — название, город и адрес, телефон, часы работы. Не давай советов по лечению и дозам, не обещай вылечить и не пиши, от чего помогает. Ссылка — на страницу самого места: на его сайте (.tj), в Instagram, Telegram, Facebook или карточка на Яндекс Картах.'] },
     // «Врачи и клиники» → вкладка «Хиджама»: где делают хиджаму — только места (адрес, телефон, часы, приём для женщин — если написано);
     // без советов по лечению и обещаний. Ссылки — только таджикские сайты, карты и страницы самих мест (opts.local)
-    { re: /^(?:хиҷома|хиҷомат|хиджама|хижама|hijoma|hijama)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places', opts: { local: true, max: 15, perHost: 6, tokens: 4000 },
+    { re: /^(?:хиҷома|хиҷомат|хиджама|хижама|hijoma|hijama)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places', opts: { local: true, home: true, max: 15, perHost: 6, tokens: 4000 },
       query: 'Найди в Таджикистане, где делают хиджаму (лечебные банки по сунне): кабинеты и центры хиджамы, медицинские центры и клиники с этой услугой — название, адрес и город, телефон, часы работы, есть ли приём для женщин у женщины-специалиста (только если это написано). Не давай советов по лечению и дозам, не обещай вылечить и не пиши, от чего помогает. Ссылка — на страницу самого места: на его сайте (.tj), в Instagram, Telegram, Facebook или карточка на Яндекс Картах.',
       spread: ['Найди кабинеты и центры хиджамы в Худжанде, Бохтаре, Кулябе, Истаравшане, Пенджикенте, Турсунзаде, Вахдате и других городах Таджикистана, кроме Душанбе — название, город и адрес, телефон, часы работы. Не давай советов по лечению и дозам, не обещай вылечить и не пиши, от чего помогает. Ссылка — на страницу самого места: на его сайте (.tj), в Instagram, Telegram, Facebook или карточка на Яндекс Картах.'] },
     // «Рестораны»: рестораны, кафе, фастфуд, самбуса. Только без алкоголя и свинины; «халяль» — со слов самого заведения
@@ -4483,13 +4483,13 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
     if (Array.isArray(spread) && spread.length) {
         // «Врачи и клиники»: основной поиск и поиск по другим городам — одновременно; ответ ждём не дольше одного поиска
         const dbgs = [query, ...spread].map((q, n) => (debug ? (n ? {} : debug) : null));
-        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: dbgs[n], local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }).catch(err => {
+        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: dbgs[n], local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }).catch(err => {
             console.warn(`[listings spread Сбой]: ${err && err.status || ''} ${scrub(err && err.message || err)}`);
             return [];
         })));
         items = mergeListings(lists, opts && opts.perHost || 3);
         if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, len: dbgs[n] && dbgs[n].textLen, end: dbgs[n] && dbgs[n].parseError ? dbgs[n].textEnd : undefined, start: dbgs[n] && dbgs[n].parseError ? dbgs[n].textStart : undefined, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
-    } else items = await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) });
+    } else items = await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) });
     const done = await finishItems(items.slice(0, opts && opts.max || 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
     // курс — заранее, чтобы карточки показали цену в валюте языка
     try { await nbtRatesFor(date); } catch {}
@@ -4498,7 +4498,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
 }
 
 // Поиск по интернету: карточки с настоящими ссылками на страницы, которые поиск действительно открыл. task — что искать, skip — какие сайты не брать.
-async function webListings({ kind, lang, date, query, debug, task, skip, hotel = false, local = false, hostMax = 3, tokens = 2500 }) {
+async function webListings({ kind, lang, date, query, debug, task, skip, hotel = false, local = false, hostMax = 3, tokens = 2500, home = false }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${task || KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"",${local ? '' : '"image":"",'}"points":["",""]}]}
 ${skip ? 'title — название пункта так, как оно написано на странице-источнике: дословно, без перевода и пересказа, коротко.' : `title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).`}
@@ -4568,7 +4568,8 @@ url — обычная ссылка https://… (без Markdown и скобок
             let path = '/';
             try { path = new URL(it.url).pathname; } catch { path = '/'; }
             // у гостиницы своя главная страница («hyatt.com») — это и есть её страница
-            if (/^\/?(?:[a-z]{2}(?:-[a-z]{2})?\/?)?$/i.test(path) && !(hotel && hotelOwnSite(it.title, it.url))) { drop.home = (drop.home || 0) + 1; return false; }
+            // главная страница своего таджикского сайта у магазина или кабинета (opts.home: «puresabz.tj») — это и есть его страница
+            if (/^\/?(?:[a-z]{2}(?:-[a-z]{2})?\/?)?$/i.test(path) && !(hotel && hotelOwnSite(it.title, it.url)) && !(home && /\.tj$/i.test(hostOf(it.url)))) { drop.home = (drop.home || 0) + 1; return false; }
             const h = hostOf(it.url);
             perHost[h] = (perHost[h] || 0) + 1;
             if (perHost[h] > hostMax) { drop.sameSite = (drop.sameSite || 0) + 1; return false; }
