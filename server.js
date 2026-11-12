@@ -4270,7 +4270,7 @@ function listingsAnswer(items, kind, lang, own) {
     // места (клиники, аптеки…): пометка для сайта — над карточками подсказка «выберите свой город», без фильтра цены
     const rt = ratesNow();
     const rAttr = rt ? `${rt.RUB > 0 ? ` data-rub="${rt.RUB}"` : ''}${rt.UZS > 0 ? ` data-uzs="${rt.UZS}"` : ''}` : '';
-    return `<div class="iz-lcs"${kind === 'places' ? ' data-kind="places"' : ''}${rAttr}>${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
+    return `<div class="iz-lcs"${kind === 'places' || kind === 'tickets' ? ` data-kind="${kind}"` : ''}${rAttr}>${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
 }
 
 // ---------------------------------------------------------------------------
