@@ -792,6 +792,37 @@ function keywordSpec(text, mode) {
     return { q, sources: [{ q }], boards: [{ host: 'paydo.tj', q }, { host: 'savdo.tj', q }], stems, ...(mode === 'jobs' ? { cat: /\/vakansii\//, facts: 'job', fixed: 'job' } : {}), ...(city ? { city } : {}), keyword: true };
 }
 
+// Ответ без поиска: телефон в нём — всегда выдумка (источника нет). «📞 123-456-789», «+992 …», «тел. 93 …» и т.п.
+// Годы («2020-2024») и обычные числа («10 000 000») телефоном не считаем.
+const CONTACT_WORD = /(?:📞|☎|📱|(?<![\p{L}])(?:тел\.?|телефон\p{L}*|тамос\p{L}*|рақам\p{L}*|raqam\p{L}*|telefon\p{L}*|whatsapp|ватсап\p{L}*|вотсап\p{L}*|звоните|звонить|qo['’]ng['’]iroq\p{L}*))/iu;
+function fakeContact(line) {
+    const l = String(line || '');
+    const digits = x => x.replace(/\D/g, '').length;
+    if (/\+\s?992|(?<!\d)992[\s-]?\d{2}[\s-]?\d{3}/.test(l)) return true;
+    if (CONTACT_WORD.test(l) && digits(l) >= 5) return true;
+    for (const m of l.matchAll(/\(?\d[\d\-()]{5,}\d/g)) if (digits(m[0]) >= 7 && /[-()]/.test(m[0]) && !/^\d{4}-\d{4}$/.test(m[0])) return true;
+    return false;
+}
+// Цена в валюте: «1500 сомони», «200$», «3 000 руб.» (с маленькой буквы: «907 Сомонӣ» — имя, не цена)
+const PRICE_LIKE = /\d[\d \u00a0.,]*\s?(?:сомон[иӣ]|somoni|смн|TJS|tjs|\$|доллар\p{L}*|руб\p{L}*|₽|so['’]?m(?![\p{L}])|сўм|сум(?![\p{L}]))|\$\s?\d/u;
+// Разговор без поиска. Строки с телефонами убираем всегда. Запрос был похож на поиск объявления (few) и в ответе цена или телефон —
+// это выдуманное объявление: null (вместо него — настоящие карточки, если сайты нашли хоть что-то, или честное «не нашлось»).
+function guardChat(text, few = null) {
+    const lines = String(text || '').split('\n');
+    const kept = lines.filter(l => !fakeContact(l));
+    if (few && (kept.length < lines.length || PRICE_LIKE.test(kept.join('\n')))) return null;
+    return kept.join('\n');
+}
+async function fewAnswer(few, lang) {
+    if (few && few.found && few.found.length) {
+        try {
+            const done = await finishItems(few.found.slice(0, 2), 'ads', lang, null, '');
+            if (done.length) return { body: { answer: listingsAnswer(done, 'ads', lang, []), provider: 'izamon', grounded: true, sources: [], view: 'cards', count: done.length }, ttl: 0 };
+        } catch {}
+    }
+    return { body: { answer: finalize(NO_ADS_FOUND[lang] || NO_ADS_FOUND.ru, [], lang), provider: 'none', grounded: false, sources: [] }, ttl: 0 };
+}
+
 // Единая точка выбора: режим, нужен ли поиск, текст запроса к модели.
 // Любая кнопка раздела — это всегда запрос с поиском, никаких «подсказок раздела».
 const KIND_OF_MODE = { ads: 'ads', jobs: 'jobs', finance: 'rates' };
@@ -975,6 +1006,7 @@ function buildSystemPrompt({ mode, lang, canSearch, date, strict = false }) {
 - Слова «проверено» и «официально» — только если источник действительно официальный.`
         : `ПРАВДИВОСТЬ (важнее всего):
 - У тебя нет доступа к интернету. Текущие данные (курсы, цены, новости, вакансии, объявления, расписания, контакты) не называй.
+- Объявления, товары с ценами, телефоны, адреса и имена продавцов никогда не придумывай. Человек ищет, что купить, снять или кого нанять, — одной строкой скажи, что сейчас не нашлось, и предложи написать иначе или открыть раздел в меню.
 - Научные и общие знания объясняй свободно; если не уверен — скажи об этом.`;
 
     return `Ты — iZamoN AI: внимательный помощник и уважительный друг людей Таджикистана и Центральной Азии. Сегодня: ${date.human} (Душанбе).
@@ -999,8 +1031,7 @@ function buildSystemPrompt({ mode, lang, canSearch, date, strict = false }) {
 - Без пожеланий и общих фраз ради вежливости.
 - Одна строка = одно короткое предложение с одним подходящим по смыслу эмодзи в начале; строки идут подряд, без пустых строк.
 - Простые слова, понятные и ребёнку, и пожилому человеку. Без таблиц, без длинных абзацев, без канцелярита.
-- Для объявлений и вакансий формат: 1-я строка — что это и цена, 2-я — где, 3-я — контакт или от кого.
-- Один язык на весь ответ: ${LANG_NAMES[lang]}. ${LANG_RULES[lang]} (имена, бренды и аббревиатуры допустимы).
+${canSearch ? '- Для объявлений и вакансий формат: 1-я строка — что это и цена, 2-я — где, 3-я — контакт или от кого.\n' : ''}- Один язык на весь ответ: ${LANG_NAMES[lang]}. ${LANG_RULES[lang]} (имена, бренды и аббревиатуры допустимы).
 - Без Markdown-заголовков, таблиц и HTML; для акцента можно **жирный**.${strict ? '\n- ВАЖНО: в прошлой попытке в ответе были слова другого языка. Пиши строго на одном языке, без иностранных и русских слов (кроме названий брендов).' : ''}
 
 ${DIRECTIVES[mode]}
@@ -1205,6 +1236,12 @@ const NO_DATA = {
     ru: '🔍 Подтверждённых данных на сегодня не нашёл, поэтому ничего не выдумываю.\n💡 Уточните запрос или попробуйте чуть позже.',
     tg: '🔍 Барои имрӯз маълумоти тасдиқшуда наёфтам, бинобар ин тахмин намекунам.\n💡 Дархостро дақиқтар кунед ё каме баъдтар кӯшиш кунед.',
     uz: "🔍 Bugun uchun tasdiqlangan ma'lumot topa olmadim, shuning uchun taxmin qilmayman.\n💡 So'rovni aniqroq yozing yoki birozdan keyin urinib ko'ring."
+};
+// Запрос похож на поиск объявления, сайты почти ничего не нашли, а модель без поиска написала «объявление» — честный ответ вместо выдумки
+const NO_ADS_FOUND = {
+    ru: '🔎 На сайтах объявлений сейчас такого не нашлось, поэтому ничего не выдумываю.\n✍️ Напишите другими словами или откройте раздел в меню.',
+    tg: '🔎 Дар сайтҳои эълонҳо ҳоло чунин чиз ёфт нашуд, бинобар ин тахмин намекунам.\n✍️ Бо калимаҳои дигар нависед ё бахшро аз меню кушоед.',
+    uz: "🔎 E'lonlar saytlarida hozircha bunday narsa topilmadi, shuning uchun taxmin qilmayman.\n✍️ Boshqa so'zlar bilan yozing yoki menyudan bo'limni oching."
 };
 const SOURCES_LABEL = { ru: 'Источники', tg: 'Манбаъҳо', uz: 'Manbalar' };
 const RATE_REPLY = {
@@ -4879,7 +4916,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return fallback || text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null, few = null }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -5006,6 +5043,11 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             if (!run) continue;
             try {
                 const r = await run();
+                // выдуманное объявление или телефон — не показываем (guardChat)
+                const g = guardChat(r.text, few);
+                if (g === null) return await fewAnswer(few, lang);
+                r.text = g;
+                if (!cleanModelText(r.text).trim()) continue;
                 if (mixedLanguage(r.text, lang)) { kept = kept || { r, name }; continue; }
                 return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(r.text), mode !== 'general' && mode !== 'heart'), mode), [], lang), provider: name, grounded: false, sources: [] }, ttl: 0 };
             } catch (err) {
@@ -5090,6 +5132,7 @@ async function handleChat(req, res) {
     const routeOn = followUp ? `${lastUser.content} ${cleaned}` : cleaned;
     const routed = routeRequest({ cleaned: routeOn, topic, category });
     let { mode, factual, kind, somon } = routed;
+    let few = null; // набранный запрос похож на поиск объявления, но сайты нашли меньше трёх — разговор без поиска не должен выдумать объявление
     // «Садои дил»: анонимно выговориться. Без поиска, без кэша; переписка нигде не хранится (история — только в открытой вкладке).
     const heart = body.room === 'heart';
     if (heart) { mode = 'heart'; factual = false; kind = null; somon = null; }
@@ -5104,6 +5147,7 @@ async function handleChat(req, res) {
             // в названном городе мало — смотрим по всей стране (покажем с пометкой), а не отвечаем разговором без поиска
             if (found.length < 3) { try { const w = await withTimeout(widenCity(kw, found, 'ads', lang), 12000); if (w) found = w.items; } catch {} }
             if (found.length >= 3) { mode = 'ads'; kind = 'ads'; factual = true; somon = kw; }
+            else few = { found };
         }
     }
     // Город: выбранный на сайте или названный в запросе — только для лент объявлений, вакансий и услуг
@@ -5147,7 +5191,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null }));
+        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few }));
         return res.json(r.body);
     } catch (err) {
         console.error('chat failed:', err);
@@ -7734,7 +7778,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, stripCity, somonUrl, TG_CITY_NAMES,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
