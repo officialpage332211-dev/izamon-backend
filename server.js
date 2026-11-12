@@ -461,7 +461,7 @@ const KW_STOP = new Set(('найди найти найдите ищу ищем �
     + 'мехоҳам лозим харид харидан фурӯш фурӯхтан кор ҷои ҷустуҷӯ дар бо барои аз то ва ё ки '
     + 'kerak sotiladi sotaman sotib olaman ish izlayman qidiraman uchun va bilan dushanbe xujand '
     + 'хуб нав арзон зуд ҳозир хозир yangi arzon yaxshi tez hozir').split(/\s+/));
-const KW_ASK = /[?？]|(?<![\p{L}])(?:что|чем|как|почему|зачем|кто|когда|какой|какая|какие|каков|сколько\s+лет|расскажи|объясни|что\s+такое|чӣ|чаро|кай|кӣ|чӣ\s+тавр|чанд|nima|nega|qanday|qachon|kim)(?![\p{L}])/iu;
+const KW_ASK = /[?？]|(?<![\p{L}])(?:что|чем|как|почему|зачем|кто|когда|какой|какая|какие|каков|сколько\s+лет|расскажи|объясни|что\s+такое|чӣ|чаро|кай|кӣ|чӣ\s+тавр|чанд|чист|чист(?:ед|анд)?|чи\s+аст|кист|чигуна|чӣ\s*гуна|барои\s+чӣ|фаҳмонед|шарҳ\s+диҳед|nima|nega|qanday|qachon|kim|tushuntir\p{L}*)(?![\p{L}])/iu;
 // справки, а не объявления: погода, новости, законы, курсы, расписания
 const KW_INFO = /(?<![\p{L}])(?:погод|новост|хабар|закон|қонун|налог|андоз|расписани|курс\s+(?:валют|доллар|рубл)|ob-havo|yangilik|qonun|soliq|рецепт|тарих|история)/iu;
 // разговор о самом помощнике и вежливость — не справка
@@ -864,8 +864,8 @@ function routeRequest({ cleaned, topic, category = '' }) {
 // ---------------------------------------------------------------------------
 const LANG_NAMES = { tg: 'таджикский', ru: 'русский', uz: 'узбекский (латиницей)' };
 const LANG_RULES = {
-    tg: 'Таджикский — только литературный, кириллицей. Проверь изафет (-и), окончания и порядок слов. Никаких русских слов и калек, короткие простые предложения.',
-    ru: 'Русский — грамотный, проверь падежи и согласование. Без таджикских и иностранных вставок.',
+    tg: 'Таджикский — только литературный, кириллицей. Проверь изафет (-и), окончания и порядок слов. Никаких русских слов и калек, короткие простые предложения. Никаких английских, немецких и других латинских слов и арабских букв: научные термины — по-таджикски (например: гази карбон, оксиген, хлорофилл, ҳуҷайра).',
+    ru: 'Русский — грамотный, проверь падежи и согласование. Без таджикских и иностранных вставок: термины — по-русски (углекислый газ, а не carbon dioxide).',
     uz: 'Узбекский — литературный, латиницей. Проверь окончания и порядок слов. Без русских вставок.'
 };
 const FORMS = { tg: '«Шумо»', ru: '«Вы»', uz: '«Siz»' };
@@ -902,7 +902,10 @@ const DIRECTIVES = {
 - Ты ИИ, не врач и не психолог: при долгой тоске, бессоннице, панике — бережно посоветуй обратиться к врачу или психологу.`,
     general: `РЕЖИМ ПОМОЩНИКА:
 - Помогай с любыми вопросами: наука, учёба, быт, чувства, планы, как прошёл день.
-- Объясняй по-простому и по делу.`
+- Объясняй по-простому и по делу.
+- Просят объяснить понятие или явление («что такое», «как устроено», «почему»; «чист», «чӣ тавр», «чаро»; «nima», «qanday», «nega») — объясни полно, 6–9 строк по порядку:
+  1) что это — одним предложением; 2) как это происходит — по шагам; 3) что для этого нужно и что получается (для науки — простая формула или схема словами);
+  4) зачем это нужно и где встречается в жизни; 5) один простой пример. Каждая строка — своя мысль, без повторов.`
 };
 
 // «Садои дил»: свой собеседник — тёплый, бережный, вежливый и мудрый. Не справочник: живая речь, без значков в начале строк.
@@ -1034,7 +1037,7 @@ function buildSystemPrompt({ mode, lang, canSearch, date, strict = false }) {
 - ВЕРА: если человек сам спрашивает о вере, исламе, намазе, посте, духовности — отвечай уважительно и бережно, по общепризнанному ханафитскому мазхабу (принятому в Таджикистане), опираясь на Коран и сунну. Фетвы не выноси: в сложных и спорных вопросах мягко посоветуй спросить имама своей мечети. Без политики, без споров течений, без призывов и резких суждений; к другим религиям и людям — с уважением.
 
 СТИЛЬ (строго):
-- По умолчанию 2–5 строк. Больше — только если человек просит подробно.
+- По умолчанию 2–5 строк. Больше — только если человек просит подробно или просит объяснить понятие (тогда 6–9 строк, см. режим).
 - Сразу к сути: сначала данные или ответ. Не описывай раздел, не рассказывай, что умеешь, не пересказывай вопрос.
 - Никаких вопросов и приглашений в конце («уточните», «обращайтесь», «хотите ли…»), кроме режима «Садои дил». Один короткий вопрос допустим, только если без него невозможно ответить.
 - Без пожеланий и общих фраз ради вежливости.
@@ -1267,6 +1270,12 @@ const BUSY_REPLY = {
     ru: '⏳ Сейчас много людей, попробуйте через несколько секунд.',
     tg: '⏳ Ҳоло одамон зиёданд, баъди чанд сония кӯшиш кунед.',
     uz: "⏳ Hozir odamlar ko'p, bir necha soniyadan keyin urinib ko'ring."
+};
+// Ответ получился со смесью языков даже после строгой попытки (слабая запасная модель): не показываем «коктейль»
+const MIXED_FALLBACK = {
+    tg: '🔁 Ҳозир ҷавоби тозаи тоҷикӣ омода нашуд.\n✍️ Лутфан, каме баъдтар боз пурсед.',
+    ru: '🔁 Сейчас не получилось подготовить чистый ответ на русском.\n✍️ Пожалуйста, спросите чуть позже ещё раз.',
+    uz: "🔁 Hozir toza o'zbekcha javob tayyorlanmadi.\n✍️ Iltimos, birozdan keyin yana so'rang."
 };
 const ERR_FALLBACK = {
     tg: '🌸 Мутаассифона, ҳозир хатогӣ шуд.\n\nЛутфан, дубора кушиш кунед, мо ҳамеша бо шумоем! ✨',
@@ -4890,6 +4899,15 @@ function ratesAnswer(r, lang) {
 const needsRewrite = (text, lang) => mixedLanguage(text, lang) || HARAM_LINE.test(text) || text.length > 900 || text.split('\n').filter(l => l.trim()).length > 10;
 
 // Строки, в которых остались слова чужого языка, не показываем: лучше короче, чем на двух языках сразу.
+// Ответ без поиска на таджикском или русском: латинское слово с большой буквы («Prozess») — тоже чужой язык, если это не известное
+// название (LATIN_OK) и не слово из вопроса человека («Toyota Camry чист?» — в ответе «Toyota» можно)
+function foreignWord(text, lang, asked = '') {
+    if (lang !== 'tg' && lang !== 'ru') return false;
+    const t = String(text).replace(/<[^>]*>/g, ' ').replace(/https?:\/\/\S+/g, ' ').replace(/(?<![\p{L}])[\p{L}\d-]+\.(?:tj|com|ru|org|net|uz|io|me|info)(?![\p{L}])/giu, ' ');
+    const own = new Set((String(asked).match(/[A-Za-z][A-Za-z'-]+/g) || []).map(w => w.toLowerCase()));
+    return (t.match(/(?<![A-Za-z\u00C0-\u024F])[A-Z\u00C0-\u00DE][a-z\u00DF-\u024F]{3,}(?![A-Za-z\u00C0-\u024F])/g) || [])
+        .some(w => !LATIN_OK.has(w.toLowerCase()) && !own.has(w.toLowerCase()));
+}
 function dropMixedLines(text, lang) {
     return String(text).split('\n').filter(l => !l.trim() || !mixedLanguage(l, lang)).join('\n').trim();
 }
@@ -5064,33 +5082,108 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
         // Разговор без поиска. Для таджикского и узбекского первым идёт Gemini: он грамотнее.
         const order = lang === 'ru' ? ['openai', 'gemini', 'openrouter'] : ['gemini', 'openai', 'openrouter'];
         let kept = null;
+        const shape = text => finalize(shapeLines(dropHaramLines(cleanModelText(text), mode !== 'general' && mode !== 'heart'), mode), [], lang);
         for (const name of order) {
-            const system = buildSystemPrompt({ mode, lang, canSearch: false, date, strict: !!kept });
-            let run = null;
-            if (name === 'openai' && openai) run = () => askChat(openai, OPENAI_MODEL, system, fullMessage);
-            if (name === 'gemini' && geminiUp()) run = () => askGemini(system, fullMessage, false);
-            if (name === 'openrouter' && openrouter) run = () => askChat(openrouter, OPENROUTER_MODEL, system, fullMessage);
-            if (!run) continue;
-            try {
-                const r = await run();
-                // выдуманное объявление или телефон — не показываем (guardChat)
-                const g = guardChat(r.text, few);
-                if (g === null) return await fewAnswer(few, lang);
-                r.text = g;
-                if (!cleanModelText(r.text).trim()) continue;
-                if (mixedLanguage(r.text, lang)) { kept = kept || { r, name }; continue; }
-                return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(r.text), mode !== 'general' && mode !== 'heart'), mode), [], lang), provider: name, grounded: false, sources: [] }, ttl: 0 };
-            } catch (err) {
-                console.warn(`[${name} Сбой]: ${err.status || ''} ${err.message}`);
+            let call = null;
+            if (name === 'openai' && openai) call = sys => askChat(openai, OPENAI_MODEL, sys, fullMessage);
+            if (name === 'gemini' && geminiUp()) call = sys => askGemini(sys, fullMessage, false);
+            if (name === 'openrouter' && openrouter) call = sys => askChat(openrouter, OPENROUTER_MODEL, sys, fullMessage);
+            if (!call) continue;
+            // смесь языков («Prozess», «carbon dioxide», арабские буквы в таджикском) — сразу вторая попытка у той же модели со строгим требованием
+            for (const strict of kept ? [true] : [false, true]) {
+                try {
+                    const r = await call(buildSystemPrompt({ mode, lang, canSearch: false, date, strict }));
+                    // выдуманное объявление или телефон — не показываем (guardChat)
+                    const g = guardChat(r.text, few);
+                    if (g === null) return await fewAnswer(few, lang);
+                    r.text = g;
+                    if (!cleanModelText(r.text).trim()) break;
+                    if (mixedLanguage(r.text, lang) || foreignWord(r.text, lang, fullMessage)) { kept = kept || { r, name }; continue; }
+                    return { body: { answer: shape(r.text), provider: name, grounded: false, sources: [] }, ttl: 0 };
+                } catch (err) {
+                    console.warn(`[${name} Сбой]: ${err.status || ''} ${err.message}`);
+                    break;
+                }
             }
         }
         if (kept) {
-            return { body: { answer: finalize(shapeLines(dropHaramLines(cleanModelText(kept.r.text), mode !== 'general' && mode !== 'heart'), mode), [], lang), provider: kept.name, grounded: false, sources: [] }, ttl: 0 };
+            // все попытки со смесью языков: показываем только чистые предложения, если их большинство; иначе — честно «не получилось»
+            const sents = cleanModelText(kept.r.text).split(/(?<=[.!?…])\s+|\n+/).filter(x => x.trim());
+            const clean = sents.filter(x => !mixedLanguage(x, lang) && !foreignWord(x, lang, fullMessage));
+            if (clean.length && clean.length >= sents.length * 0.6) return { body: { answer: shape(clean.join(' ')), provider: kept.name, grounded: false, sources: [] }, ttl: 0 };
+            return { body: { answer: MIXED_FALLBACK[lang] || MIXED_FALLBACK.ru, provider: 'none', grounded: false, sources: [] }, ttl: 0 };
         }
         return { body: { answer: ERR_FALLBACK[lang], provider: 'none', grounded: false, sources: [] }, ttl: 0 };
     } finally {
         active--;
     }
+}
+
+// ---------------------------------------------------------------------------
+// Картинка к объяснению понятия («Фотосинтез чист», «что такое фотосинтез», «fotosintez nima»): главная картинка статьи Википедии
+// (сначала на языке человека, затем русская), с подписью и ссылкой на статью. Нет статьи о том же слове или в ней нет картинки — без картинки.
+// ---------------------------------------------------------------------------
+const WIKI_UA = 'iZamoN/1.0 (https://izamon.vercel.app)';
+const WIKI_CACHE = new Map();
+const WIKI_LABEL = { tg: 'Сурат аз Википедия', ru: 'Картинка из Википедии', uz: 'Vikipediyadan rasm' };
+const CONCEPT_ASK = [
+    /^(?:что\s+такое|кто\s+так(?:ой|ая|ие)|что\s+значит|что\s+означает|объясни(?:те)?(?:\s+(?:что\s+такое|про))?|расскажи(?:те)?\s+(?:про|о|об)|как\s+(?:устроен[аоы]?|работает|происходит))\s+(.+)$/iu,
+    /^(.+?)\s*(?:[-—–]\s*)?(?:это\s+что|что\s+это(?:\s+такое)?)$/iu,
+    /^(.+?)\s+(?:чист|чистанд|кист|чи\s+аст|чӣ\s+аст)$/iu,
+    /^(?:дар\s+бораи|оид\s+ба)\s+(.+?)\s+(?:нақл\s+кунед|фаҳмонед|маълумот\s+диҳед|шарҳ\s+диҳед)$/iu,
+    /^(.+?)\s+(?:nima|kim)(?:\s+(?:degani|bu))?$/iu,
+    /^(.+?)\s+haqida(?:\s+(?:gapirib\s+bering|tushuntiring|ma['’]lumot\s+bering|aytib\s+bering))?$/iu
+];
+// Без картинки: взрослое, запретное, насилие — и вера (на изображениях пророков и святынь возможны недопустимые рисунки)
+const PIC_SKIP = /(?<![\p{L}])(?:секс|порн|эрот|интим|обнаж|голы[йеха]|нагот|проститу|наркот|героин|кокаин|марихуан|гашиш|казино|азарт|алкогол|вин[оа](?![\p{L}])|пив[оа](?![\p{L}])|водк|шароб|свин|гӯшти\s+хук|хук(?![\p{L}])|оружи|бомб|террор|убийств|самоуб|труп|казн|войн[аы]|ҷанг|jinsiy|aroq|cho['’]?chqa|qurol|пайғамбар|пайгамбар|пророк|муҳаммад|мухаммад|аллоҳ|аллах|худо(?![\p{L}])|бог(?![\p{L}])|ислом|ислам|қуръон|куръон|коран|расул|саҳоба|сахаб|имом|имам|исо(?![\p{L}])|иисус|мусо(?![\p{L}])|моисей|иброҳим|авраам|payg['’]?ambar|muhammad|alloh|xudo|qur['’]?on|намоз|намаз|kaaba|каъба|кааба|макка|мекка|мадина|медина)/iu;
+function conceptTerm(text) {
+    const t = String(text || '').trim().replace(/[?？!.]+$/u, '').trim();
+    for (const re of CONCEPT_ASK) {
+        const m = t.match(re);
+        if (!m) continue;
+        const term = m[1].trim().replace(/^[«"“]|[»"”]$/g, '');
+        if (term && term.length <= 40 && term.split(/\s+/).length <= 4 && !/\d{3,}/.test(term) && !PIC_SKIP.test(term)) return term;
+    }
+    return null;
+}
+async function conceptPicture(text, lang) {
+    const term = conceptTerm(text);
+    if (!term) return null;
+    const key = `${lang}|${term.toLowerCase()}`;
+    const hit = WIKI_CACHE.get(key);
+    if (hit && Date.now() - hit.at < 24 * 3600e3) return hit.v;
+    const norm = x => String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N} ]/gu, '').trim();
+    let v = null;
+    for (const wl of lang === 'tg' ? ['tg', 'ru'] : lang === 'uz' ? ['uz', 'ru'] : ['ru']) {
+        try {
+            const title = (term.charAt(0).toUpperCase() + term.slice(1)).replace(/\s+/g, '_');
+            const r = await withTimeout(fetch(`https://${wl}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { headers: { 'User-Agent': WIKI_UA, Accept: 'application/json' } }), 3500);
+            if (!r || !r.ok) continue;
+            const d = await r.json();
+            const th = d && d.thumbnail && d.thumbnail.source;
+            if (!d || d.type !== 'standard' || !th || !/^https:\/\/upload\.wikimedia\.org\//.test(th)) continue;
+            // статья о том же слове («Фотосинтез» → «Фотосинтез»), а не перенаправление на что-то другое
+            const a = norm(d.title), b = norm(term);
+            if (!a.startsWith(b.slice(0, Math.max(4, Math.min(b.length - 1, 6))))) continue;
+            const ow = d.originalimage && d.originalimage.width || 0;
+            const img = ow >= 640 ? th.replace(/\/\d{2,4}px-/, '/640px-') : th;
+            v = { img, title: d.title, page: (d.content_urls && d.content_urls.desktop && d.content_urls.desktop.page) || `https://${wl}.wikipedia.org/wiki/${encodeURIComponent(title)}` };
+            break;
+        } catch { /* нет связи с Википедией — без картинки */ }
+    }
+    WIKI_CACHE.set(key, { at: Date.now(), v });
+    if (WIKI_CACHE.size > 500) WIKI_CACHE.delete(WIKI_CACHE.keys().next().value);
+    return v;
+}
+function pictureHtml(p, lang) {
+    return `<figure class="iz-wpic"><img src="${escapeAttr(p.img)}" alt="${escapeAttr(p.title)}" loading="lazy" referrerpolicy="no-referrer"><figcaption>🖼️ ${WIKI_LABEL[lang] || WIKI_LABEL.ru}: <a href="${escapeAttr(p.page)}" target="_blank" rel="noopener noreferrer">${escapeHtml(p.title)}</a></figcaption></figure>`;
+}
+// картинка — после объяснения, перед строкой «🔎 Источники»
+function withPictureHtml(answer, p, lang) {
+    const a = String(answer || '');
+    const at = a.lastIndexOf('\n\n🔎 ');
+    // после картинки (она — отдельный блок) переносы не нужны: «🔎 Источники» и так с новой строки, без пустого места
+    return at >= 0 ? `${a.slice(0, at)}\n${pictureHtml(p, lang)}${a.slice(at + 2)}` : `${a}\n${pictureHtml(p, lang)}`;
 }
 
 async function runShared(key, cacheable, fn) {
@@ -5215,14 +5308,21 @@ async function handleChat(req, res) {
     // С историей ответ зависит от разговора — такие ответы не кэшируем.
     const cacheable = factual && !history.length;
     const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id + (somon.district ? ':' + somon.district.id : '') : placeCity ? 'p:' + placeCity.id + (placeDist ? ':' + placeDist.id : '') : '-'}|${somon && somon.price ? `${somon.price.min}-${somon.price.max}` : '-'}|${norm(detectOn)}`;
+    // объяснение понятия — картинка из Википедии ищется одновременно с ответом
+    const picP = !heart && !topic && mode === 'general' && !somon ? conceptPicture(cleaned, lang).catch(() => null) : null;
+    const withPic = async b => {
+        if (!picP || !b || b.view || !b.answer || /class="iz-/.test(b.answer) || /^(?:none|rate-limit|busy|rules)$/.test(b.provider || '')) return b;
+        const pic = await Promise.race([picP, new Promise(z => setTimeout(() => z(null), 3000))]);
+        return pic ? { ...b, answer: withPictureHtml(b.answer, pic, lang), picture: pic.page } : b;
+    };
     if (cacheable) {
         const hit = answerCache.get(key);
-        if (hit) return res.json({ ...hit, cached: true });
+        if (hit) return res.json(await withPic({ ...hit, cached: true }));
     }
 
     try {
         const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null }));
-        return res.json(r.body);
+        return res.json(await withPic(r.body));
     } catch (err) {
         console.error('chat failed:', err);
         return res.json({ answer: ERR_FALLBACK[lang], provider: 'none' });
@@ -7820,7 +7920,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
