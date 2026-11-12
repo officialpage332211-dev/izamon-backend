@@ -277,7 +277,7 @@ const PORTAL_RULES = [
       somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/Kompyuter-i-internet/' }], boards: [{ host: 'paydo.tj', path: 'obuchenie', words: /программ|it|айти|компьютер|1с|1c|дизайн|python|java|web|веб|frontend|backend|excel/i }, { host: 'ola.tj', path: 'obuchenie', words: /программ|it|айти|компьютер|1с|1c|дизайн|python|java|web|веб|frontend|backend|excel/i }],  facts: 'course', fixed: 'itc' },
       query: 'Найди актуальные IT-курсы в Таджикистане (программирование, дизайн, 1С и др.): название школы, цена, длительность, сайт или контакт.' },
     { re: /^(?:забонҳо|языки|tillar)$/, mode: 'digest', kind: 'services',
-      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/inostrannye-yazyki/' }], boards: [{ host: 'paydo.tj', path: 'obuchenie', words: /язык|англ|русск|немец|корей|китай|турец|арабск|english|ielts|toefl|забон/i }, { host: 'ola.tj', path: 'obuchenie', words: /язык|англ|русск|немец|корей|китай|турец|арабск|english|ielts|toefl|забон/i }],  facts: 'languages', fixed: 'lang' },
+      somon: { sources: [{ path: 'biznes-i-uslugi/uchebnyie-kursyi-i-obuchenie/inostrannye-yazyki/' }], boards: [{ host: 'rg.tj', path: 'languages-courses' }, { host: 'paydo.tj', path: 'obuchenie', words: /язык|англ|русск|немец|корей|китай|турец|арабск|english|ielts|toefl|забон/i }, { host: 'ola.tj', path: 'obuchenie', words: /язык|англ|русск|немец|корей|китай|турец|арабск|english|ielts|toefl|забон/i }],  facts: 'languages', fixed: 'lang' },
       query: 'Найди актуальные курсы иностранных языков в Таджикистане: язык, цена, формат, сайт или контакт школы.' },
     { re: /^(?:ммт|mmt|мнт)$/, mode: 'digest', kind: 'mmt',
       query: d => `Сегодня ${d.human}. Найди свежие новости про централизованные вступительные экзамены (ЦВЭ) в вузы Таджикистана и Национальный центр тестирования (НЦТ, ММТ, Маркази миллии тестӣ). Нужен только ближайший по сегодняшней дате тур (этап): тот, на который сейчас идёт регистрация или экзамен которого ещё не прошёл. Уже прошедшие туры не описывай. Ищи в новостях (asiaplus.news, khovar.tj, avesta.tj, vecherka.tj) и на ntc.tj. Ответ — РОВНО 3 строки: «📝 Регистрация: …» (даты подачи заявок на этот тур), «📅 Экзамен: …» (номер тура и дата проведения экзамена), «📊 Результаты: …» (когда объявят результаты этого тура). Не путай регистрацию с экзаменом. В каждой строке одно короткое простое предложение с датами и годом из источников. Если чего-то нет — после двоеточия напиши только «—». Ничего не придумывай.` },
@@ -326,25 +326,25 @@ const PORTAL_RULES = [
       query: 'Найди актуальные авиабилеты из Душанбе по популярным направлениям: цена, дата, авиакомпания, ссылка.' },
     // Недвижимость: у каждого подраздела свой запрос, иначе поиск смешивает продажу, аренду и участки.
     { re: /^(?:фурӯши\s+хона|продажа\s+жилья|uy\s+sotish)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/prodazha-kvartir/' }, { path: 'nedvizhimost/prodazha-domov-havli-i-dach/' }], boards: [{ host: 'savdo.tj', path: 'nedvizhimost', words: /прода[её]т|продаю|продажа|фурӯш|sotiladi|sotuv/iu }, { host: 'paydo.tj', path: 'kvartiry-prodazha' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-prodazha' }, { host: 'ola.tj', path: 'prodazha-kvartir' }, { host: 'ola.tj', path: 'doma-khavli-i-dachi' }],  fixed: 'estate' },
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-kvartir/' }, { path: 'nedvizhimost/prodazha-domov-havli-i-dach/' }], boards: [{ host: 'rg.tj', path: 'flats/sale' }, { host: 'rg.tj', path: 'houses/sale' }, { host: 'savdo.tj', path: 'nedvizhimost', words: /прода[её]т|продаю|продажа|фурӯш|sotiladi|sotuv/iu }, { host: 'paydo.tj', path: 'kvartiry-prodazha' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-prodazha' }, { host: 'ola.tj', path: 'prodazha-kvartir' }, { host: 'ola.tj', path: 'doma-khavli-i-dachi' }],  fixed: 'estate' },
       query: 'Найди актуальные объявления о продаже квартир и домов в Таджикистане, сначала на somon.tj: что продаётся (квартира или дом, число комнат, площадь), цена, район или город, контакт продавца. Только жильё на продажу: аренду, участки и коммерческие помещения не показывай.' },
     { re: /^(?:иҷора|аренда|ijara)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }], boards: [{ host: 'savdo.tj', path: 'nedvizhimost', words: /аренд|сда[её]т|сдаю|сдам|иҷора|ижара|посуточ|ijara/iu }, { host: 'paydo.tj', path: 'kvartiry-arenda' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-arenda' }, { host: 'ola.tj', path: 'dolgosrochnaya-arenda-kvartir' }],  fixed: 'estate' },
+      somon: { sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }], boards: [{ host: 'rg.tj', path: 'flats/rent' }, { host: 'rg.tj', path: 'houses/rent' }, { host: 'savdo.tj', path: 'nedvizhimost', words: /аренд|сда[её]т|сдаю|сдам|иҷора|ижара|посуточ|ijara/iu }, { host: 'paydo.tj', path: 'kvartiry-arenda' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-arenda' }, { host: 'ola.tj', path: 'dolgosrochnaya-arenda-kvartir' }],  fixed: 'estate' },
       query: 'Найди актуальные объявления об аренде жилья в Таджикистане (квартиры, дома, комнаты), сначала на somon.tj: что сдаётся, число комнат, цена в месяц, район или город, контакт хозяина. Только аренда жилья: продажу, участки и коммерческие помещения не показывай.' },
     { re: /^(?:замин\s+ва\s+тиҷоратӣ|земля\s+и\s+коммерческая|yer\s+va\s+tijorat)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
       somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], boards: [{ host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-arenda' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }, { host: 'ola.tj', path: 'pomeshcheniya' }],  mix: true, fixed: 'land' },
       query: 'Найди актуальные объявления о земельных участках под строительство и о коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: что это, площадь, цена, продажа или аренда, место, контакт. Жилые квартиры и дома не показывай.' },
     // «Земля и коммерческая» — обширный раздел с вкладками: «Участки», «Сельхоз земли», «Помещения и офисы» (кнопки над карточками)
     { re: /^(?:қитъаҳои\s+замин|участки|yer\s+uchastkalari)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/', page: 2 }], boards: [{ host: 'savdo.tj', q: 'участок' }, { host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }],  fixed: 'land' },
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/', page: 2 }], boards: [{ host: 'rg.tj', path: 'plots-construction/sale' }, { host: 'savdo.tj', q: 'участок' }, { host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }],  fixed: 'land' },
       query: 'Найди актуальные объявления о продаже земельных участков в Таджикистане, сначала на somon.tj: площадь (сотки), цена, место, контакт.' },
     { re: /^(?:биноҳои\s+тиҷоратӣ|помещения\s+и\s+офисы|tijorat\s+binolari)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], boards: [{ host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-arenda' }, { host: 'ola.tj', path: 'pomeshcheniya' }],  mix: true, fixed: 'land' },
+      somon: { sources: [{ path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], boards: [{ host: 'rg.tj', path: 'offices/sale' }, { host: 'rg.tj', path: 'stores-outlets/sale' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-arenda' }, { host: 'ola.tj', path: 'pomeshcheniya' }],  mix: true, fixed: 'land' },
       query: 'Найди актуальные объявления о продаже и аренде коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: площадь, цена, продажа или аренда, место, контакт.' },
     // Услуги: мастера и специалисты. Объявления берём с somon.tj (раздел «Услуги») и других сайтов.
     // «Мастера на дом» — обширный раздел с вкладками: Все, Электрик, Сантехник, Ремонт и отделка, Ремонт техники, Окна и двери, Грузчики
     { re: /^(?:устоҳо\s+ба\s+хона|мастера\s+на\s+дом|uyga\s+ustalar)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'мастер на час' }, { q: 'ремонт квартир' }, { q: 'электрик' }, { q: 'сантехник' }], boards: [{ host: 'savdo.tj', path: 'stroitelstvo_i_remont' }, { host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'paydo.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'remont-bytovoy-tekhniki' }],  cat: SOMON_SERVICES, notWords: /аренд|прокат|ижара|иҷора|автокран|(?<![\p{L}])кран[-\s]*манипулятор|спецтехник|экскаватор|эвакуатор|самосвал/iu, mix: true, fixed: 'service' },
+      somon: { sources: [{ q: 'мастер на час' }, { q: 'ремонт квартир' }, { q: 'электрик' }, { q: 'сантехник' }], boards: [{ host: 'rg.tj', path: 'construction-repair-services' }, { host: 'savdo.tj', path: 'stroitelstvo_i_remont' }, { host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'paydo.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'remont-bytovoy-tekhniki' }],  cat: SOMON_SERVICES, notWords: /аренд|прокат|ижара|иҷора|автокран|(?<![\p{L}])кран[-\s]*манипулятор|спецтехник|экскаватор|эвакуатор|самосвал/iu, mix: true, fixed: 'service' },
       query: 'Найди актуальные объявления мастеров на дом в Таджикистане (электрики, сантехники, ремонт и отделка квартир, ремонт бытовой техники, установка окон и дверей), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт.' },
     { re: /^(?:таъмири\s+техника|ремонт\s+техники|texnika\s+ta.?miri)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
       somon: { sources: [{ q: 'ремонт холодильников' }, { q: 'ремонт стиральных машин' }, { q: 'ремонт кондиционеров' }], boards: [{ host: 'ola.tj', path: 'remont-bytovoy-tekhniki' }, { host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }],  cat: SOMON_SERVICES, words: /холодильн|морозильн|стиральн|кондиционер|сплит|телевизор|микроволнов|посудомоеч|духов|плит[аыу]|бойлер|водонагрев|бытов\w*\s+техник|яхдон/iu, notWords: /аренд|прокат|ижара|иҷора|автокран|(?<![\p{L}])кран[-\s]*манипулятор|спецтехник|экскаватор|эвакуатор|самосвал/iu, fixed: 'service' },
@@ -356,23 +356,23 @@ const PORTAL_RULES = [
       somon: { sources: [{ q: 'грузчики' }, { q: 'грузоперевозки' }, { q: 'переезд' }],  cat: SOMON_SERVICES, words: /грузчик|грузоперевоз|переезд|перевозк|ҳаммол|бор(?:кашон|бар)|yukchi|ko.?chish/iu, notWords: /аренд\w*\s+(?:квартир|дом)|продаж|продаю|фурӯш/iu, fixed: 'service' },
       query: 'Найди актуальные объявления грузчиков, грузоперевозок и помощи при переезде в Таджикистане, сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город, контакт.' },
     { re: /^(?:барқчӣ|электрик|elektrik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'электрик' }, { q: 'электромонтаж' }], boards: [{ host: 'savdo.tj', path: 'uslugi' }, { host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'paydo.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'ustanovka-oborudovaniya' }],  cat: SOMON_SERVICES, words: /электр|барқ|розетк|проводк|светильник|люстр|освещени|elektr/i, fixed: 'service' },
+      somon: { sources: [{ q: 'электрик' }, { q: 'электромонтаж' }], boards: [{ host: 'rg.tj', path: 'electrician-services' }, { host: 'savdo.tj', path: 'uslugi' }, { host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'paydo.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'ustanovka-oborudovaniya' }],  cat: SOMON_SERVICES, words: /электр|барқ|розетк|проводк|светильник|люстр|освещени|elektr/i, fixed: 'service' },
       query: 'Найди актуальные объявления электриков в Таджикистане (электромонтаж, ремонт проводки, установка розеток, светильников и счётчиков), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Только электрики: другие услуги и товары не показывай.' },
     { re: /^(?:сантехник|santexnik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'сантехник' }, { q: 'сантехника услуги' }], boards: [{ host: 'savdo.tj', path: 'uslugi' }, { host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'paydo.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'ustanovka-oborudovaniya' }],  cat: SOMON_SERVICES, words: /сантех|водопровод|труб|смесител|канализац|унитаз|отоплен|бойлер|водонагрев|насос|радиатор|santex/i, notWords: /флаг|аренд|прокат|ижара|иҷора|автокран|спецтехник|эвакуатор/iu, fixed: 'service' },
+      somon: { sources: [{ q: 'сантехник' }, { q: 'сантехника услуги' }], boards: [{ host: 'rg.tj', path: 'plumber-services' }, { host: 'savdo.tj', path: 'uslugi' }, { host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'paydo.tj', path: 'ustanovka-oborudovaniya' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'ustanovka-oborudovaniya' }],  cat: SOMON_SERVICES, words: /сантех|водопровод|труб|смесител|канализац|унитаз|отоплен|бойлер|водонагрев|насос|радиатор|santex/i, notWords: /флаг|аренд|прокат|ижара|иҷора|автокран|спецтехник|эвакуатор/iu, fixed: 'service' },
       query: 'Найди актуальные объявления сантехников в Таджикистане (установка и ремонт труб, смесителей, унитазов, отопления, водонагревателей), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Только сантехники: другие услуги и товары не показывай.' },
     { re: /^(?:автомеханик|avtomexanik)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'ремонт авто' }, { q: 'автосервис' }, { q: 'автомеханик' }], boards: [{ host: 'savdo.tj', path: 'uslugi' }, { host: 'paydo.tj', path: 'avtoservis' }, { host: 'ola.tj', path: 'avtoservis-i-remont' }],  cat: SOMON_AUTO, notCat: SOMON_NOT_AUTO, words: /авто|машин|мошин|двигател|мотор|ходов|электромобил|кузов|шиномонтаж|вулканизац|рихтов|развал|bmw|toyota|hyundai|kia(?![a-z])|opel|mercedes|lexus|chevrolet|nissan|honda|daewoo|byd|camry/i, notWords: /мебел|аренд|прокат|ижара|иҷора|вскрыт|кушодан|зарядн\S*\s+(?:устройств|станц)|зарядник|русификац|кодирован|калид|(?<![\p{L}])ключ|открыт\w*\s+(?:машин|авто|двер)|эвакуатор|зарядк|такси|перевоз|грузоперевоз|сантех|водопровод|(?<![\p{L}])электрик|мастер на час|ремонт квартир|уборк|клининг|стиральн|посудомоеч|кофемашин|швейн/iu, fixed: 'service' },
+      somon: { sources: [{ q: 'ремонт авто' }, { q: 'автосервис' }, { q: 'автомеханик' }], boards: [{ host: 'rg.tj', path: 'autoshows-autorepairs' }, { host: 'savdo.tj', path: 'uslugi' }, { host: 'paydo.tj', path: 'avtoservis' }, { host: 'ola.tj', path: 'avtoservis-i-remont' }],  cat: SOMON_AUTO, notCat: SOMON_NOT_AUTO, words: /авто|машин|мошин|двигател|мотор|ходов|электромобил|кузов|шиномонтаж|вулканизац|рихтов|развал|bmw|toyota|hyundai|kia(?![a-z])|opel|mercedes|lexus|chevrolet|nissan|honda|daewoo|byd|camry/i, notWords: /мебел|аренд|прокат|ижара|иҷора|вскрыт|кушодан|зарядн\S*\s+(?:устройств|станц)|зарядник|русификац|кодирован|калид|(?<![\p{L}])ключ|открыт\w*\s+(?:машин|авто|двер)|эвакуатор|зарядк|такси|перевоз|грузоперевоз|сантех|водопровод|(?<![\p{L}])электрик|мастер на час|ремонт квартир|уборк|клининг|стиральн|посудомоеч|кофемашин|швейн/iu, fixed: 'service' },
       query: 'Найди актуальные объявления автомехаников и автосервисов в Таджикистане (ремонт и диагностика легковых машин, выезд мастера), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера или название сервиса, контакт. Только ремонт машин: продажу машин и запчастей не показывай.' },
     { re: /^(?:усто|мастер|usta)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
       somon: { sources: [{ q: 'мастер на час' }, { q: 'ремонт квартир' }, { q: 'сборка мебели' }], boards: [{ host: 'paydo.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'stroitelnye-i-remontnye-uslugi' }, { host: 'ola.tj', path: 'remont-bytovoy-tekhniki' }],  cat: SOMON_SERVICES, notWords: /аренд|прокат|ижара|иҷора|автокран|(?<![\p{L}])кран[-\s]*манипулятор|спецтехник|экскаватор|эвакуатор|самосвал|грузоперевоз/iu, fixed: 'service' },
       query: 'Найди актуальные объявления мастеров на дом в Таджикистане (ремонт и отделка квартир, сборка мебели, мелкий бытовой ремонт, «мастер на час»), сначала на somon.tj в разделе «Услуги»: что за услуга, цена или «договорная», город или район, имя мастера, контакт. Электриков, сантехников и автомехаников отдельно не выделяй: показывай мастеров общего профиля.' },
     // Остальные подразделы с объявлениями: тот же прямой список somon.tj, что и у недвижимости (фото, цена, место, контакт из текста объявления).
     { re: /^(?:мошинҳо|машины|mashinalar)$/, mode: 'ads',
-      somon: { sources: [{ path: 'transport/legkovyie-avtomobili/' }], boards: [{ host: 'savdo.tj', path: 'transport', words: /(?<!\d)(?:19[89]\d|20[0-3]\d)(?!\d)/ }, { host: 'paydo.tj', path: 'legkovye-avto-prodazha' }, { host: 'ola.tj', path: 'legkovye-avto' }],  facts: 'car', fixed: 'car' },
+      somon: { sources: [{ path: 'transport/legkovyie-avtomobili/' }], boards: [{ host: 'rg.tj', path: 'cars' }, { host: 'savdo.tj', path: 'transport', words: /(?<!\d)(?:19[89]\d|20[0-3]\d)(?!\d)/ }, { host: 'paydo.tj', path: 'legkovye-avto-prodazha' }, { host: 'ola.tj', path: 'legkovye-avto' }],  facts: 'car', fixed: 'car' },
       query: 'Найди актуальные объявления о продаже легковых автомобилей в Таджикистане, сначала на somon.tj: марка и модель, год, пробег, цена, город, контакт продавца. Только продажа машин: запчасти и услуги не показывай.' },
     { re: /^(?:қисмҳои\s+эҳтиётӣ|запчасти|qismlar)$/, mode: 'ads',
-      somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], boards: [{ host: 'savdo.tj', q: 'запчасти' }, { host: 'paydo.tj', path: 'zapchasti-prodazha' }, { host: 'ola.tj', path: 'zapchasti-i-aksessuary' }],  facts: 'parts', fixed: 'parts' },
+      somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], boards: [{ host: 'rg.tj', path: 'spare-parts' }, { host: 'savdo.tj', q: 'запчасти' }, { host: 'paydo.tj', path: 'zapchasti-prodazha' }, { host: 'ola.tj', path: 'zapchasti-i-aksessuary' }],  facts: 'parts', fixed: 'parts' },
       query: 'Найди актуальные объявления о продаже автозапчастей, шин и дисков в Таджикистане, сначала на somon.tj: что за деталь, для какой машины, состояние, цена, город, контакт продавца.' },
     { re: /^(?:қисмҳо|запчасти|qismlar):\s*\S/u, mode: 'ads', make: partsRule },
     // «Тӯҳфаҳо ва гулҳо» (подарки и цветы) и вкладки: цветы, подарки, игрушки. Своей рубрики на somon.tj нет — поиск по словам
@@ -385,25 +385,25 @@ const PORTAL_RULES = [
       somon: { sources: [{ q: 'цветы' }, { q: 'букет' }, { q: 'букет цветов' }], boards: [{ host: 'savdo.tj', q: 'цветы' }, { host: 'paydo.tj', q: 'цветы' }], words: new RegExp(GIFT_W.flowers, 'iu'), notWords: GIFT_NOT_FLOWERS },
       query: 'Найди актуальные объявления о продаже цветов и букетов (живые цветы, розы, тюльпаны, цветы в горшках, доставка) в Таджикистане, сначала на somon.tj: что продаётся, цена, город, контакт продавца.' },
     { re: /^(?:тӯҳфаҳо|подарки|sovg['ʻ’]?alar)$/u, portal: /бозор|товары|bozor/, mode: 'ads',
-      somon: { sources: [{ q: 'подарок' }, { q: 'подарки' }, { q: 'сувенир' }, { q: 'подарочный набор' }], boards: [{ host: 'savdo.tj', q: 'подарки' }, { host: 'paydo.tj', q: 'подарки' }], words: new RegExp(GIFT_W.gifts, 'iu'), notWords: GIFT_NOT },
+      somon: { sources: [{ q: 'подарок' }, { q: 'подарки' }, { q: 'сувенир' }, { q: 'подарочный набор' }], boards: [{ host: 'rg.tj', path: 'gifts' }, { host: 'savdo.tj', q: 'подарки' }, { host: 'paydo.tj', q: 'подарки' }], words: new RegExp(GIFT_W.gifts, 'iu'), notWords: GIFT_NOT },
       query: 'Найди актуальные объявления о продаже подарков, сувениров и подарочных наборов в Таджикистане, сначала на somon.tj: что продаётся, цена, город, контакт продавца. Без алкоголя и запретного.' },
     { re: /^(?:бозичаҳо|игрушки|o['ʻ’]?yinchoqlar)$/u, portal: /бозор|товары|bozor/, mode: 'ads',
-      somon: { sources: [{ q: 'игрушки' }, { q: 'мягкие игрушки' }, { q: 'детские игрушки' }], boards: [{ host: 'savdo.tj', path: 'detskie_tovary' }, { host: 'paydo.tj', q: 'игрушки' }], words: new RegExp(GIFT_W.toys, 'iu'), notWords: GIFT_NOT },
+      somon: { sources: [{ q: 'игрушки' }, { q: 'мягкие игрушки' }, { q: 'детские игрушки' }], boards: [{ host: 'rg.tj', path: 'toys-games' }, { host: 'savdo.tj', path: 'detskie_tovary' }, { host: 'paydo.tj', q: 'игрушки' }], words: new RegExp(GIFT_W.toys, 'iu'), notWords: GIFT_NOT },
       query: 'Найди актуальные объявления о продаже детских игрушек в Таджикистане, сначала на somon.tj: что за игрушка, цена, город, контакт продавца.' },
     { re: /^(?:мебел|мебель|mebel)$/, mode: 'ads',
-      somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], boards: [{ host: 'savdo.tj', q: 'мебель' }, { host: 'paydo.tj', path: 'mebel-i-interer' }, { host: 'ola.tj', path: 'mebel' }],  notWords: /компьютер(?!н)|ноутбук|монитор|системн\w*\s+блок|процессор|видеокарт|принтер|моноблок|(?<![\p{L}])пк(?![\p{L}])|копилк/iu, facts: 'furniture', fixed: 'furniture' },
+      somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], boards: [{ host: 'rg.tj', path: 'furniture' }, { host: 'savdo.tj', q: 'мебель' }, { host: 'paydo.tj', path: 'mebel-i-interer' }, { host: 'ola.tj', path: 'mebel' }],  notWords: /компьютер(?!н)|ноутбук|монитор|системн\w*\s+блок|процессор|видеокарт|принтер|моноблок|(?<![\p{L}])пк(?![\p{L}])|копилк/iu, facts: 'furniture', fixed: 'furniture' },
       query: 'Найди актуальные объявления о продаже мебели в Таджикистане, сначала на somon.tj: что за мебель, размер, материал, состояние, цена, город, контакт продавца.' },
     { re: /^(?:либос|одежда|kiyim)$/, mode: 'ads',
-      somon: { sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], boards: [{ host: 'savdo.tj', path: 'odezhda_i_lichnye_veshchi' }, { host: 'paydo.tj', path: 'odezhda' }, { host: 'ola.tj', path: 'muzhskaya-odezhda' }, { host: 'ola.tj', path: 'zhenskaya-odezhda' }, { host: 'ola.tj', path: 'obuv' }],  facts: 'clothes', fixed: 'clothes' },
+      somon: { sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], boards: [{ host: 'rg.tj', path: 'wear' }, { host: 'savdo.tj', path: 'odezhda_i_lichnye_veshchi' }, { host: 'paydo.tj', path: 'odezhda' }, { host: 'ola.tj', path: 'muzhskaya-odezhda' }, { host: 'ola.tj', path: 'zhenskaya-odezhda' }, { host: 'ola.tj', path: 'obuv' }],  facts: 'clothes', fixed: 'clothes' },
       query: 'Найди актуальные объявления о продаже одежды и обуви в Таджикистане, сначала на somon.tj: что за вещь, размер, состояние, цена, город, контакт продавца.' },
     { re: /^(?:техника|texnika)$/, mode: 'ads',
-      somon: { sources: [{ path: 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/' }, { path: 'kompyuteryi-i-orgtehnika/noutbuki/' }, { path: 'elektronika-i-tehnika/tv-dvd-video/televizoryi/' }, { path: 'kompyuteryi-i-orgtehnika/personalnyie-kompyuteryi/' }], boards: [{ host: 'savdo.tj', path: 'elektronika_i_bytovaya_tehnika' }, { host: 'paydo.tj', path: 'tekhnika-dlya-doma' }, { host: 'paydo.tj', path: 'noutbuki' }, { host: 'paydo.tj', path: 'audio-i-video' }, { host: 'ola.tj', path: 'tekhnika-dlya-doma-i-kukhni' }, { host: 'ola.tj', path: 'noutbuki' }, { host: 'ola.tj', path: 'tv-dvd-i-video' }],  facts: 'tech', fixed: 'tech' },
+      somon: { sources: [{ path: 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/' }, { path: 'kompyuteryi-i-orgtehnika/noutbuki/' }, { path: 'elektronika-i-tehnika/tv-dvd-video/televizoryi/' }, { path: 'kompyuteryi-i-orgtehnika/personalnyie-kompyuteryi/' }], boards: [{ host: 'rg.tj', path: 'kitchen-household-appliances' }, { host: 'savdo.tj', path: 'elektronika_i_bytovaya_tehnika' }, { host: 'paydo.tj', path: 'tekhnika-dlya-doma' }, { host: 'paydo.tj', path: 'noutbuki' }, { host: 'paydo.tj', path: 'audio-i-video' }, { host: 'ola.tj', path: 'tekhnika-dlya-doma-i-kukhni' }, { host: 'ola.tj', path: 'noutbuki' }, { host: 'ola.tj', path: 'tv-dvd-i-video' }],  facts: 'tech', fixed: 'tech' },
       query: 'Найди актуальные объявления о продаже бытовой техники, ноутбуков, компьютеров и телевизоров в Таджикистане, сначала на somon.tj: что за техника, характеристики, состояние, цена, город, контакт продавца.' },
     { re: /^(?:телефонҳо|телефоны|telefon)$/, mode: 'ads',
-      somon: { sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], boards: [{ host: 'savdo.tj', path: 'telefony_i_gadzhety' }, { host: 'paydo.tj', path: 'telefony' }],  facts: 'phone', fixed: 'phone' },
+      somon: { sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], boards: [{ host: 'rg.tj', path: 'phones' }, { host: 'savdo.tj', path: 'telefony_i_gadzhety' }, { host: 'paydo.tj', path: 'telefony' }],  facts: 'phone', fixed: 'phone' },
       query: 'Найди актуальные объявления о продаже мобильных телефонов в Таджикистане, сначала на somon.tj: модель, память, состояние, цена, город, контакт продавца.' },
     { re: /^(?:кор\s+ва\s+шуғл|вакансии|ish)$/, mode: 'jobs',
-      somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], boards: [{ host: 'savdo.tj', path: 'vakasiya' }, { host: 'paydo.tj', path: 'vakansii' }, { host: 'ola.tj', path: 'vakansii' }],  notCat: /Banki-strahovanie-lizing/i, notWords: /(?<![\p{L}])(?:ищу|ишу|ищем\s+себе)\s+работ|кор\s+мекобам|ҷои\s+кор\s+мекобам|ish\s+qidir/iu, facts: 'job', fixed: 'job' },
+      somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], boards: [{ host: 'rg.tj', path: 'vacancies' }, { host: 'savdo.tj', path: 'vakasiya' }, { host: 'paydo.tj', path: 'vakansii' }, { host: 'ola.tj', path: 'vakansii' }],  notCat: /Banki-strahovanie-lizing/i, notWords: /(?<![\p{L}])(?:ищу|ишу|ищем\s+себе)\s+работ|кор\s+мекобам|ҷои\s+кор\s+мекобам|ish\s+qidir/iu, facts: 'job', fixed: 'job' },
       query: 'Найди актуальные вакансии в Таджикистане на сегодня, сначала на somon.tj: должность, зарплата, город, работодатель, график, контакт. ' + JOB_SKIP_TEXT },
     { re: /^(?:земли|заминҳои\s+кишт|сельхоз\s+земли|ekin\s+yerlari)$/, mode: 'ads', somon: SOMON_FARMLAND,
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане, сначала на somon.tj: площадь, цена, место, контакт владельца.' },
@@ -3579,7 +3579,7 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
 // ---------- Другие сайты объявлений напрямую: ola.tj (он же arzon.tj) и paydo.tj ----------
 // Те же поля, что у списка somon.tj: { id, title, description, price, priceNote, thumb, imgCount, images, published, path, url, location, who, cats }.
 // Все сайты равны: ни один не ставится впереди других (см. somonListings).
-const BOARD_HOSTS = { 'ola.tj': 'https://ola.tj/category/', 'paydo.tj': 'https://paydo.tj/ru/all/', 'savdo.tj': 'https://savdo.tj/category/' };
+const BOARD_HOSTS = { 'ola.tj': 'https://ola.tj/category/', 'paydo.tj': 'https://paydo.tj/ru/all/', 'savdo.tj': 'https://savdo.tj/category/', 'rg.tj': 'https://rg.tj/' };
 const BOARD_WAIT_MS = 8000;           // дольше не ждём медленный сайт: покажем остальные, а его список ляжет в запас
 const BOARD_CACHE = new Map();        // адрес → { at, p }
 const BOARD_CACHE_MS = 20 * 60 * 1000, BOARD_CACHE_MAX = 60; // списки других сайтов держим 20 минут: ola.tj грузится долго
@@ -3701,12 +3701,38 @@ function parseSavdoCards(html, max = 60) {
     return out;
 }
 
+// rg.tj («Рекламная газета»): <div class="media rg-sitem">: фото /data/rg.tj/…/0_thumb.jpg, цена «320 000 сом.», название,
+// дата «08.11.2026», число фото, город («Душанбе, 91 мкр»); ссылка на объявление — на поддомене города (//vahdat.rg.tj/flats/ID)
+function parseRgCards(html, max = 60) {
+    const out = [], seen = new Set();
+    const html0 = String(html || '');
+    const starts = [...html0.matchAll(/<div class="media rg-sitem">/g)].map(m => m.index);
+    for (let i = 0; i < starts.length && out.length < max; i++) {
+        const c = html0.slice(starts[i], i + 1 < starts.length ? starts[i + 1] : starts[i] + 8000);
+        const link = /href="\/\/((?:[a-z]+\.)?rg\.tj)\/([a-z0-9\-]+)\/(\d+)"/.exec(c);
+        if (!link || seen.has(link[3])) continue;
+        const title = htmlText((/<h4 class="media-heading rg-sitem-heading">\s*<a class="hidden-xs"[^>]*>([\s\S]*?)<\/a>/.exec(c) || [])[1]);
+        if (!title || title.length > 300) continue;
+        seen.add(link[3]);
+        const src = (/<img class="media-object rg-sitem-pic" src="(\/data\/rg\.tj\/data\/[\w\/.\-]+\.(?:jpe?g|png|webp))/.exec(c) || [])[1] || '';
+        const img = src ? 'https://rg.tj' + src : '';
+        const val = htmlText((/class="rg-sitem-money[^"]*">([\s\S]*?)<\/div>/.exec(c) || [])[1]);
+        const sub = (/class="rg-sitem-sub rg-sitem-vars">([\s\S]*?)<!--/.exec(c) || [])[1] || '';
+        const blocks = [...sub.matchAll(/<span class="rg-block">([^<]*)<\/span>/g)].map(m => htmlText(m[1])).filter(Boolean);
+        const when = blocks.find(x => /^\d{1,2}\.\d{1,2}\.\d{4}/.test(x)) || '';
+        const city = blocks.filter(x => x !== when).pop() || '';
+        const n = Number((/imgs-count">[\s\S]*?<\/span>\s*(\d+)/.exec(c) || [])[1]) || (img ? 1 : 0);
+        out.push({ id: 'rg' + link[3], title, description: '', price: /\d/.test(val) ? val : '', priceNote: /\d/.test(val) ? '' : val, thumb: img, imgCount: n, images: img ? [img] : [], published: when, path: '', url: `https://${link[1]}/${link[2]}/${link[3]}`, location: city, who: '', cats: '' });
+    }
+    return out;
+}
+
 function boardGet(host, url) {
     const hit = BOARD_CACHE.get(url);
     if (hit && Date.now() - hit.at < BOARD_CACHE_MS) return hit.p;
     // ola.tj бывает медленным (страница раздела ~600 КБ, 8–15 с): грузим до 25 с, но человек ждёт не дольше BOARD_WAIT_MS — остальное ляжет в запас
     const p = fetchPage(url, { cap: 2500000, timeoutMs: 25000 }).then(r => {
-        const list = host === 'ola.tj' ? parseOlaCards(r.html) : host === 'savdo.tj' ? parseSavdoCards(r.html) : parsePaydoAds(r.html);
+        const list = host === 'ola.tj' ? parseOlaCards(r.html) : host === 'savdo.tj' ? parseSavdoCards(r.html) : host === 'rg.tj' ? parseRgCards(r.html) : parsePaydoAds(r.html);
         if (!list.length) throw new Error('в странице нет списка');
         return list;
     });
@@ -3721,8 +3747,8 @@ function boardUrl(b) {
     if (b && b.q) return b.host === 'paydo.tj' ? `https://paydo.tj/ru/all?q=${encodeURIComponent(String(b.q).slice(0, 80))}`
         : b.host === 'savdo.tj' ? `https://savdo.tj/search?keywords=${encodeURIComponent(String(b.q).slice(0, 80))}` : null;
     const base = BOARD_HOSTS[b && b.host];
-    if (!base || !/^[a-z0-9\-_]{2,80}$/i.test(b.path || '')) return null;
-    return base + b.path + (b.host === 'paydo.tj' ? '?sorting=date' : '');
+    if (!base || !/^[a-z0-9\-_]{2,60}(?:\/[a-z0-9\-_]{2,30})?$/i.test(b.path || '')) return null;
+    return base + b.path + (b.host === 'paydo.tj' ? '?sorting=date' : b.host === 'rg.tj' ? '/' : '');
 }
 
 // Список объявлений для карточек: spec.sources — страницы somon.tj (поиск q= или раздел path=), spec.boards — разделы ola.tj и paydo.tj,
@@ -7359,7 +7385,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    parseSavdoCards, boardUrl, keywordSpec,
+    parseRgCards, parseSavdoCards, boardUrl, keywordSpec,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
