@@ -3977,6 +3977,8 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
 }
 
 // Перевод, фото и сверка со страницами — общий хвост для обоих источников.
+// одно и то же без регистра, пробелов и знаков («Худжанд | Согд» и «Худжанд, Согд»)
+const sameLoose = (a, b) => { const n = x => String(x || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''); return !!n(a) && n(a) === n(b); };
 async function finishItems(top, kind, lang, debug, fixed = '') {
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
     const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug, fixed === 'hotel')]);
@@ -4013,9 +4015,9 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
         // Возраст объявления; у билетов и туров дата — это день вылета/поездки, а не публикации, поэтому возраста у них нет
         const age = kind === 'tickets' || kind === 'tours' || kind === 'places' ? null : (t.pub ? t.pub.ageMin : ageFromDate(it.date));
         const base = { ...it, pn: t.pn || 0, pc: t.pc || '', age, date: kind === 'places' ? '' : dates[i] || it.date, image: img, imageProxy: img ? proxyImageUrl(img) : null,
-            full: kind === 'tickets' || kind === 'tours' ? '' : fullText(photos.descs && photos.descs[i], t.listDesc),
+            full: kind === 'tickets' || kind === 'tours' ? '' : fullText(photos.descs && photos.descs[i], sameLoose(t.listDesc, it.place || t.place) ? '' : t.listDesc),
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
-        return fixed ? { ...base, ...fixedSlots(base, lang, fixed, { specs: photos.specs && photos.specs[i], desc: photos.descs && photos.descs[i], title0: t.title }) } : base;
+        return fixed ? { ...base, ...fixedSlots(base, lang, fixed, { specs: photos.specs && photos.specs[i], desc: t.trusted ? photos.descs && photos.descs[i] : '', title0: t.title }) } : base;
     });
 }
 
@@ -5117,6 +5119,29 @@ function pageDescription(html) {
     return '';
 }
 
+// Описание со страницы любого сайта (для «Подробнее» в карточке): JSON-LD (Product, затем любой тип) → og:description → meta description.
+// Служебные фразы досок объявлений («Частные объявления … на Savdo.tj», «на Рекламной Газете») за описание не считаем.
+const SITE_BLURB = /частные\s+объявлени|объявлени[яй]\s+и\s+предложени|доска\s+объявлений|бесплатн\w*\s+объявлени|на\s+(?:рекламной\s+газете|savdo\.tj|somon\.tj|paydo\.tj|ola\.tj|rg\.tj)|^купить\s.{3,80}\sза\s/i;
+function metaContent(html, attr, name) {
+    const re = new RegExp(`<meta\\b[^>]*\\b${attr}\\s*=\\s*["']${name}["'][^>]*>`, 'i');
+    const tag = (re.exec(html) || [])[0];
+    if (!tag) return '';
+    return decodeEntities(((/\bcontent\s*=\s*"([^"]*)"/i.exec(tag) || /\bcontent\s*=\s*'([^']*)'/i.exec(tag) || [])[1]) || '');
+}
+function pageDescriptionAny(html) {
+    const h = String(html || '');
+    const prod = pageDescription(h);
+    if (prod) return prod;
+    for (const ld of jsonLdItems(h)) {
+        if (typeof ld.description === 'string' && ld.description.trim().length >= 30) return decodeEntities(ld.description).replace(/\s+/g, ' ').trim().slice(0, 3000);
+    }
+    for (const t of [metaContent(h, 'property', 'og:description'), metaContent(h, 'name', 'description')]) {
+        const x = String(t || '').replace(/\s+/g, ' ').trim();
+        if (x.length >= 30 && !SITE_BLURB.test(x)) return x.slice(0, 3000);
+    }
+    return '';
+}
+
 // Ссылка ведёт на конкретное объявление, а не на общий список: в пути есть номер (3+ цифр) или в запросе есть id.
 function isListingUrl(raw) {
     let x;
@@ -5526,6 +5551,7 @@ async function resolvePhotos(items, debug, hotel = false) {
             if (hotel && !hotelPageMatches(it.title, page.html)) return { img: null, why: 'страница не про эту гостиницу' };
             for (const c of pageImages(page.html, page.url)) cands.push({ url: c, from: 'page' });
             if (it.trusted) { gallery = pageGallery(page.html, it.photoCount || 16); desc = pageDescription(page.html); specs = pageSpecs(page.html); }
+            else desc = pageDescriptionAny(page.html); // описание с оригинальной страницы — для «Подробнее» в карточке
             if (!cands.length) how = 'на странице нет фото в тегах';
         } catch (err) { how = `страница: ${String(err && err.message || err).slice(0, 40)}`; }
         if (it.image && sameSite(hostOf(it.image), hostOf(it.url))) cands.push({ url: it.image, from: 'model' });
@@ -7498,7 +7524,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    parseRgCards, parseSavdoCards, boardUrl, keywordSpec,
+    parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
