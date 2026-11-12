@@ -1946,7 +1946,24 @@ const ENCYC_HOST = /(^|\.)(?:wikipedia\.org|britannica\.com|bigenc\.ru|ruwiki\.r
 
 // Новые модели OpenAI не принимают max_tokens (нужен max_completion_tokens, и рассуждающим моделям нужен запас на «обдумывание»).
 // Получили такую ошибку — повторяем с другим параметром и запоминаем его для этого клиента.
+// Чат OpenAI ответил «нет средств»: 10 минут его не пробуем (иначе каждый ответ ждёт лишние секунды), а если Responses API отвечает —
+// идём сразу туда. Обе дороги закрыты — сразу к следующей модели.
+const OPENAI_CHAT = { noCreditUntil: 0, viaResponses: false };
+async function openaiByResponses(model, system, userText, maxTokens, timeoutMs) {
+    aiSpend();
+    const resp = await withTimeout(openai.responses.create({ model, instructions: system, input: userText, max_output_tokens: Math.max(maxTokens, 16), store: false }, { maxRetries: 0 }), Math.min(timeoutMs, 8000));
+    const t = String(resp.output_text || '').trim();
+    if (!t) throw new Error('Empty response');
+    return { text: t, sources: [], usage: resp.usage || null, via: 'responses' };
+}
 async function askChat(client, model, system, userText, maxTokens = 300, extra = null, timeoutMs = 10000, reqOpts = undefined) {
+    if (client === openai && !extra) {
+        if (Date.now() < OPENAI_CHAT.noCreditUntil) throw Object.assign(new Error('openai: нет средств (пауза)'), { status: 429 });
+        if (OPENAI_CHAT.viaResponses) {
+            try { return await openaiByResponses(model, system, userText, maxTokens, timeoutMs); }
+            catch (err) { OPENAI_CHAT.viaResponses = false; OPENAI_CHAT.noCreditUntil = Date.now() + 10 * 60e3; throw err; }
+        }
+    }
     aiSpend();
     const make = param => withTimeout(client.chat.completions.create({
         ...(extra || {}),
@@ -1963,11 +1980,11 @@ async function askChat(client, model, system, userText, maxTokens = 300, extra =
     } catch (err) {
         // OpenAI: обычный чат отвечает «нет средств» (429), а Responses API (через него работает поиск) — отвечает. Пробуем тот же вопрос там.
         if (client === openai && err && err.status === 429 && /no credits|quota|billing/i.test(String(err.message)) && !extra) {
-            aiSpend();
-            const resp = await withTimeout(openai.responses.create({ model, instructions: system, input: userText, max_output_tokens: Math.max(maxTokens, 16), store: false }, reqOpts), timeoutMs);
-            const t = String(resp.output_text || '').trim();
-            if (!t) throw err;
-            return { text: t, sources: [], usage: resp.usage || null, via: 'responses' };
+            try {
+                const r = await openaiByResponses(model, system, userText, maxTokens, timeoutMs);
+                OPENAI_CHAT.viaResponses = true;
+                return r;
+            } catch { OPENAI_CHAT.noCreditUntil = Date.now() + 10 * 60e3; throw err; }
         }
         if (!(err && err.status === 400 && /max_tokens|max_completion_tokens|unsupported parameter/i.test(String(err.message)))) throw err;
         client.__izTokParam = (client.__izTokParam || 'max_tokens') === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens';
@@ -7936,7 +7953,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
