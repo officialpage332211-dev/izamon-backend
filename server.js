@@ -599,30 +599,128 @@ function keywordHas(text, stems) {
     return stems.every(st => /^\d+$/.test(st) ? new RegExp(`(?<!\\d)${st}(?!\\d)`).test(t) : st.split('|').some(x => kwFound(t, kwNorm(x))));
 }
 
-// Города: выбранный на сайте (body.city) или названный в запросе («диван Худжанд»). Сравнение без особых букв и апострофов (kwNorm): «Xo'jand» = «xojand».
-const CITIES = [
-    ['dushanbe', 'душанбе|dushanbe'],
-    ['khujand', 'худжанд|хучанд|xujand|xojand|khujand|hujand'],
-    ['bokhtar', 'бохтар|bokhtar|bohtar|boxtar|курган-?тюбе|кургонтеппа'],
-    ['kulob', 'куляб|кулоб|kulob|kulyab|kolob'],
-    ['istaravshan', 'истаравшан|istaravshan|ура-?тюбе'],
-    ['panjakent', 'пенджикент|панчакент|panjakent|penjikent'],
-    ['tursunzoda', 'турсунзаде|турсунзода|tursunzoda|tursunzade'],
-    ['vahdat', 'вахдат|vahdat|vakhdat'],
-    ['hisor', 'гиссар|хисор|hisor|hissar|gissar'],
-    ['isfara', 'исфара|isfara'],
-    ['konibodom', 'канибадам|конибодом|konibodom|kanibadam'],
-    ['buston', 'бустон|чкаловск|buston'],
-    ['khorog', 'хорог|хоруг|xorug|khorog'],
-    ['nurek', 'нурек|норак|norak|nurek'],
-    ['gafurov', 'гафуров|gafurov'],
-    ['yovon', 'яван|евон|йовон|yovon|yavan']
-].map(([id, w]) => ({ id, re: new RegExp(`(?<![\\p{L}])(?:${w})`, 'u') }));
+// Города и районы всей страны: выбранный на сайте (body.city) или названный в запросе («диван Худжанд», «мошин Шаҳритус»).
+// Сравнение без особых букв и апострофов (kwNorm): «Xo'jand» = «xojand», «Ҳисор» = «хисор».
+// re — названия, которые узнаём где угодно (в запросе, в заголовке и в «месте» объявления);
+// loc — названия, которые бывают и обычным словом или улицей («Рудаки», «Айни», «Вахш», «Гулистон», «Панҷ»):
+//       им верим только в поле «место» объявления и только если там не назван другой город.
+// somon — адрес города на somon.tj (/раздел/город/, /search/город/), rg — поддомен rg.tj, savdo — /city/город/ на savdo.tj.
+// Список районов и городов — по административному делению (citypopulation.de/en/tajikistan/admin), адреса — с самих сайтов.
+const R = String.raw;
+const DISTRICT_WORD = R`(?:район\p{L}*|р-н|нохия(?:и)?|tumani|туман\p{L}*)`;
+const CITY_WORD = R`(?:г\.|город\p{L}*|шахри|шахр|shahri|shahar)`;
+const CITY_DEFS = [
+    // id, tg, ru, uz, область, re, loc, somon, rg, savdo
+    ['dushanbe', 'Душанбе', 'Душанбе', 'Dushanbe', 'dsh', R`душанбе|dushanbe`, '', ['dushanbe'], 'dushanbe', 'dushanbe'],
+    // районы республиканского подчинения
+    ['vahdat', 'Ваҳдат', 'Вахдат', 'Vahdat', 'rrp', R`вахдат|vahdat|vakhdat|кофарнихон`, '', ['vahdat'], 'vahdat', 'vakhdat'],
+    ['hisor', 'Ҳисор', 'Гиссар', 'Hisor', 'rrp', R`гиссар|хисор|hisor|hissar|gissar`, '', ['gissar'], 'hisor', 'hisor'],
+    ['tursunzoda', 'Турсунзода', 'Турсунзаде', 'Tursunzoda', 'rrp', R`турсунзаде|турсунзода|tursunzoda|tursunzade|регар(?![\p{L}])`, '', ['tursunzade'], 'tursunzoda', 'tursunzade'],
+    ['roghun', 'Роғун', 'Рогун', "Rog'un", 'rrp', R`рогун|rogun|roghun`, '', ['rogun'], 'rogun', ''],
+    ['rudaki', 'Рӯдакӣ', 'Рудаки', 'Rudakiy', 'rrp', R`сомониен|somoniyon|${DISTRICT_WORD}\s*рудаки|рудаки\s*${DISTRICT_WORD}|рудакинск`, R`рудаки|rudakiy?`, ['rudaki'], 'rudaki', ''],
+    ['varzob', 'Варзоб', 'Варзоб', 'Varzob', 'rrp', R`варзоб|varzob`, '', ['varzob'], 'varzob', ''],
+    ['faizobod', 'Файзобод', 'Файзабад', 'Fayzobod', 'rrp', R`файзобод|файзабад|fayzobod|fayzabad|faizobod`, '', ['fajzabad'], 'fayzabad', ''],
+    ['rasht', 'Рашт', 'Рашт', 'Rasht', 'rrp', R`рашт(?![\p{L}])|rasht(?![\p{L}])`, '', ['rasht'], 'rasht', ''],
+    ['nurobod', 'Нуробод', 'Нурабад', 'Nurobod', 'rrp', R`нуробод|нурабад|nurobod|nurabad`, '', ['nurabad'], '', ''],
+    ['tojikobod', 'Тоҷикобод', 'Таджикабад', 'Tojikobod', 'rrp', R`точикобод|таджикабад|tojikobod|tajikabad`, '', ['tadzhikobad'], '', ''],
+    ['lakhsh', 'Лахш', 'Лахш', 'Laxsh', 'rrp', R`лахш|джиргитал|чиргатол|lakhsh|laxsh|jirgatol`, '', ['dzhirgital'], '', ''],
+    ['sangvor', 'Сангвор', 'Сангвор', 'Sangvor', 'rrp', R`сангвор|тавильдар|тавилдар|sangvor|tavildara`, '', ['tavildara'], '', ''],
+    ['shahrinav', 'Шаҳринав', 'Шахринав', 'Shahrinav', 'rrp', R`шахринав|shahrinav`, '', ['shahrinav'], 'shahrinav', ''],
+    // Согдийская область
+    ['khujand', 'Хуҷанд', 'Худжанд', "Xo'jand", 'sughd', R`худжанд|хучанд|xujand|xojand|khujand|hujand`, '', ['hudzhand'], 'khujand', 'khujand'],
+    ['istaravshan', 'Истаравшан', 'Истаравшан', 'Istaravshan', 'sughd', R`истаравшан|istaravshan|ура-?тюбе|уротеппа|уратепа`, '', ['istaravshan'], 'uroteppa', 'istaravshan'],
+    ['panjakent', 'Панҷакент', 'Пенджикент', 'Panjakent', 'sughd', R`пенджикент|панчакент|panjakent|penjikent`, '', ['pendzhikent'], 'panjakent', ''],
+    ['isfara', 'Исфара', 'Исфара', 'Isfara', 'sughd', R`исфара|isfara`, '', ['isfara'], 'isfara', ''],
+    ['konibodom', 'Конибодом', 'Канибадам', 'Konibodom', 'sughd', R`канибадам|конибодом|konibodom|kanibadam`, '', ['kanibadam'], 'kanibadam', ''],
+    ['buston', 'Бӯстон', 'Бустон', "Bo'ston", 'sughd', R`бустон|чкаловск|buston|boston`, '', ['chkalovsk'], 'chkalovsk', ''],
+    ['gafurov', 'Ғафуров', 'Гафуров', "G'afurov", 'sughd', R`гафуров|gafurov`, '', ['b_gafurov'], 'gafurov', ''],
+    ['guliston', 'Гулистон', 'Гулистон', 'Guliston', 'sughd', R`кайраккум|кайроккум|kayrakkum|qayroqqum|${CITY_WORD}\s*гулистон`, R`гулистон|guliston`, ['kajrakkum'], 'kairakum', ''],
+    ['istiqlol', 'Истиқлол', 'Истиклол', 'Istiqlol', 'sughd', R`табошар|taboshar|${CITY_WORD}\s*истиклол`, R`истиклол|istiklol|istiqlol`, ['istiklol'], 'istiklol', ''],
+    ['ayni', 'Айнӣ', 'Айни', 'Ayniy', 'sughd', R`${DISTRICT_WORD}\s*айни|айни\s*${DISTRICT_WORD}|айнинск`, R`айни|ayniy?`, ['ajni'], 'aini', ''],
+    ['asht', 'Ашт', 'Ашт', 'Asht', 'sughd', R`ашт(?:е|а)?(?![\p{L}])|asht(?![\p{L}])|шайдон|shaydon`, '', ['asht'], 'asht', ''],
+    ['jrasulov', 'Ҷаббор Расулов', 'Джаббор Расулов', 'Jabbor Rasulov', 'sughd', R`пролетарск|proletarsk|(?:ч|дж)аббор\s*расулов|jabbor\s*rasulov`, '', ['d_rasulov'], 'jabborrasulov', ''],
+    ['devashtich', 'Деваштич', 'Деваштич', 'Devashtich', 'sughd', R`деваштич|devashtich|ганчи(?![\p{L}])|ghonchi`, '', ['ganchi'], '', ''],
+    ['kmastchoh', 'Кӯҳистони Масчоҳ', 'Горная Матча', "Ko'histoni Mastchoh", 'sughd', R`кухистони\s*ма(?:с|ст)чох|горн\p{L}*\s*матч\p{L}*|k[ou]histoni\s*mastchoh`, '', ['gornaya-matcha'], '', ''],
+    ['mastchoh', 'Масчоҳ', 'Мастчох', 'Mastchoh', 'sughd', R`(?<!кухистони\s)ма(?:с|ст)чох|(?<!k[ou]histoni\s)mastchoh`, R`матча|matcha`, ['matcha'], 'matcha', ''],
+    ['shahriston', 'Шаҳристон', 'Шахристан', 'Shahriston', 'sughd', R`шахристон|шахристан|shahriston|shahristan`, '', ['shahristan'], '', ''],
+    ['spitamen', 'Спитамен', 'Спитамен', 'Spitamen', 'sughd', R`спитамен|spitamen`, '', ['spitamen'], 'spitamen', ''],
+    ['zafarobod', 'Зафаробод', 'Зафарабад', 'Zafarobod', 'sughd', R`зафаробод|зафарабад|zafarobod|zafarabad`, '', ['zafarabad'], '', ''],
+    // Хатлонская область
+    ['bokhtar', 'Бохтар', 'Бохтар', "Bo'xtar", 'khatlon', R`бохтар|bokhtar|bohtar|boxtar|курган-?тюбе|кургонтеппа`, '', ['bohtar', 'kurgan_tyube'], 'bokhtar', 'bokhtar'],
+    ['kulob', 'Кӯлоб', 'Куляб', "Ko'lob", 'khatlon', R`куляб|кулоб|kulob|kulyab|kolob`, '', ['kulyab'], 'kulob', 'kulob'],
+    ['nurek', 'Норак', 'Нурек', 'Norak', 'khatlon', R`нурек|норак|norak|nurek`, '', ['nurek'], 'nurek', ''],
+    ['yovon', 'Ёвон', 'Яван', 'Yovon', 'khatlon', R`яван|евон|йовон|yovon|yavan`, '', ['yavan'], 'yovon', ''],
+    ['levakant', 'Левакант', 'Левакант', 'Levakant', 'khatlon', R`левакант|сарбанд|levakant|sarband`, '', ['sarband'], 'sarband', ''],
+    ['danghara', 'Данғара', 'Дангара', "Dang'ara", 'khatlon', R`дангар|danghara|dangara`, '', ['dangara'], 'danghara', ''],
+    ['farkhor', 'Фархор', 'Фархор', 'Farxor', 'khatlon', R`фархор|farkhor|farxor|farhor`, '', ['farhor'], 'farkhar', ''],
+    ['vose', 'Восеъ', 'Восе', 'Vose', 'khatlon', R`восеъ|восе(?![\p{L}])|vose(?![\p{L}])`, '', ['vose'], 'vose', ''],
+    ['hamadoni', 'Ҳамадонӣ', 'Хамадони', 'Hamadoniy', 'khatlon', R`московск\p{L}*\s*район|${DISTRICT_WORD}\s*(?:мир\s*саид\s*алии\s*)?хамадони|хамадони\s*${DISTRICT_WORD}|хамадонинск`, R`хамадони|hamadoniy?`, ['hamadani'], 'hamadoni', ''],
+    ['muminobod', 'Мӯъминобод', 'Муминабад', "Mo'minobod", 'khatlon', R`муъминобод|муминобод|муминабад|muminobod|muminabad|mominobod`, '', ['muminabad'], '', ''],
+    ['shuroobod', 'Шамсиддин Шоҳин', 'Шамсиддин Шохин', 'Shamsiddin Shohin', 'khatlon', R`шуроабад|шуробод|shuroobod|shuroabad|${DISTRICT_WORD}\s*шамсиддин`, R`шамсиддин\s*шохин|shamsiddin\s*shohin`, ['shuroabad'], '', ''],
+    ['baljuvon', 'Балҷувон', 'Бальджуван', 'Baljuvon', 'khatlon', R`балчувон|бальджуван|балджуван|baljuvon`, '', ['baldzhuvan'], 'baljuvon', ''],
+    ['temurmalik', 'Темурмалик', 'Темурмалик', 'Temurmalik', 'khatlon', R`темурмалик|temurmalik|советск\p{L}*\s*район`, '', ['temurmalik'], '', ''],
+    ['khovaling', 'Ховалинг', 'Ховалинг', 'Xovaling', 'khatlon', R`ховалинг|khovaling|xovaling|hovaling`, '', ['hovaling'], 'khovaling', ''],
+    ['vakhsh', 'Вахш', 'Вахш', 'Vaxsh', 'khatlon', R`${DISTRICT_WORD}\s*вахш|вахш\s*${DISTRICT_WORD}|вахшск\p{L}*\s*район`, R`вахш|vakhsh|vaxsh`, ['vahsh'], 'vaksh', ''],
+    ['jbalkhi', 'Ҷалолиддини Балхӣ', 'Джалолиддин Балхи', 'Jaloliddin Balxiy', 'khatlon', R`колхозобод|колхозабад|kolkhozobod|${DISTRICT_WORD}\s*руми`, R`(?:ч|дж)алолиддин\p{L}*\s*балхи|jaloliddin\s*bal(?:kh|x)iy?|руми(?![\p{L}])`, ['d_rumi'], 'rumi', ''],
+    ['jomi', 'Ҷомӣ', 'Джоми', 'Jomiy', 'khatlon', R`гараути|garauti|${DISTRICT_WORD}\s*(?:абдурахмони\s*)?(?:ч|дж)оми`, R`(?:абдурахмони\s*)?(?:ч|дж)оми(?![\p{L}])|jomiy?(?![\p{L}])`, ['abdurahmoni-dzhomi-kujbesh', 'a_dzhami'], '', ''],
+    ['qubodiyon', 'Қубодиён', 'Кабадиан', 'Qubodiyon', 'khatlon', R`кубодиен|кабадиан|кубадиен|qubodiyon|kubodiyon|qabodiyon`, '', ['kubadiyan'], 'qabodiyon', ''],
+    ['shahritus', 'Шаҳритус', 'Шахритус', 'Shahritus', 'khatlon', R`шахритус|шаартуз|shahritus|shaartuz`, '', ['shahritus'], 'shaartuz', ''],
+    ['nkhusrav', 'Носири Хусрав', 'Носири Хусрав', 'Nosiri Xusrav', 'khatlon', R`бешкент|beshkent|${DISTRICT_WORD}\s*носири\s*хусрав`, R`носири\s*хусрав|nosiri\s*(?:k?husrav|xusrav)`, ['n_husrav'], '', ''],
+    ['panj', 'Панҷ', 'Пяндж', 'Panj', 'khatlon', R`пяндж|pyanj|pyandzh|${DISTRICT_WORD}\s*панч`, R`панч(?![\p{L}])|panj(?![\p{L}])`, ['pyandzh'], 'panj', ''],
+    ['kushoniyon', 'Кушониён', 'Кушониён', 'Kushoniyon', 'khatlon', R`кушониен|kushoniyon`, '', [], '', ''],
+    ['khuroson', 'Хуросон', 'Хуросон', 'Xuroson', 'khatlon', R`хуросон|гозималик|khuroson|xuroson`, '', ['huroson'], 'khuroson', ''],
+    ['jayhun', 'Ҷайҳун', 'Джайхун', 'Jayhun', 'khatlon', R`чайхун|джайхун|кумсангир|jayhun|qumsangir|kumsangir`, '', ['kumsangir'], 'qumsangir', ''],
+    ['dusti', 'Дӯстӣ', 'Дусти', "Do'stiy", 'khatlon', R`джиликул|чиликул|jilikul|${DISTRICT_WORD}\s*дусти`, R`дусти|d[ou]stiy?`, ['dzhilikul'], '', ''],
+    // Горно-Бадахшанская автономная область
+    ['khorog', 'Хоруғ', 'Хорог', "Xorug'", 'gbao', R`хорог|хоруг|xorug|khorog`, '', ['horog'], 'khorog', ''],
+    ['ishkoshim', 'Ишкошим', 'Ишкашим', 'Ishkoshim', 'gbao', R`ишкошим|ишкашим|ishkoshim|ishkashim`, '', ['ishkashim'], 'ishkoshim', ''],
+    ['murghob', 'Мурғоб', 'Мургаб', "Murg'ob", 'gbao', R`мургоб|мургаб|murghob|murgab|murgob`, '', ['murgab'], '', ''],
+    ['roshtqala', 'Роштқалъа', 'Рошткала', "Roshtqal'a", 'gbao', R`рошткалъа|рошткала|roshtqala|roshtkala`, '', ['roshtkala'], '', ''],
+    ['rushon', 'Рӯшон', 'Рушан', 'Rushon', 'gbao', R`${DISTRICT_WORD}\s*руш(?:о|а)н|руш(?:о|а)н\s*${DISTRICT_WORD}|рушанск`, R`рушон|рушан|rushon|rushan`, ['rushan'], 'rushon', ''],
+    ['shughnon', 'Шуғнон', 'Шугнан', "Shug'non", 'gbao', R`шугнон|шугнан|shughnon|shugnan|shugnon`, '', ['shugnan'], '', ''],
+    ['vanj', 'Ванҷ', 'Ванч', 'Vanj', 'gbao', R`ванч(?![\p{L}])|ванж(?![\p{L}])|vanj(?![\p{L}])`, '', ['vandzh'], 'vanch', ''],
+    ['darvoz', 'Дарвоз', 'Дарваз', 'Darvoz', 'gbao', R`дарвоз(?!а)|дарваз(?!а)|darvoz|darvaz|калаи\s*-?хумб|qalai\s*khumb`, '', ['darvaz'], 'darvoz', '']
+];
+const CITIES = CITY_DEFS.map(([id, tg, ru, uz, region, re, loc, somon, rg, savdo]) => ({
+    id, names: { tg, ru, uz }, region,
+    // спорное название вместе со словом «район / город» («ноҳияи Рудакӣ», «Rudakiy tumani», «г. Гулистон») узнаём где угодно
+    re: new RegExp(`(?<![\\p{L}])(?:${re}${loc ? `|(?:${DISTRICT_WORD}|${CITY_WORD})\\s*(?:${loc})|(?:${loc})\\s*(?:${DISTRICT_WORD}|${CITY_WORD})` : ''})`, 'u'),
+    loc: loc ? new RegExp(`(?<![\\p{L}])(?:${loc})`, 'u') : null,
+    somon, rg, savdo
+}));
 function cityOf(text) {
     const t = kwNorm(text);
     return CITIES.find(c => c.re.test(t)) || null;
 }
 function cityById(id) { return CITIES.find(c => c.id === String(id || '')) || null; }
+// Объявление из этого города? Название в «месте» или заголовке; «Рудаки», «Айни» и т.п. — только в «месте» и без другого города рядом
+function cityMatch(a, city) {
+    const L = kwNorm(a && a.location);
+    if (city.re.test(`${L} ${kwNorm(a && a.title)}`)) return true;
+    return !!(city.loc && city.loc.test(L) && !CITIES.some(c => c !== city && c.re.test(L)));
+}
+// «диван в Худжанде», «мошин дар Шаҳритус»: город — фильтр, а не слово поиска. Убираем его (и предлог перед ним) из текста запроса.
+const CITY_PREP = /^(?:в|во|г\.?|гор\.?|город\p{L}*|дар|шахри|шахр|шаҳри|шаҳр|da|shahri|shahar|нохия(?:и)?|ноҳия(?:и)?|район\p{L}*|р-н|из|аз)$/iu;
+function stripCity(text, city) {
+    if (!city) return String(text || '');
+    const words = String(text || '').split(/\s+/).filter(Boolean);
+    const drop = new Set();
+    for (let i = 0; i < words.length; i++) {
+        for (let len = Math.min(4, words.length - i); len >= 1; len--) {
+            const seg = kwNorm(words.slice(i, i + len).join(' ')).replace(/[«»"“”„()\[\]{}!?.,;:]+/g, '');
+            const m = city.re.exec(seg) || (city.loc && city.loc.exec(seg));
+            // название должно занять всё окно слов (окончание последнего слова — можно: «Кулябе», «Худжанде»)
+            if (m && m.index === 0 && !/\s/.test(seg.slice(m[0].length))) {
+                for (let k = i; k < i + len; k++) drop.add(k);
+                for (let k = i - 1; k >= 0 && k >= i - 2 && CITY_PREP.test(words[k]); k--) drop.add(k); // «в г. Худжанде»
+                if (i + len < words.length && CITY_PREP.test(words[i + len])) drop.add(i + len);
+                i += len - 1;
+                break;
+            }
+        }
+    }
+    return words.filter((_, k) => !drop.has(k)).join(' ');
+}
 
 // Районы города (выбор на сайте: body.district). Пока — Душанбе: 4 района по официальному делению + микрорайоны, которые названы в источниках.
 // Остальные города добавляются сюда же — на сайте (izamon-city.js, DIST) список районов должен совпадать по id.
@@ -679,10 +777,12 @@ function keywordSpec(text, mode) {
     }
     if (mode === 'general' && (KW_ASK.test(t) || KW_INFO.test(t) || t.split(/\s+/).length > 6)) return null;
     if (mode !== 'general' && mode !== 'ads' && mode !== 'jobs') return null;
-    const q = keywordQuery(t);
+    // город в запросе («диван в Кулябе») — фильтр (страницы этого города), а не слово, которое должно быть в названии объявления
+    const city = cityOf(t);
+    const q = keywordQuery(city ? stripCity(t, city) : t);
     if (!q) return null;
     const stems = keywordStems(q);
-    return { q, sources: [{ q }], boards: [{ host: 'paydo.tj', q }, { host: 'savdo.tj', q }], stems, ...(mode === 'jobs' ? { cat: /\/vakansii\//, facts: 'job', fixed: 'job' } : {}), keyword: true };
+    return { q, sources: [{ q }], boards: [{ host: 'paydo.tj', q }, { host: 'savdo.tj', q }], stems, ...(mode === 'jobs' ? { cat: /\/vakansii\//, facts: 'job', fixed: 'job' } : {}), ...(city ? { city } : {}), keyword: true };
 }
 
 // Единая точка выбора: режим, нужен ли поиск, текст запроса к модели.
@@ -2430,11 +2530,14 @@ function parseSomonAdverts(html, max = 80) {
     return out;
 }
 
-function somonUrl(src) {
-    if (src && src.q) return `https://somon.tj/search/?q=${encodeURIComponent(String(src.q).slice(0, 80))}`;
+// slug — город на somon.tj (CITY_DEFS): раздел этого города /раздел/город/, поиск по городу /search/город/?q=
+function somonUrl(src, slug = '') {
+    const sl = /^[a-z0-9_\-]{2,40}$/.test(slug || '') ? slug : '';
+    if (src && src.q) return `https://somon.tj/search/${sl ? sl + '/' : ''}?q=${encodeURIComponent(String(src.q).slice(0, 80))}`;
     if (src && /^[a-z0-9_\-/]{3,120}$/i.test(src.path || '')) {
         const page = Math.floor(Number(src.page) || 1);
-        return `https://somon.tj/${src.path.replace(/^\/+/, '')}${page >= 2 && page <= 5 ? `?page=${page}` : ''}`;
+        const path = src.path.replace(/^\/+/, '');
+        return `https://somon.tj/${sl ? path.replace(/\/+$/, '') + '/' + sl + '/' : path}${page >= 2 && page <= 5 ? `?page=${page}` : ''}`;
     }
     return null;
 }
@@ -3912,12 +4015,15 @@ function boardGet(host, url) {
     return p;
 }
 
-function boardUrl(b) {
+// city — выбранный город (CITY_DEFS): у rg.tj свой поддомен на город (kulob.rg.tj), у savdo.tj — /city/город/раздел
+function boardUrl(b, city = null) {
     // поиск по словам: paydo.tj сам находит нужный раздел («iphone» → Телефоны → Apple); у ola.tj адреса поиска нет
     if (b && b.q) return b.host === 'paydo.tj' ? `https://paydo.tj/ru/all?q=${encodeURIComponent(String(b.q).slice(0, 80))}`
         : b.host === 'savdo.tj' ? `https://savdo.tj/search?keywords=${encodeURIComponent(String(b.q).slice(0, 80))}` : null;
     const base = BOARD_HOSTS[b && b.host];
     if (!base || !/^[a-z0-9\-_]{2,60}(?:\/[a-z0-9\-_]{2,30})?$/i.test(b.path || '')) return null;
+    if (city && b.host === 'rg.tj' && /^[a-z]{3,20}$/.test(city.rg || '')) return `https://${city.rg}.rg.tj/${b.path}/`;
+    if (city && b.host === 'savdo.tj' && /^[a-z_]{3,30}$/.test(city.savdo || '') && !b.path.includes('/')) return `https://savdo.tj/city/${city.savdo}/${b.path}`;
     return base + b.path + (b.host === 'paydo.tj' ? '?sorting=date' : b.host === 'rg.tj' ? '/' : '');
 }
 
@@ -3927,15 +4033,31 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
     const stat = { urls: 0, ok: 0, failed: [], parsed: 0, kept: 0, withPhoto: 0, hosts: {} };
     if (debug) debug.somon = stat;
     const boardsOn = process.env.BOARDS !== 'off';
+    // Выбран город: берём страницы самих сайтов для этого города (somon.tj, rg.tj, savdo.tj) — там все его объявления,
+    // а не только те, что попали на общую первую страницу. Страницы города нет или она пустая — общая страница с фильтром по городу.
+    const city = spec.city || null;
+    const slug = city && city.somon && city.somon[0] || '';
     const jobs = [
-        ...(spec.sources || []).map(src => ({ host: 'somon.tj', url: somonUrl(src), words: src.words, get: somonGet })),
-        ...(boardsOn ? spec.boards || [] : []).map(b => ({ host: b.host, url: boardUrl(b), words: b.words, get: u => boardGet(b.host, u) }))
+        ...(spec.sources || []).map(src => {
+            const general = somonUrl(src), local = slug ? somonUrl(src, slug) : null;
+            return { host: 'somon.tj', url: local || general, fallback: local ? general : null, local: !!local, words: src.words, get: somonGet };
+        }),
+        ...(boardsOn ? spec.boards || [] : []).map(b => {
+            const general = boardUrl(b), local = city ? boardUrl(b, city) : null;
+            const own = !!local && local !== general;
+            return { host: b.host, url: own ? local : general, fallback: own ? general : null, local: own, words: b.words, get: u => boardGet(b.host, u) };
+        })
     ].filter(j => j.url);
-    const lists = await Promise.all(jobs.map(async j => {
+    if (city) stat.city = { id: city.id, local: jobs.filter(j => j.local).map(j => j.url.replace(/^https:\/\//, '').slice(0, 70)) };
+    const local = jobs.map(j => j.local);
+    const lists = await Promise.all(jobs.map(async (j, ji) => {
         stat.urls++;
         const h = stat.hosts[j.host] = stat.hosts[j.host] || { ok: 0, failed: 0, parsed: 0, kept: 0 };
+        const load = u => (j.host === 'somon.tj' ? j.get(u) : withTimeout(j.get(u), BOARD_WAIT_MS));
         try {
-            const l = await (j.host === 'somon.tj' ? j.get(j.url) : withTimeout(j.get(j.url), BOARD_WAIT_MS));
+            let l = [];
+            try { l = await load(j.url); } catch (err) { if (!j.fallback) throw err; }
+            if (!l.length && j.fallback) { local[ji] = false; l = await load(j.fallback); }
             stat.ok++; h.ok++; h.parsed += l.length;
             return l;
         } catch (err) {
@@ -3963,7 +4085,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             if (a.title && a.title.includes('\\')) a.title = a.title.replace(/\s*\\+\s*/g, ' / ').replace(/^\s*\/\s*|\s*\/\s*$/g, '').trim();
             if (spec.stems && spec.stems.length && !keywordHas(kwLoose ? `${a.title} ${a.description}` : a.title, spec.stems)) continue;
             // выбран город: только объявления из него (город — в поле «место», у некоторых сайтов только в названии)
-            if (spec.city && !spec.city.re.test(kwNorm(`${a.location} ${a.title}`))) { stat.otherCity = (stat.otherCity || 0) + 1; continue; }
+            if (spec.city && !local[li] && !cityMatch(a, spec.city)) { stat.otherCity = (stat.otherCity || 0) + 1; continue; }
             // выбран район города: только объявления из него
             if (spec.district && !districtMatch(a, spec.district)) { stat.otherDistrict = (stat.otherDistrict || 0) + 1; continue; }
             // задана цена «от–до» (в сомони): объявления без цены или вне диапазона не показываем
@@ -4221,7 +4343,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
                 ? withTimeout(webExtra({ kind, lang, date, query, somon }), WEB_EXTRA_WAIT_MS).catch(() => ({ items: [], late: true }))
                 : null;
             const [main, extra] = await Promise.all([finishItems(direct, kind, lang, debug, somon.fixed || ''), extraP || { items: [] }]);
-            const extraItems = extra.items.filter(x => (!somon.city || somon.city.re.test(kwNorm(`${x.place} ${x.title}`)))
+            const extraItems = extra.items.filter(x => (!somon.city || cityMatch({ location: x.place, title: x.title }, somon.city))
                 && (!somon.district || districtMatch({ location: x.place, title: x.title, description: '' }, somon.district))
                 && (!somon.price || (v => v !== null && (!somon.price.min || v >= somon.price.min) && (!somon.price.max || v <= somon.price.max))(priceInTjs(x.price, somon.price.rates))));
             const mixed = extraP ? mixFeeds(main, extraItems) : main;
@@ -4982,7 +5104,9 @@ async function handleChat(req, res) {
     const placeCity = kind === 'places' ? cityById(body.city) : null;
     const placeDist = placeCity ? districtById(placeCity.id, body.district) : null;
     const placeNote = placeCity && TG_CITY_NAMES[placeCity.id] ? `\nТолько места в городе ${TG_CITY_NAMES[placeCity.id].ru}${placeDist ? `, район ${placeDist.ru}` : ''}.` : '';
-    const fullMessage = (category ? `[Подраздел: ${category}] ${userText}` : userText) + placeNote;
+    // Объявления, вакансии, услуги: выбранный или названный город — и в поиск по интернету (сайты без страниц города, Telegram-каналы)
+    const cityNote = somon && somon.city ? `\nТолько объявления из: ${somon.city.names.ru} (Таджикистан).` : '';
+    const fullMessage = (category ? `[Подраздел: ${category}] ${userText}` : userText) + placeNote + cityNote;
     const date = todayTJ();
 
     // С историей ответ зависит от разговора — такие ответы не кэшируем.
@@ -6874,13 +6998,8 @@ function tgGuideLinks(html) {
     return { btns: btns.slice(0, 8), rest };
 }
 // Цена в боте — готовые промежутки (сомони); номер промежутка ходит в кнопках. Тот же список — в программе бота (api/telegram.js).
-const TG_CITY_NAMES = {
-    dushanbe: { tg: 'Душанбе', ru: 'Душанбе', uz: 'Dushanbe' }, khujand: { tg: 'Хуҷанд', ru: 'Худжанд', uz: "Xo'jand" }, bokhtar: { tg: 'Бохтар', ru: 'Бохтар', uz: "Bo'xtar" },
-    kulob: { tg: 'Кӯлоб', ru: 'Куляб', uz: "Ko'lob" }, istaravshan: { tg: 'Истаравшан', ru: 'Истаравшан', uz: 'Istaravshan' }, panjakent: { tg: 'Панҷакент', ru: 'Пенджикент', uz: 'Panjakent' },
-    tursunzoda: { tg: 'Турсунзода', ru: 'Турсунзаде', uz: 'Tursunzoda' }, vahdat: { tg: 'Ваҳдат', ru: 'Вахдат', uz: 'Vahdat' }, hisor: { tg: 'Ҳисор', ru: 'Гиссар', uz: 'Hisor' },
-    isfara: { tg: 'Исфара', ru: 'Исфара', uz: 'Isfara' }, konibodom: { tg: 'Конибодом', ru: 'Канибадам', uz: 'Konibodom' }, buston: { tg: 'Бӯстон', ru: 'Бустон', uz: "Bo'ston" },
-    gafurov: { tg: 'Ғафуров', ru: 'Гафуров', uz: "G'afurov" }, khorog: { tg: 'Хоруғ', ru: 'Хорог', uz: "Xorug'" }, nurek: { tg: 'Норак', ru: 'Нурек', uz: 'Norak' }, yovon: { tg: 'Ёвон', ru: 'Яван', uz: 'Yovon' }
-};
+// Названия городов на трёх языках — из общего списка CITY_DEFS (сайт, Telegram, WhatsApp)
+const TG_CITY_NAMES = Object.fromEntries(CITIES.map(c => [c.id, c.names]));
 const TG_PRICES = [null, [0, 1000], [1000, 5000], [5000, 20000], [20000, 100000], [100000, 0]];
 const tgPriceLabel = i => { const p = TG_PRICES[i]; if (!p) return ''; const f = n => String(n).replace(/\B(?=(\d{3})+(?!\d))/g, ' '); return p[1] ? `${f(p[0])}–${f(p[1])}` : `${f(p[0])}+`; };
 // Текст из нашей HTML-карточки → безопасный для Telegram (parse_mode HTML)
@@ -7586,7 +7705,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, stripCity, somonUrl, TG_CITY_NAMES,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
