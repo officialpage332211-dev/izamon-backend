@@ -1961,6 +1961,14 @@ async function askChat(client, model, system, userText, maxTokens = 300, extra =
     try {
         completion = await make(client.__izTokParam || 'max_tokens');
     } catch (err) {
+        // OpenAI: обычный чат отвечает «нет средств» (429), а Responses API (через него работает поиск) — отвечает. Пробуем тот же вопрос там.
+        if (client === openai && err && err.status === 429 && /no credits|quota|billing/i.test(String(err.message)) && !extra) {
+            aiSpend();
+            const resp = await withTimeout(openai.responses.create({ model, instructions: system, input: userText, max_output_tokens: Math.max(maxTokens, 16), store: false }, reqOpts), timeoutMs);
+            const t = String(resp.output_text || '').trim();
+            if (!t) throw err;
+            return { text: t, sources: [], usage: resp.usage || null, via: 'responses' };
+        }
         if (!(err && err.status === 400 && /max_tokens|max_completion_tokens|unsupported parameter/i.test(String(err.message)))) throw err;
         client.__izTokParam = (client.__izTokParam || 'max_tokens') === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens';
         aiSpend();
@@ -5168,7 +5176,7 @@ async function conceptPicture(text, lang) {
             if (!r || !r.ok) continue;
             const d = await r.json();
             const th = d && d.thumbnail && d.thumbnail.source;
-            tr.type = d && d.type; tr.title = d && d.title; tr.thumb = !!th;
+            tr.type = d && d.type; tr.title = d && d.title; tr.thumb = !!th; tr.src = th ? String(th).slice(0, 90) : null;
             if (!d || d.type !== 'standard' || !th || !/^https:\/\/upload\.wikimedia\.org\//.test(th)) continue;
             // статья о том же слове («Фотосинтез» → «Фотосинтез»), а не перенаправление на что-то другое
             const a = norm(d.title), b = norm(term);
@@ -7766,7 +7774,7 @@ async function handleDiag(req, res) {
             return { text: r.text.slice(0, 60), sources: r.sources.length };
         });
         // обычный разговор без поиска (так отвечает «Садои дил» и болтовня): модель и точная ошибка, если есть
-        out.openai_plain = await timed(async () => ({ model: OPENAI_MODEL, text: (await askChat(openai, OPENAI_MODEL, 'Отвечай одним словом.', 'Скажи: привет', 20)).text.slice(0, 40) }));
+        out.openai_plain = await timed(async () => { const r = await askChat(openai, OPENAI_MODEL, 'Отвечай одним словом.', 'Скажи: привет', 20); return { model: OPENAI_MODEL, text: r.text.slice(0, 40), via: r.via || 'chat' }; });
         if (!out.openai_plain.ok) out.openai_plain.model = OPENAI_MODEL;
     } else {
         out.openai = 'ключ OpenAI не задан';
