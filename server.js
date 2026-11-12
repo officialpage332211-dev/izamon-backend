@@ -1345,19 +1345,19 @@ const MIG_GUIDES = {
     },
     mig_help: {
         ru: [
-            { head: '🇹🇯 Представительство Минтруда Таджикистана в России', text: ['Звоните, если нужна помощь с работой в России.'], btns: MIG_REP.map(([l, h], i) => ({ label: '📞 ' + l, href: h, main: !i })) },
+            { head: '🏛 Представительство Минтруда Таджикистана в России', text: ['Звоните, если нужна помощь с работой в России.'], btns: MIG_REP.map(([l, h], i) => ({ label: '📞 ' + l, href: h, main: !i })) },
             { head: '🏢 Служба миграции (Душанбе)', text: ['Адрес: ул. С. Айни, 121.', 'Телефоны: 225-05-75, 225-05-91, 225-05-89.'], btns: [{ label: '🌐 Сайт migration.tj', href: 'https://migration.tj/' }, { label: '📢 Минтруд в Telegram', href: 'https://t.me/mlmert' }] },
             { head: '🌍 Посольство и консульство', text: ['Потеряли паспорт, задержали, нужна справка — обращайтесь в посольство или консульство Таджикистана.'], btns: [{ label: '🌍 Консульская служба МИД (consular.tj)', href: 'https://consular.tj/' }] },
             { head: '🚨 Экстренная помощь в России', text: ['Единый номер экстренных служб — 112.'], btns: [{ label: '📞 112', href: 'tel:112' }] }
         ],
         tg: [
-            { head: '🇹🇯 Намояндагии Вазорати меҳнат дар Русия', text: ['Агар дар кор дар Русия кӯмак лозим бошад, занг занед.'], btns: MIG_REP.map(([l, h], i) => ({ label: '📞 ' + l, href: h, main: !i })) },
+            { head: '🏛 Намояндагии Вазорати меҳнат дар Русия', text: ['Агар дар кор дар Русия кӯмак лозим бошад, занг занед.'], btns: MIG_REP.map(([l, h], i) => ({ label: '📞 ' + l, href: h, main: !i })) },
             { head: '🏢 Хадамоти муҳоҷират (Душанбе)', text: ['Суроға: кӯчаи С. Айнӣ, 121.', 'Телефонҳо: 225-05-75, 225-05-91, 225-05-89.'], btns: [{ label: '🌐 Сомонаи migration.tj', href: 'https://migration.tj/' }, { label: '📢 Вазорати меҳнат дар Telegram', href: 'https://t.me/mlmert' }] },
             { head: '🌍 Сафорат ва консулгарӣ', text: ['Шиносномаро гум кардед, боздошт шудед, маълумотнома лозим — ба сафорат ё консулгарии Тоҷикистон муроҷиат кунед.'], btns: [{ label: '🌍 Хадамоти консулии ВКХ (consular.tj)', href: 'https://consular.tj/' }] },
             { head: '🚨 Ёрии фаврӣ дар Русия', text: ['Рақами ягонаи хадамоти фаврӣ — 112.'], btns: [{ label: '📞 112', href: 'tel:112' }] }
         ],
         uz: [
-            { head: '🇹🇯 Tojikiston Mehnat vazirligining Rossiyadagi vakolatxonasi', text: ["Rossiyada ish bo'yicha yordam kerak bo'lsa, qo'ng'iroq qiling."], btns: MIG_REP.map(([l, h], i) => ({ label: '📞 ' + l, href: h, main: !i })) },
+            { head: '🏛 Tojikiston Mehnat vazirligining Rossiyadagi vakolatxonasi', text: ["Rossiyada ish bo'yicha yordam kerak bo'lsa, qo'ng'iroq qiling."], btns: MIG_REP.map(([l, h], i) => ({ label: '📞 ' + l, href: h, main: !i })) },
             { head: '🏢 Migratsiya xizmati (Dushanbe)', text: ["Manzil: S. Ayniy ko'chasi, 121.", 'Telefonlar: 225-05-75, 225-05-91, 225-05-89.'], btns: [{ label: '🌐 migration.tj sayti', href: 'https://migration.tj/' }, { label: '📢 Mehnat vazirligi Telegramda', href: 'https://t.me/mlmert' }] },
             { head: '🌍 Elchixona va konsullik', text: ["Pasportni yo'qotdingiz, ushlandingiz, ma'lumotnoma kerak — Tojikiston elchixonasi yoki konsulligiga murojaat qiling."], btns: [{ label: '🌍 TIV konsullik xizmati (consular.tj)', href: 'https://consular.tj/' }] },
             { head: '🚨 Rossiyada shoshilinch yordam', text: ['Favqulodda xizmatlarning yagona raqami — 112.'], btns: [{ label: '📞 112', href: 'tel:112' }] }
