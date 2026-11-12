@@ -4933,6 +4933,18 @@ function foreignWord(text, lang, asked = '') {
     return (t.match(/(?<![A-Za-z\u00C0-\u024F])[A-Z\u00C0-\u00DE][a-z\u00DF-\u024F]{3,}(?![A-Za-z\u00C0-\u024F])/g) || [])
         .some(w => !LATIN_OK.has(w.toLowerCase()) && !own.has(w.toLowerCase()));
 }
+// Одна и та же мысль дважды (перевод иногда повторяет предложение) — оставляем первую. Строки-ссылки «( сайт )» не трогаем.
+function dropRepeats(text) {
+    const seen = [];
+    const key = l => String(l).toLowerCase().replace(/ё/g, 'е').replace(/\([^)]*\)/g, ' ').replace(/[^\p{L}\p{N} ]/gu, ' ').replace(/\s+/g, ' ').trim();
+    return String(text).split('\n').filter(l => {
+        const k = key(l);
+        if (k.length < 25) return true;
+        if (seen.some(x => x === k || x.includes(k) || (k.includes(x) && x.length > 40))) return false;
+        seen.push(k);
+        return true;
+    }).join('\n');
+}
 function dropMixedLines(text, lang) {
     return String(text).split('\n').filter(l => !l.trim() || !mixedLanguage(l, lang)).join('\n').trim();
 }
@@ -5069,7 +5081,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                     } else if (needsRewrite(text, lang)) text = await rewriteForUser(text, { mode, lang, date });
                     // Последняя защита: чужой язык до человека не доходит. Не осталось строк — пробуем другой поиск.
                     if (mixedLanguage(text, lang)) text = dropMixedLines(text, lang);
-                    text = capLines(shapeLines(dropHaramLines(cleanModelText(text), true), mode), kind === 'mmt' ? 12 : TEXT_CARDS[kind] ? TEXT_CARDS[kind].max : 10);
+                    text = capLines(dropRepeats(shapeLines(dropHaramLines(cleanModelText(text), true), mode)), kind === 'mmt' ? 12 : TEXT_CARDS[kind] ? TEXT_CARDS[kind].max : 10);
                     // «Телефон: маълумот нест», «Адрес: нет данных» — пустые строки не показываем
                     text = text.split('\n').filter(l => { const body = l.replace(/^[^\p{L}\d]*/u, ''); return !(body.includes(':') && blankValue(body)); }).join('\n');
                     if (kind === 'mmt') text = mmtLines(text, lang);
@@ -5194,12 +5206,13 @@ async function conceptPicture(text, lang) {
             const d = await r.json();
             const th = d && d.thumbnail && d.thumbnail.source;
             tr.type = d && d.type; tr.title = d && d.title; tr.thumb = !!th; tr.src = th ? String(th).slice(0, 90) : null;
-            if (!d || d.type !== 'standard' || !th || !/^https:\/\/upload\.wikimedia\.org\//.test(th)) continue;
+            if (!d || d.type !== 'standard' || !th || !/^https:\/\/(?:upload|thumb)\.wikimedia\.org\//.test(th)) continue;
             // статья о том же слове («Фотосинтез» → «Фотосинтез»), а не перенаправление на что-то другое
             const a = norm(d.title), b = norm(term);
             if (!a.startsWith(b.slice(0, Math.max(4, Math.min(b.length - 1, 6))))) continue;
             const ow = d.originalimage && d.originalimage.width || 0;
-            const img = ow >= 640 ? th.replace(/\/\d{2,4}px-/, '/640px-') : th;
+            // крупнее для экрана: «…/330px-x.png» или «…/langtg-330px-x.png» → 640px (если исходник не меньше)
+            const img = ow >= 640 ? th.replace(/\/((?:lang[a-z-]+-)?)\d{2,4}px-/, '/$1640px-') : th;
             v = { img, title: d.title, page: (d.content_urls && d.content_urls.desktop && d.content_urls.desktop.page) || `https://${wl}.wikipedia.org/wiki/${encodeURIComponent(title)}` };
             break;
         } catch (e) { tr.err = String(e && e.message || e).slice(0, 120); /* нет связи с Википедией — без картинки */ }
@@ -7953,7 +7966,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
