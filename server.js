@@ -936,7 +936,7 @@ function mixedLanguage(text, lang) {
 // Шариат: iZamoN не консультирует по кредитам, процентам, азартным играм, алкоголю и т.п.
 // ---------------------------------------------------------------------------
 const B = '(?<![а-яёӣӯқғҳҷa-z])';
-const HARAM_ASK = new RegExp(`${B}(?:кредит|ипотек|микрокредит|займ|заём|қарз(?:и|ӣ)?\\s+(?:бонк|бо\\s+фоиз)|фоиз|процент(?:ы|ная)?\\s+(?:по|ставк|вклад)|депозит|казино|ставк[иа]\\s+на\\s+спорт|букмекер|лотере|алкогол|пиво|водк|коньяк|шароб|вино(?![а-яё])|kredit|ipoteka|foiz|qarz|kazino)`, 'i');
+const HARAM_ASK = new RegExp(`${B}(?:кредит|ипотек|микрокредит|займ|заём|қарз(?:и|ӣ)?\\s+(?:бонк|бо\\s+фоиз)|фоиз|процент(?:ы|ная)?\\s+(?:по|ставк|вклад)|депозит|казино|ставк[иа]\\s+на\\s+спорт|букмекер|лотере|алкогол|пиво|водк|коньяк|шароб|вино(?![а-яё])|kredit|ipoteka|foiz|qarz|kazino|кальян|вейп|насвай|свинин|гадани|гадалк|таролог|приворот|экстрасенс|эскорт|стриптиз|ночн[а-яё]*\\s+клуб|ломбард|микрозайм|секс-?шоп|интим-?услуг|kalyan|qimor|қимор)`, 'i');
 const HARAM_LINE = new RegExp(`${B}(?:кредит|ипотек|займ|заём|қарз(?:ӣ|и)?(?![а-яёӣӯқғҳҷ])|фоиз|процент|ставк[аи]\\s+рефинанс|депозит|казино|букмекер|лотере|алкогол|пиво|водк|шароб|свинин|хамон|бекон|коньяк|виски|самогон|ликёр|ликер|шампанск|вино(?![а-яёӣӯқғҳҷ])|хук(?:и|ҳо)?(?![а-яёӣӯқғҳҷ])|kredit|ipoteka|foiz)`, 'i');
 // ---------------------------------------------------------------------------
 // Вакансии: виды работы, которые на iZamoN не показываем. Отбор тихий: на сайте о причине ничего не пишем, такие вакансии просто не попадают в список.
@@ -1003,6 +1003,64 @@ function jobForbidden(a) {
     return false;
 }
 
+// ---------------------------------------------------------------------------
+// Всё остальное (объявления, товары, места, услуги, мастера, объявления самого iZamoN, Telegram-канал): запретное тихо не показываем.
+// Алкоголь, свинина, табак/кальян/вейп/насвай, азартные игры, интим и эскорт, гадания и колдовство, ночные клубы и бары, тату;
+// в названии — ещё и проценты (кредит, займ, ломбард, страхование). В тексте объявления «без алкоголя», «не курили» и т.п. не считаются.
+// ---------------------------------------------------------------------------
+const ITEM_VICE = jobRe([
+    // алкоголь
+    `алкогол${CYR}`, `пив(?:о|а|ом|ко|ной|ная|ное|ные|ных|ную|ного|бар|оварн${CYR}|овар${CYR})(?![а-яёӣӯқғҳҷ])`, `водк${CYR}`, `коньяк${CYR}`, 'виски(?![а-яё])', 'вино(?![а-яёӣӯқғҳҷ])',
+    `вина\\s+(?:красн|бел|сух|полусух|сладк|домашн|грузин|итальян|франц|испан)${CYR}`, `винн(?:ый|ая|ое|ые|ого|ой|ых|ую|ым)(?![а-яё])`, `винотек${CYR}`, `винодел${CYR}`, `вино-?водочн${CYR}`,
+    `шампанск${CYR}`, `ликёр${CYR}`, `ликер${CYR}`, `самогон${CYR}`, `текил${CYR}`, 'бренди(?![а-яё])', `абсент${CYR}`, 'сидр(?![а-яё])', `медовух${CYR}`, `глинтвейн${CYR}`, `шароб${CYR}`,
+    'aroq(?![a-z])', 'pivo(?![a-z])', 'vino(?![a-z])', 'konyak', 'vodka', 'whiske?y', 'wine(?![a-z])', 'beer(?![a-z])', 'champagne', 'liquor', 'alcohol',
+    // свинина и свиньи
+    `свин(?:ин|ой|ая|ое|ые|ого|ых|ую|ья|ьи|ей|арник|оматк|оферм|оводств)${CYR}`, `поросят${CYR}`, `поросён${CYR}`, `поросен${CYR}`, 'хамон', `бекон${CYR}`, 'pork', 'bacon', 'prosciutto', "cho'?chqa",
+    // табак, кальян, вейп, насвай
+    `сигарет${CYR}`, `сигар(?:а|ы|у|ой|ами)?(?![а-яёӣӯқғҳҷ])`, `табак${CYR}`, `табачн${CYR}`, `вейп${CYR}`, 'vape', `кальян${CYR}`, 'hookah', 'shisha', `насвай${CYR}`, 'nos(?:voy|vay)', 'iqos', 'айкос',
+    `(?:pod|под)-систем${CYR}`, `pod\\s?систем${CYR}`, 'pod-?system', `тамоку${CYR}`, 'tamaki', `sigaret${CYR}`, `kalyan${CYR}`,
+    // азартные игры
+    'казино', 'casino', 'kazino', `букмекер${CYR}`, `ставк${CYR}\\s+на\\s+спорт`, `спортивн${CYR}\\s+ставк${CYR}`, `лотере${CYR}`, `тотализатор${CYR}`, `игров${CYR}\\s+автомат${CYR}`, `покер${CYR}`,
+    `слот${CYR}\\s+(?:автомат|игр)${CYR}`, '1xbet', 'melbet', 'mostbet', 'pin-?up\\s*(?:casino|bet)', `қимор${CYR}`, `qimor${CYR}`,
+    // интим, эскорт, стриптиз
+    `эротич${CYR}`, `секс${CYR}`, 'sex(?:y|shop)?(?![a-z])', `порн${CYR}`, `стриптиз${CYR}`, `(?<!форд\\s)эскорт${CYR}`, '(?<!ford\\s)escort', `интим[-\\s]?(?:услуг|досуг|магазин|шоп|товар)${CYR}`, `интимн${CYR}\\s+(?:услуг|досуг|встреч|игрушк)${CYR}`,
+    `(?:сайт|агентств${CYR}|служб${CYR}|клуб${CYR})\\s+знакомств${CYR}`,
+    // гадания, колдовство, амулеты от сглаза
+    `гадал${CYR}`, `гадани${CYR}`, 'гадаю', `таролог${CYR}`, `карт${CYR}\\s+таро`, 'таро(?![а-яёӣӯқғҳҷ])', `экстрасенс${CYR}`, `ясновид${CYR}`, `колдун${CYR}`, `колдовств${CYR}`, `приворот${CYR}`,
+    `(?:снят${CYR}|сниму|снимаю|навед${CYR}|навожу)\\s+порч${CYR}`, `сглаз${CYR}`, `хиромант${CYR}`, `астролог${CYR}`, `гороскоп${CYR}`, `нумеролог${CYR}`, `оккульт${CYR}`,
+    `магическ${CYR}\\s+(?:услуг|помощ|обряд|ритуал)${CYR}`, `фолбин${CYR}`, `folbin${CYR}`, `ҷодугар${CYR}`, `jodugar${CYR}`,
+    // ночная жизнь и бары
+    `ночн${CYR}\\s+клуб${CYR}`, 'night\\s*club', `стрип-?клуб${CYR}`, 'пивбар', `(?:пивн|винн|коктейльн|кальянн)${CYR}\\s+бар${CYR}`, `(?:ресторан|кафе)[-\\s]бар(?![а-яё])`, `бар[-\\s](?:ресторан|кафе)${CYR}`,
+    `спорт-?бар${CYR}`, `лаунж[-\\s]?бар${CYR}`, 'lounge\\s*bar', 'паб(?![а-яё])', 'pub(?![a-z])',
+    // тату
+    'тату(?![а-яёӣӯқғҳҷ])', `тату-?(?:салон|машин|мастер|студи)${CYR}`, `татуиров${CYR}`, 'tattoo'
+]);
+// «без алкоголя», «не курили», «алкоголь не подаём», «курение запрещено» — это не о запретном, такие слова убираем перед проверкой
+const NEG_WORD = /(?<![а-яёӣӯқғҳҷa-z])(?:без|нет|не|ни|no|non|бе|бидуни)(?:[\s-]+(?:всякого|какого-либо|любого|никакого|никаких|какой-либо))?[\s-]+[^\s,.;:!?()«»"]+(?:\s*(?:,|и|или|ва|va|and|or)\s+(?:без\s+|ни\s+)?[^\s,.;:!?()«»"]+)*/gi;
+const NEG_AFTER = /[^\s,.;:!?()«»"]+\s+(?:не|нет)\s+(?:пода|прода|употребл|допуска|разреш|курим|пьём|пьем)[^\s,.;:!?]*/gi;
+const NEG_COLON = /[^\s,.;!?()«»"]+\s*:\s*(?:нет|no|не\s+[^\s,.;:!?]+)/gi;
+const NEG_BAN = /[^\s,.;:!?()«»"]+\s+(?:запрещ[её]н|под\s+запретом|строго\s+запрещ)[^\s,.;:!?]*/gi;
+function unNegate(text) { return String(text || '').replace(NEG_COLON, ' ').replace(NEG_AFTER, ' ').replace(NEG_BAN, ' ').replace(NEG_WORD, ' '); }
+// проценты — только в названии (кредит, займ, ломбард, страхование); «страховочный трос» и т.п. не считаются
+const ITEM_RIBA = jobRe([`ломбард${CYR}`, `микрофинанс${CYR}`, `микрозайм${CYR}`, `микрокредит${CYR}`, `кредитн${CYR}`, 'кредит(?![а-яёӣӯқғҳҷ])', `лизинг${CYR}`, `страхован${CYR}`, `страховк${CYR}`,
+    `страхов(?:ая|ой|ую)\\s+компани${CYR}`, 'осаго', 'каско', 'форекс', 'forex', `бинарн${CYR}\\s+опцион${CYR}`]);
+
+// true — пункт не показываем. a: { title, who, cats, description, full, points, condition, seller_name }; kind — вид списка
+function itemForbidden(a, kind) {
+    const x = a || {};
+    const head = unNegate(`${x.title || ''} ${x.who || ''} ${x.seller_name || ''} ${x.cats || ''}`);
+    const text = unNegate(`${x.description || ''} ${x.full || ''} ${Array.isArray(x.points) ? x.points.join(' ') : ''} ${x.condition || ''}`);
+    if (HARAM_LINE.test(head) || ITEM_VICE.test(head) || ITEM_RIBA.test(head)) return true;
+    if (ITEM_VICE.test(text)) return true;
+    if (kind === 'jobs') return jobForbidden({ ...x, description: `${x.description || ''} ${Array.isArray(x.points) ? x.points.join(' ') : ''}` });
+    // услуги, мастера и места: ещё салоны красоты, ночная жизнь (сауны, караоке), гадалки — по названию и кто оказывает
+    if (kind === 'services' || kind === 'masters' || kind === 'places') {
+        if (JOB_BEAUTY.test(head) || JOB_SHOW.test(head) || JOB_OTHER.test(head)) return true;
+        if (JOB_HAIR.test(head) && !JOB_HAIR_OK.test(`${head} ${text}`)) return true;
+    }
+    return false;
+}
+
 const SHARIA_REPLY = {
     tg: '🤍 Бубахшед, дар ин мавзӯъ ёрӣ расонида наметавонам.',
     ru: '🤍 Простите, по этой теме я помочь не смогу.',
@@ -1012,7 +1070,7 @@ const SHARIA_REPLY = {
 const SHARIA_TALK = new RegExp(`${B}(?:шариат|шариа|халал|халол|ҳалол|халяль|харам|ҳаром|ислам|исломӣ|исламск|мусулман|риба(?![а-яёӣӯқғҳҷ])|рибо|фатв|манъшуд|запрещ[её]нн|shariat|halol|halal|harom|haram|islom|riba(?![a-z]))`, 'i');
 
 function dropHaramLines(text, quiet = false) {
-    return String(text).split('\n').filter(l => !HARAM_LINE.test(l) && !(quiet && SHARIA_TALK.test(l))).join('\n');
+    return String(text).split('\n').filter(l => !HARAM_LINE.test(l) && !(quiet && (SHARIA_TALK.test(l) || ITEM_VICE.test(unNegate(l))))).join('\n');
 }
 
 // Тексты на таджикском и узбекском стоит показать носителю языка.
@@ -3914,9 +3972,9 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
                 if (v === null || (spec.price.min && v < spec.price.min) || (spec.price.max && v > spec.price.max)) { stat.otherPrice = (stat.otherPrice || 0) + 1; continue; }
             }
             // рубрики (cat) есть только у somon.tj; ola.tj и paydo.tj и так берутся из нужного раздела
-            if ((somon && spec.cat && !spec.cat.test(a.cats)) || (somon && spec.notCat && spec.notCat.test(a.cats)) || (words && !words.test(`${a.title} ${a.description}`)) || (spec.notWords && spec.notWords.test(a.title)) || HARAM_LINE.test(`${a.title} ${a.who}`)) continue;
-            // вакансии: работу, которой на iZamoN нет места, тихо пропускаем
-            if (kind === 'jobs' && jobForbidden(a)) { stat.forbidden = (stat.forbidden || 0) + 1; continue; }
+            if ((somon && spec.cat && !spec.cat.test(a.cats)) || (somon && spec.notCat && spec.notCat.test(a.cats)) || (words && !words.test(`${a.title} ${a.description}`)) || (spec.notWords && spec.notWords.test(a.title))) continue;
+            // запретное (а у вакансий — и работу, которой на iZamoN нет места) тихо пропускаем
+            if (itemForbidden(a, kind)) { stat.forbidden = (stat.forbidden || 0) + 1; continue; }
             const p = parsePublished(a.published);
             flat.push({ a, host: j.host, li, age: p ? p.ageMin : Infinity, n: flat.length });
         }
@@ -4231,8 +4289,7 @@ url — обычная ссылка https://… (без Markdown и скобок
         // Ссылка должна вести на сайт, который поиск действительно открыл, — выдуманные адреса отсекаются.
         if (!h || BAD_SOURCES.test(h) || (citedHosts.size && !citedHosts.has(h))) { drop.notOpened++; return false; }
         if (skip && skip.test(h)) { drop.skipped = (drop.skipped || 0) + 1; return false; }
-        if (HARAM_LINE.test(`${it.title} ${it.who}`)) { drop.forbidden++; return false; }
-        if (kind === 'jobs' && jobForbidden({ title: it.title, who: it.who, description: (it.points || []).join(' ') })) { drop.forbidden++; return false; }
+        if (itemForbidden(it, kind)) { drop.forbidden++; return false; }
         // Одну и ту же страницу объявления дважды не показываем. Если ссылка ведёт на общую страницу списка
         // (в адресе нет номера объявления), разные пункты с ней оставляем, повтор по заголовку убираем.
         let specific = true;
@@ -4439,6 +4496,9 @@ ${CARD_GLOSSARY[lang] || ''}
 }
 
 function listingsAnswer(items, kind, lang, own) {
+    // последняя проверка перед показом: запретное не попадает в карточки ни из какого источника
+    items = (items || []).filter(it => !itemForbidden(it, kind));
+    own = (own || []).filter(a => !itemForbidden(a, 'ads'));
     const count = items.length + (own ? own.length : 0);
     const label = items.length && items.every(x => x.hotel) ? FOUND_LABEL.hotel : FOUND_LABEL[kind];
     const head = `<div class="iz-lh">🔎 ${count} ${label ? label[lang] : ''}</div>`;
@@ -5122,12 +5182,6 @@ function pageDescription(html) {
 // Описание со страницы любого сайта (для «Подробнее» в карточке): JSON-LD (Product, затем любой тип) → og:description → meta description.
 // Служебные фразы досок объявлений («Частные объявления … на Savdo.tj», «на Рекламной Газете») за описание не считаем.
 const SITE_BLURB = /частные\s+объявлени|объявлени[яй]\s+и\s+предложени|доска\s+объявлений|бесплатн\w*\s+объявлени|на\s+(?:рекламной\s+газете|savdo\.tj|somon\.tj|paydo\.tj|ola\.tj|rg\.tj)|^купить\s.{3,80}\sза\s/i;
-function metaContent(html, attr, name) {
-    const re = new RegExp(`<meta\\b[^>]*\\b${attr}\\s*=\\s*["']${name}["'][^>]*>`, 'i');
-    const tag = (re.exec(html) || [])[0];
-    if (!tag) return '';
-    return decodeEntities(((/\bcontent\s*=\s*"([^"]*)"/i.exec(tag) || /\bcontent\s*=\s*'([^']*)'/i.exec(tag) || [])[1]) || '');
-}
 function pageDescriptionAny(html) {
     const h = String(html || '');
     const prod = pageDescription(h);
@@ -5135,7 +5189,7 @@ function pageDescriptionAny(html) {
     for (const ld of jsonLdItems(h)) {
         if (typeof ld.description === 'string' && ld.description.trim().length >= 30) return decodeEntities(ld.description).replace(/\s+/g, ' ').trim().slice(0, 3000);
     }
-    for (const t of [metaContent(h, 'property', 'og:description'), metaContent(h, 'name', 'description')]) {
+    for (const t of [metaContent(h, 'og:description'), metaContent(h, 'description')]) {
         const x = String(t || '').replace(/\s+/g, ' ').trim();
         if (x.length >= 30 && !SITE_BLURB.test(x)) return x.slice(0, 3000);
     }
@@ -5965,7 +6019,7 @@ async function searchAds(q, limit = 5, all = false) {
             const hay = `${a.title} ${a.description} ${a.location}`.toLowerCase();
             return { a, score: words.filter(w => hay.includes(w)).length };
         })
-        .filter(x => (all ? x.score === words.length : x.score > 0))
+        .filter(x => (all ? x.score === words.length : x.score > 0) && !itemForbidden(x.a, 'ads'))
         .sort((x, y) => y.score - x.score)
         .slice(0, limit)
         .map(x => x.a);
@@ -6038,7 +6092,7 @@ async function tgCall(method, payload, token) {
 // Сбой Telegram никогда не мешает объявлению остаться на сайте.
 async function postAdToChannel(ad) {
     if (!tgOn()) return 'off';
-    if (HARAM_LINE.test(`${ad.title} ${ad.description || ''} ${ad.condition || ''}`)) return 'skipped';
+    if (HARAM_LINE.test(`${ad.title} ${ad.description || ''} ${ad.condition || ''}`) || itemForbidden(ad, 'ads')) return 'skipped';
     const chat_id = tgChannel();
     try {
         // Несколько фото — альбомом (подпись у первого). Telegram не смог скачать какое-то фото — пробуем одно фото, затем текст.
@@ -6236,6 +6290,8 @@ async function handleAdsCreate(req, res) {
     if (!seller) return res.status(403).json({ ok: false, error: 'seller_required' });
     const ad = cleanNewAd({ ...req.body, owner: user.id });
     if (!ad) return res.status(400).json({ ok: false, error: 'title_required' });
+    // запретное не размещаем (на сайте — мягкий отказ без объяснений)
+    if (itemForbidden(ad, 'ads')) return res.status(400).json({ ok: false, error: 'not_allowed' });
     ad.contact = ad.contact || seller.phone;
     ad.location = ad.location || seller.city || null;
     ad.seller_name = seller.name;
@@ -7529,7 +7585,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
