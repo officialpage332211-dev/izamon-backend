@@ -3678,6 +3678,26 @@ function parseSavdoCards(html, max = 60) {
         out.push({ id: 'savdo' + m[2], title, description: '', price: /\d/.test(val) ? val : '', priceNote: /\d/.test(val) ? '' : val, thumb: img, imgCount: img ? 1 : 0, images: img ? [img] : [], published: when, path: '', url: m[1], location: city, who: '', cats: '' });
         if (out.length >= max) break;
     }
+    if (out.length) return out;
+    // страницы рубрик и поиска: <div class="js-item-listing … js-list-card" data-id="ID"> — фото (data-screenshots), цена в первом <h4>,
+    // название в <h4 class="item-title"><a href="…/ad/ID_slug/">, ниже «Вчера 23:02 • Душанбе»
+    const html0 = String(html || '');
+    const starts = [...html0.matchAll(/<div class="js-item-listing[^"]*js-list-card" data-id="(\d+)"/g)];
+    for (let i = 0; i < starts.length && out.length < max; i++) {
+        const id = starts[i][1];
+        if (seen.has(id)) continue;
+        const c = html0.slice(starts[i].index, i + 1 < starts.length ? starts[i + 1].index : starts[i].index + 12000);
+        const link = new RegExp(`href="(https:\\/\\/savdo\\.tj\\/ad\\/${id}_[a-z0-9\\-]*\\/?)"`).exec(c);
+        const title = htmlText((/<h4 class="item-title"[^>]*>\s*<a[^>]*>([\s\S]*?)<\/a>/.exec(c) || [])[1]);
+        if (!link || !title || title.length > 300) continue;
+        seen.add(id);
+        const names = ((/data-screenshots="([^"]*)"/.exec(c) || [])[1] || '').split(',').map(x => x.trim()).filter(x => /^[\w\-.]+\.(?:webp|jpe?g|png)$/i.test(x));
+        const images = names.map(x => `https://savdo.tj/storage/products/thumb/${x}`).slice(0, 16);
+        const val = htmlText((/<div class="ad-info"[^>]*>\s*<h4[^>]*>([\s\S]*?)<\/h4>/.exec(c) || [])[1]).replace(/\s+с\.?$/i, ' сом.');
+        const meta = htmlText((/<h4 class="item-title"[\s\S]*?<\/h4>\s*<div[^>]*>\s*<span>([\s\S]*?)<\/span>/.exec(c) || [])[1]);
+        const [when, city] = meta.split(/\s*(?:•|&bull;|&#8226;)\s*/);
+        out.push({ id: 'savdo' + id, title, description: '', price: /\d/.test(val) ? val : '', priceNote: /\d/.test(val) ? '' : val, thumb: images[0] || '', imgCount: images.length, images, published: when || '', path: '', url: link[1], location: city || '', who: '', cats: '' });
+    }
     return out;
 }
 
