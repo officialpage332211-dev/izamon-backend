@@ -1940,6 +1940,11 @@ const FOUND_LABEL = {
     places: { tg: 'ҷой', ru: 'мест', uz: 'joy' },
     hotel: { tg: 'меҳмонхона', ru: 'гостиниц', uz: 'mehmonxona' }
 };
+// В выбранном городе почти ничего не нашлось — показываем найденное по всей стране и честно об этом пишем в заголовке
+const WIDE_NOTE = {
+    none: { tg: c => `· ${c}: ҳоло нест — аз тамоми Тоҷикистон`, ru: c => `· ${c}: пока нет — показаны по всему Таджикистану`, uz: c => `· ${c}: hozircha yo'q — butun Tojikiston bo'yicha` },
+    some: { tg: (c, n) => `· ${c}: ${n}, боқӣ — аз тамоми Тоҷикистон`, ru: (c, n) => `· ${c}: ${n}, остальные — по всему Таджикистану`, uz: (c, n) => `· ${c}: ${n}, qolgani — butun Tojikiston bo'yicha` }
+};
 const KIND_TASK = {
     ads: 'Найди до 10 самых свежих объявлений. Ищи сначала на somon.tj, затем на других сайтах объявлений Таджикистана (ola.tj, arzon.tj и др.) и в Telegram-каналах.',
     jobs: 'Найди до 10 самых свежих вакансий в Таджикистане: somon.tj, сайты вакансий, Telegram-каналы с вакансиями, сайты компаний. ' + JOB_SKIP_TEXT,
@@ -4337,6 +4342,17 @@ function mergeListings(lists) {
     return out;
 }
 
+// Выбран город, а там меньше трёх подходящих объявлений: добавляем найденное по всей стране (сначала — из города).
+// Только для показа на сайте; подписка на новые объявления города и боты так не делают.
+async function widenCity(spec, direct, kind, lang) {
+    if (!spec || !spec.city || spec.district || direct.length >= 3) return null;
+    let all = [];
+    try { all = await somonListings({ ...spec, city: null }, kind, null, lang); } catch { return null; }
+    const seen = new Set(direct.map(x => x.url));
+    const more = all.filter(x => !seen.has(x.url));
+    if (direct.length + more.length < 3) return null;
+    return { items: [...direct, ...more].slice(0, 10), wide: { city: spec.city, n: direct.length } };
+}
 async function searchListings({ kind, lang, date, query, debug, somon, spread, fixed = null }) {
     const hotel = kind === 'places' && fixed === 'hotel';
     // Сначала готовый список somon.tj: точные ссылки и фото. Мало найдено или сайт не ответил — ищем через модель, как раньше.
@@ -4344,6 +4360,8 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
         let direct = [];
         try { direct = await somonListings(somon, kind, debug, lang); }
         catch (err) { if (debug) debug.somonError = scrub(err && err.message || err); }
+        const widened = await widenCity(somon, direct, kind, lang);
+        if (widened) { direct = widened.items; if (debug) debug.wide = { city: widened.wide.city.id, n: widened.wide.n }; }
         if (direct.length >= 3) {
             // Список есть: другие сайты, Telegram-каналы и соцсети ищем одновременно с переводом и фото карточек somon.tj
             const extraP = WEB_EXTRA_KINDS.has(kind) && openai && process.env.WEB_EXTRA !== 'off'
@@ -4354,6 +4372,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
                 && (!somon.district || districtMatch({ location: x.place, title: x.title, description: '' }, somon.district))
                 && (!somon.price || (v => v !== null && (!somon.price.min || v >= somon.price.min) && (!somon.price.max || v <= somon.price.max))(priceInTjs(x.price, somon.price.rates))));
             const mixed = extraP ? mixFeeds(main, extraItems) : main;
+            if (widened) mixed.wide = widened.wide;
             if (debug && extraP) debug.web = { n: extra.items.length, shown: mixed.filter(x => !SOMON_HOST.test(hostOf(x.url))).length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), list: extra.items.map(x => `${String(x.title).slice(0, 36)} | ${x.price || '-'} | ${hostOf(x.url)}${(() => { try { return new URL(x.url).pathname.slice(0, 28); } catch { return ''; } })()}`), ...(extra.dbg ? { err: extra.dbg.error, text: extra.dbg.textStart, parseError: extra.dbg.parseError, retry: extra.dbg.retry, confirm: extra.dbg.confirm, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
             return mixed;
         }
@@ -4625,13 +4644,14 @@ ${CARD_GLOSSARY[lang] || ''}
     }
 }
 
-function listingsAnswer(items, kind, lang, own) {
+function listingsAnswer(items, kind, lang, own, wide = null) {
     // последняя проверка перед показом: запретное не попадает в карточки ни из какого источника
     items = (items || []).filter(it => !itemForbidden(it, kind));
     own = (own || []).filter(a => !itemForbidden(a, 'ads'));
     const count = items.length + (own ? own.length : 0);
     const label = items.length && items.every(x => x.hotel) ? FOUND_LABEL.hotel : FOUND_LABEL[kind];
-    const head = `<div class="iz-lh">🔎 ${count} ${label ? label[lang] : ''}</div>`;
+    const wn = wide && wide.city && wide.city.names ? (wide.n ? WIDE_NOTE.some : WIDE_NOTE.none)[lang] || null : null;
+    const head = `<div class="iz-lh">🔎 ${count} ${label ? label[lang] : ''}${wn ? ' ' + wn(wide.city.names[lang] || wide.city.names.ru, wide.n) : ''}</div>`;
     const ownList = own && own.length ? ownItems(own, lang) : [];
     // Метку «цена ниже, чем у большинства найденных» считаем по всем карточкам выдачи вместе (свои и с других сайтов), только для объявлений
     const flags = kind === 'ads' ? cheapFlags([...ownList, ...items]) : [];
@@ -4901,7 +4921,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                     if (!items.length && Date.now() - tl0 < 15000) items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed });
                     if (items.length) {
                         // места (гостиницы, клиники…): поиск то находит пять мест, то одно — скудный ответ держим в памяти недолго, чтобы следующий человек получил полнее
-                        return { body: { answer: listingsAnswer(items, kind, lang, ownRows), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: kind === 'places' && items.length < 3 ? 2 * MIN : ttlFor(mode) };
+                        return { body: { answer: listingsAnswer(items, kind, lang, ownRows, items.wide), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: kind === 'places' && items.length < 3 ? 2 * MIN : ttlFor(mode) };
                     }
                 } catch (err) { console.warn(`[listings Сбой]: ${err.status || ''} ${err.message}`); }
             }
@@ -5081,6 +5101,8 @@ async function handleChat(req, res) {
             // общий запрос без явных слов «купить/работа»: карточки показываем, только если сайты действительно нашли (3 и больше)
             let found = [];
             try { found = await withTimeout(somonListings(kw, 'ads', null, lang), 12000); } catch { found = []; }
+            // в названном городе мало — смотрим по всей стране (покажем с пометкой), а не отвечаем разговором без поиска
+            if (found.length < 3) { try { const w = await withTimeout(widenCity(kw, found, 'ads', lang), 12000); if (w) found = w.items; } catch {} }
             if (found.length >= 3) { mode = 'ads'; kind = 'ads'; factual = true; somon = kw; }
         }
     }
@@ -7712,7 +7734,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, stripCity, somonUrl, TG_CITY_NAMES,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
