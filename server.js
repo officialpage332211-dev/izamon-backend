@@ -699,6 +699,13 @@ function cityMatch(a, city) {
     if (city.re.test(`${L} ${kwNorm(a && a.title)}`)) return true;
     return !!(city.loc && city.loc.test(L) && !CITIES.some(c => c !== city && c.re.test(L)));
 }
+// Страница города на сайте: ниже своих объявлений сайт добавляет VIP и «похожие» из других городов (на somon.tj поиск «диван» в Кулябе
+// дал только объявления из Душанбе, Вахдата и Худжанда). Их убираем; объявление без известного города в «месте» (улица, село) оставляем — сайт сам отнёс его к городу.
+function otherCityAd(a, city) {
+    if (cityMatch(a, city)) return false;
+    const at = { location: a && a.location, title: '' };
+    return CITIES.some(c => c !== city && cityMatch(at, c));
+}
 // «диван в Худжанде», «мошин дар Шаҳритус»: город — фильтр, а не слово поиска. Убираем его (и предлог перед ним) из текста запроса.
 const CITY_PREP = /^(?:в|во|г\.?|гор\.?|город\p{L}*|дар|шахри|шахр|шаҳри|шаҳр|da|shahri|shahar|нохия(?:и)?|ноҳия(?:и)?|район\p{L}*|р-н|из|аз)$/iu;
 function stripCity(text, city) {
@@ -4085,7 +4092,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             if (a.title && a.title.includes('\\')) a.title = a.title.replace(/\s*\\+\s*/g, ' / ').replace(/^\s*\/\s*|\s*\/\s*$/g, '').trim();
             if (spec.stems && spec.stems.length && !keywordHas(kwLoose ? `${a.title} ${a.description}` : a.title, spec.stems)) continue;
             // выбран город: только объявления из него (город — в поле «место», у некоторых сайтов только в названии)
-            if (spec.city && !local[li] && !cityMatch(a, spec.city)) { stat.otherCity = (stat.otherCity || 0) + 1; continue; }
+            if (spec.city && (local[li] ? otherCityAd(a, spec.city) : !cityMatch(a, spec.city))) { stat.otherCity = (stat.otherCity || 0) + 1; continue; }
             // выбран район города: только объявления из него
             if (spec.district && !districtMatch(a, spec.district)) { stat.otherDistrict = (stat.otherDistrict || 0) + 1; continue; }
             // задана цена «от–до» (в сомони): объявления без цены или вне диапазона не показываем
@@ -7705,7 +7712,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, stripCity, somonUrl, TG_CITY_NAMES,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
