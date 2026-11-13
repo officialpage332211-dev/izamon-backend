@@ -4424,6 +4424,15 @@ function localPlaceUrl(url) {
     if (/(?:^|\.)(?:yandex|google)\./i.test(h) && !/\/maps\b/.test(String(url))) return false;
     return true;
 }
+// Гостиницы: цена — только настоящая. Без цифр («Только бесплатная отмена бронирования») — не цена. Одна и та же цена у трёх и больше
+// разных гостиниц («от 4 610 руб.» у шести подряд) — модель переписала одно число, а не взяла со страницы: такие цены не показываем.
+function hotelPrices(items) {
+    const key = p => String(p || '').replace(/\s+/g, ' ').trim().toLowerCase();
+    const cnt = {};
+    for (const x of items) { const k = key(x.price); if (k) cnt[k] = (cnt[k] || 0) + 1; }
+    return items.map(x => { const k = key(x.price); return k && (!/\d/.test(k) || cnt[k] >= 3) ? { ...x, price: '' } : x; });
+}
+hotelPrices.when = (on, items) => (on ? hotelPrices(items) : items);
 function mergeListings(lists, hostMax = 3) {
     const out = [], seenU = new Set(), seenT = new Set(), perHost = {};
     const max = Math.max(0, ...lists.map(l => l.length));
@@ -4489,8 +4498,9 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
             return [];
         })));
         items = mergeListings(lists, opts && opts.perHost || 3);
+        if (hotel) items = hotelPrices(items);
         if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, len: dbgs[n] && dbgs[n].textLen, end: dbgs[n] && dbgs[n].parseError ? dbgs[n].textEnd : undefined, start: dbgs[n] && dbgs[n].parseError ? dbgs[n].textStart : undefined, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
-    } else items = await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) });
+    } else items = hotelPrices.when(hotel, await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }));
     const done = await finishItems(items.slice(0, opts && opts.max || 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
     // курс — заранее, чтобы карточки показали цену в валюте языка
     try { await nbtRatesFor(date); } catch {}
@@ -7983,7 +7993,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, handleChat, handleImport, handleSpeak,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
