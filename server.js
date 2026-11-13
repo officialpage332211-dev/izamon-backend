@@ -6661,6 +6661,8 @@ async function handleSeller(req, res) {
     if (!row.name || !/^[+\d][\d\s()-]{6,}$/.test(row.phone)) return res.status(400).json({ ok: false, error: 'name_phone_required' });
     try {
         await sb('sellers?on_conflict=user_id', { method: 'POST', body: row, prefer: 'resolution=merge-duplicates,return=minimal' });
+        // новое имя — и на уже поданных объявлениях (без этого там осталось бы старое); сбой здесь анкету не отменяет
+        try { await sb(`ads?owner=eq.${encodeURIComponent(user.id)}&status=eq.active`, { method: 'PATCH', body: { seller_name: row.name }, prefer: 'return=minimal' }); } catch (err) {}
         return res.json({ ok: true, seller: row });
     } catch (err) {
         console.warn(`[seller Сбой]: ${err.message}`);
@@ -6724,7 +6726,8 @@ async function handleAdsMine(req, res) {
     if (!user) return res.status(401).json({ ok: false, error: 'login_required', items: [] });
     try {
         const rows = await sb(`ads?select=${AD_FIELDS}&owner=eq.${encodeURIComponent(user.id)}&status=eq.active&order=created_at.desc&limit=50`);
-        return res.json({ ok: true, items: rows || [] });
+        // days — сколько дней объявление видно в поиске; bumpHours — как часто можно «поднять»
+        return res.json({ ok: true, items: rows || [], days: AD_DAYS, bumpHours: BUMP_EVERY / (60 * MIN) });
     } catch (err) {
         return res.status(503).json({ ok: false, error: 'store_failed' });
     }
@@ -6781,6 +6784,96 @@ async function handleFavDelete(req, res) {
         return res.json({ ok: true });
     } catch (err) {
         return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+// ---------------------------------------------------------------------------
+// «Мой аккаунт»: поднять объявление, изменить объявление, удалить аккаунт.
+// ---------------------------------------------------------------------------
+const BUMP_EVERY = 24 * 60 * MIN; // поднять своё объявление можно раз в сутки (бесплатно); оно снова первое и видно ещё AD_DAYS дней
+const bumpLimited = makeLimiter(20);
+
+async function ownAd(user, id) {
+    const rows = await sb(`ads?select=${AD_FIELDS},status&id=eq.${id}&owner=eq.${encodeURIComponent(user.id)}&limit=1`);
+    return rows && rows[0] && rows[0].status === 'active' ? rows[0] : null;
+}
+
+async function handleAdBump(req, res) {
+    if (bumpLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    const id = String(req.params?.id || '');
+    if (!/^\d{1,18}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad_id' });
+    try {
+        const ad = await ownAd(user, id);
+        if (!ad) return res.status(404).json({ ok: false, error: 'not_found' });
+        const next = Date.parse(ad.created_at) + BUMP_EVERY;
+        if (next > Date.now()) return res.status(429).json({ ok: false, error: 'too_soon', next: new Date(next).toISOString() });
+        const at = new Date().toISOString();
+        await sb(`ads?id=eq.${id}&owner=eq.${encodeURIComponent(user.id)}`, { method: 'PATCH', body: { created_at: at }, prefer: 'return=minimal' });
+        return res.json({ ok: true, created_at: at });
+    } catch (err) {
+        console.warn(`[ads bump Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+// Изменить своё объявление: название, цена, описание, место, телефон. Запретное не принимаем (как и при подаче).
+async function handleAdEdit(req, res) {
+    if (adsLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    const id = String(req.params?.id || '');
+    if (!/^\d{1,18}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad_id' });
+    const b = req.body && typeof req.body === 'object' ? req.body : {};
+    try {
+        const ad = await ownAd(user, id);
+        if (!ad) return res.status(404).json({ ok: false, error: 'not_found' });
+        const patch = {};
+        if ('title' in b) { patch.title = clip(b.title, 120); if (!patch.title) return res.status(400).json({ ok: false, error: 'title_required' }); }
+        if ('price' in b) patch.price = toPrice(b.price);
+        if ('description' in b) patch.description = clip(b.description, 1000);
+        if ('location' in b) patch.location = clip(b.location, 80) || null;
+        if ('contact' in b) patch.contact = clip(b.contact, 80) || null;
+        if (!Object.keys(patch).length) return res.status(400).json({ ok: false, error: 'nothing_to_change' });
+        if (itemForbidden({ ...ad, ...patch }, 'ads')) return res.status(400).json({ ok: false, error: 'not_allowed' });
+        await sb(`ads?id=eq.${id}&owner=eq.${encodeURIComponent(user.id)}`, { method: 'PATCH', body: patch, prefer: 'return=minimal' });
+        const out = { ...ad, ...patch };
+        delete out.status; delete out.owner;
+        return res.json({ ok: true, ad: out });
+    } catch (err) {
+        console.warn(`[ads edit Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+
+// Удалить аккаунт навсегда: избранное, заявки к его объявлениям, объявления, Telegram продавца, анкету продавца и сам вход.
+// Нужен явный ответ { confirm: 'delete' }. Если какой-то таблицы ещё нет в базе — удалять там нечего, идём дальше.
+// Сбой на любом шаге — вход не удаляем и отвечаем ошибкой: человек сможет повторить.
+const accountLimited = makeLimiter(3);
+
+async function handleAccountDelete(req, res) {
+    if (accountLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    if (!adsOn()) return res.status(503).json({ ok: false, error: 'store_off' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    if (!req.body || req.body.confirm !== 'delete') return res.status(400).json({ ok: false, error: 'confirm_required' });
+    const uid = encodeURIComponent(user.id);
+    try {
+        for (const path of [`favorites?user_id=eq.${uid}`, `orders?seller_id=eq.${uid}`, `ads?owner=eq.${uid}`, `seller_tg?user_id=eq.${uid}`, `sellers?user_id=eq.${uid}`]) {
+            try { await sb(path, { method: 'DELETE', prefer: 'return=minimal' }); } catch (err) { if (err.status !== 404) throw err; }
+        }
+        const r = await withTimeout(fetch(`${SB_URL()}/auth/v1/admin/users/${uid}`, {
+            method: 'DELETE',
+            headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` }
+        }), 8000);
+        if (!r.ok && r.status !== 404) { const e = new Error(`auth ${r.status}`); e.status = r.status; throw e; }
+        for (const [k, e] of userCache.map) if (e.value && e.value.id === user.id) userCache.map.delete(k);
+        console.log('[account] удалён по просьбе владельца');
+        return res.json({ ok: true });
+    } catch (err) {
+        console.warn(`[account delete Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'delete_failed' });
     }
 }
 
@@ -7471,6 +7564,9 @@ app.get('/api/config', handleConfig);
 app.get('/api/me', handleMe);
 app.post('/api/seller', handleSeller);
 app.delete('/api/ads/:id', handleAdsDelete);
+app.post('/api/ads/:id/bump', handleAdBump);
+app.post('/api/ads/:id/edit', handleAdEdit);
+app.post('/api/account/delete', handleAccountDelete);
 app.get('/api/favorites', handleFavList);
 app.post('/api/favorites', handleFavAdd);
 app.delete('/api/favorites/:id', handleFavDelete);
@@ -7995,7 +8091,7 @@ module.exports = {
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
-    app, handleChat, handleImport, handleSpeak,
+    app, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
     unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
