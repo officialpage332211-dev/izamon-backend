@@ -22,6 +22,27 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', 1);
 
+// Ошибка внутри обработчика запроса (async) не должна ронять весь сервер.
+// В Express 4 такая ошибка становится «необработанным отказом», и Node 20 завершает процесс (Render: «Exited with status 1»).
+// Поэтому каждую функцию маршрута оборачиваем: ошибку передаём в обработчик ошибок внизу файла — он отвечает 500 и пишет в лог.
+function safeHandler(h) {
+    if (typeof h !== 'function' || h.length >= 4) return h; // обработчики ошибок (err, req, res, next) — как есть
+    return function (req, res, next) {
+        try {
+            const r = h.apply(this, arguments);
+            if (r && typeof r.catch === 'function') r.catch(next);
+        } catch (err) { next(err); }
+    };
+}
+for (const m of ['get', 'post', 'put', 'patch', 'delete']) {
+    const orig = app[m];
+    if (typeof orig !== 'function') continue;
+    app[m] = function (path, ...handlers) {
+        if (!handlers.length) return orig.call(app, path); // app.get('настройка') — чтение настройки
+        return orig.call(app, path, ...handlers.map(safeHandler));
+    };
+}
+
 // Если задана ALLOWED_ORIGINS (адреса сайта через запятую) — принимаем запросы только с них.
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({ ...(allowedOrigins.length ? { origin: allowedOrigins } : {}), methods: ['GET', 'POST', 'DELETE'], allowedHeaders: ['Content-Type', 'Authorization'] }));
@@ -8073,7 +8094,16 @@ app.get('/health', (req, res) => {
     });
 });
 
+// Последний обработчик: ошибка в любом маршруте — ответ 500 и запись в лог, сервер продолжает работать
+app.use((err, req, res, next) => {
+    console.error(`[route Сбой] ${req.method} ${String(req.path || '').slice(0, 80)}: ${err && err.stack ? err.stack.split('\n').slice(0, 4).join(' | ') : err}`);
+    if (res.headersSent) return next(err);
+    res.status(err && err.status >= 400 && err.status < 500 ? err.status : 500).json({ ok: false, error: 'server_error' });
+});
+
 if (require.main === module) {
+    // Забытый отказ где-то в фоне — пишем в лог со стеком (чтобы найти место), но сервер не падает
+    process.on('unhandledRejection', err => console.error(`[unhandledRejection] ${err && err.stack ? err.stack.split('\n').slice(0, 5).join(' | ') : err}`));
     const PORT = process.env.PORT || 10000;
     app.listen(PORT, () => {
         console.log(`🚀 iZamoN бэкенд запущен на порту ${PORT}`);
@@ -8091,7 +8121,7 @@ module.exports = {
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
-    app, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
+    app, safeHandler, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
     unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
