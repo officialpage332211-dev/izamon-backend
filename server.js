@@ -4560,7 +4560,7 @@ url — обычная ссылка https://… (без Markdown и скобок
         // Ссылка должна вести на сайт, который поиск действительно открыл, — выдуманные адреса отсекаются.
         if (!h || BAD_SOURCES.test(h) || (citedHosts.size && !citedHosts.has(h))) { drop.notOpened++; return false; }
         // гостиницы: ещё собственный сайт гостиницы (hyatt.com, serenahotels.com), её страница на booking.com и карточка в Google Отелях
-        if (local && !localPlaceUrl(it.url) && !(hotel && (hotelOwnSite(it.title, it.url) || /(?:^|\.)booking\.com$/i.test(h) || (/(?:^|\.)google\.[a-z.]{2,6}$/i.test(h) && /\/travel\/hotels\//.test(String(it.url)))))) { drop.foreign = (drop.foreign || 0) + 1; return false; }
+        if (local && !localPlaceUrl(it.url) && !(hotel && (hotelOwnSite(it.title, it.url) || (/(?:^|\.)booking\.com$/i.test(h) && /\/(?:hotel\/tj|gostinicy\/tj\/[^/]+)\/[^/]+\.html/i.test(String(it.url))) || (/(?:^|\.)google\.[a-z.]{2,6}$/i.test(h) && /\/travel\/hotels\//.test(String(it.url)))))) { drop.foreign = (drop.foreign || 0) + 1; return false; }
         if (skip && skip.test(h)) { drop.skipped = (drop.skipped || 0) + 1; return false; }
         if (itemForbidden(it, kind)) { drop.forbidden++; return false; }
         // Одну и ту же страницу объявления дважды не показываем. Если ссылка ведёт на общую страницу списка
@@ -5069,7 +5069,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                     if (!items.length && Date.now() - tl0 < 15000) items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed, opts });
                     if (items.length) {
                         // места (гостиницы, клиники…): поиск то находит пять мест, то одно — скудный ответ держим в памяти недолго, чтобы следующий человек получил полнее
-                        return { body: { answer: listingsAnswer(items, kind, lang, ownRows, items.wide), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: kind === 'places' && items.length < 3 ? 2 * MIN : ttlFor(mode) };
+                        return { body: { answer: listingsAnswer(items, kind, lang, ownRows, items.wide), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: kind === 'places' && (items.length < 3 || (opts && opts.max && items.length < 8)) ? (items.length < 3 ? 2 : 10) * MIN : ttlFor(mode) };
                     }
                 } catch (err) { console.warn(`[listings Сбой]: ${err.status || ''} ${err.message}`); }
             }
