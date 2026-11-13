@@ -4430,7 +4430,8 @@ function hotelPrices(items) {
     const key = p => String(p || '').replace(/\s+/g, ' ').trim().toLowerCase();
     const cnt = {};
     for (const x of items) { const k = key(x.price); if (k) cnt[k] = (cnt[k] || 0) + 1; }
-    return items.map(x => { const k = key(x.price); return k && (!/\d/.test(k) || cnt[k] >= 3) ? { ...x, price: '' } : x; });
+    // цена в тенге («17 602 ₸» — Google Отели из Казахстана) в сомони/рубли/сумы не пересчитывается — не показываем
+    return items.map(x => { const k = key(x.price); return k && (!/\d/.test(k) || cnt[k] >= 3 || /₸|тенге|\bkzt\b/i.test(k)) ? { ...x, price: '' } : x; });
 }
 hotelPrices.when = (on, items) => (on ? hotelPrices(items) : items);
 function mergeListings(lists, hostMax = 3) {
