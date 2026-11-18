@@ -380,6 +380,10 @@ const PORTAL_RULES = [
     { re: /^(?:почта\s+ва\s+карго|почта\s+и\s+карго|pochta\s+va\s+kargo)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places', opts: { local: true, home: true, apps: true, max: 20, perHost: 8, tokens: 4000 },
       query: 'Найди в Таджикистане почту и курьерские службы (Почтаи Тоҷик, экспресс-доставка по городу и стране): название, что доставляют, адрес или как вызвать курьера, телефон — только как написано в источнике, часы работы. Цены и сроки не придумывай: пиши только если они опубликованы. Ссылка — на страницу самой службы: её сайт (.tj), приложение в Google Play или App Store, Instagram, Telegram или карточка на Яндекс Картах.',
       spread: ['Найди в Таджикистане карго-компании, которые доставляют посылки и товары из Китая, России, Турции, ОАЭ и других стран: название, откуда возят, где забрать посылку (город, адрес), как связаться (телефон, Telegram, Instagram) — только как написано в источнике. Цены и сроки — только если опубликованы. Ссылка — на страницу самой компании: её сайт (.tj), Instagram, Telegram или карточка на Яндекс Картах.'] },
+    // «5. Финансы» → «Банки и банкоматы»: где отделение или банкомат, часы, что можно сделать (наличные, переводы, обмен); без кредитов, вкладов и процентов
+    { re: /^(?:бонкҳо\s+ва\s+банкоматҳо|бонкхо\s+ва\s+банкоматхо|банки\s+и\s+банкоматы|banklar\s+va\s+bankomatlar)$/, portal: /молия|финанс|moliya/, mode: 'digest', kind: 'places', opts: { local: true, home: true, max: 20, perHost: 6, tokens: 4000 },
+      query: 'Найди отделения банков и банкоматы в Душанбе: банк, адрес отделения или банкомата, часы работы (круглосуточно — только если так написано), что там можно сделать: снять или внести наличные, получить денежный перевод, обменять валюту, оплатить услуги. Телефон и адрес — только как написано на сайте банка, не выдумывай. Не пиши про кредиты, вклады, депозиты, проценты и рассрочку. Ссылка — на страницу отделений или банкоматов на сайте самого банка (.tj) или карточка на Яндекс Картах.',
+      spread: ['Найди отделения банков и банкоматы в Худжанде, Бохтаре, Кулябе, Истаравшане, Пенджикенте, Турсунзаде, Исфаре, Вахдате, Хороге и других городах Таджикистана, кроме Душанбе: банк, город и адрес, часы работы, что можно сделать (наличные, денежные переводы, обмен валюты). Телефон и адрес — только как написано на сайте банка, не выдумывай. Не пиши про кредиты, вклады, депозиты, проценты и рассрочку. Ссылка — на страницу отделений или банкоматов на сайте самого банка (.tj) или карточка на Яндекс Картах.'] },
     // «Врачи и клиники» → вкладка «Стоматология»: только где лечить зубы — название, адрес, телефон, часы, услуги; без цен и советов по лечению
     { re: /^(?:дандонпизишкӣ|дандонпизишки|стоматология|стоматологии|stomatologiya)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places', opts: { local: true, home: true, max: 15, perHost: 6, tokens: 4000 },
       query: 'Найди стоматологии и зубные клиники в Душанбе — государственные и частные: название, адрес, телефон, часы работы, какие услуги есть (лечение зубов, протезирование, имплантация, исправление прикуса, детский стоматолог), страница клиники. Телефон и адрес — только как написано на странице клиники, не выдумывай. Цены не указывай; диагнозов и советов по лечению не давай. Ссылка — на страницу самой клиники: её сайт (.tj), Instagram, Telegram, Facebook или карточка на Яндекс Картах.',
@@ -2283,7 +2287,7 @@ function cleanItem(x) {
         contact: clipContact(stripLinks(o.contact)),
         who: keepValue(stripLinks(o.who), 80),
         image: pickUrl(o.image),
-        points: (Array.isArray(o.points) ? o.points : []).map(x => clip(stripLinks(x), 90)).filter(p => p && !blankValue(p)).slice(0, 3),
+        points: (Array.isArray(o.points) ? o.points : []).map(x => clip(stripLinks(x), 90)).filter(p => p && !blankValue(p) && !HARAM_LINE.test(unNegate(p))).slice(0, 3), // строку о кредитах, процентах и т.п. не показываем («без процентов» — можно)
         url: pickUrl(o.url) || (inTitle ? pickUrl(inTitle[1]) : null)
     };
 }
@@ -7985,6 +7989,7 @@ const DIAG_TOPICS = {
     post: '4. Рӯзмарра - Почта ва карго',
     sos: '4. Рӯзмарра - Рақамҳои фаврӣ',
     weather: '4. Рӯзмарра - Обу ҳаво',
+    banks: '5. Молия ва тиҷорат - Бонкҳо ва банкоматҳо',
     delivery: '4. Рӯзмарра - Расонидани хӯрок',
     landcom: '1. Истиқомат ва амвол - Замин ва тиҷоратӣ',
     electric: '8. Хизматрасонӣ - Барқчӣ',
@@ -8319,7 +8324,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; }, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
