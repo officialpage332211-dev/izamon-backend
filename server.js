@@ -1737,8 +1737,9 @@ function spaceTipLines(text) {
     }
     return lines.map(line => line.replace(lead, '$1 ').replace(colon, '$1: ')).join('\n');
 }
-// «Погода»: прогноз на сегодня — настоящие цифры с Open-Meteo (api.open-meteo.com), а не пересказ ИИ.
-// Open-Meteo бесплатен, пока на сайте нет рекламы и подписок (условия: open-meteo.com/en/terms); с рекламой нужен их платный план.
+// «Погода»: прогноз на ближайшие сутки — настоящие цифры Норвежского метеоинститута (MET Norway, api.met.no), а не пересказ ИИ.
+// Данные открытые (CC BY 4.0): указываем источник и лицензию. Правила api.met.no: в User-Agent — название и сайт (без личной почты),
+// координаты не точнее 4 знаков, не чаще, чем нужно (ответ держим 30 минут). Open-Meteo не подошёл: с общего адреса Render — «429».
 // Не ответил — запасной путь: поиск с источниками (правило «Погода» в PORTAL_RULES).
 const WEATHER_CITIES = [
     { tg: 'Душанбе', ru: 'Душанбе', uz: 'Dushanbe', lat: 38.5598, lon: 68.787 },
@@ -1750,43 +1751,49 @@ const WEATHER_CITIES = [
 ];
 const WEATHER_WORDS = {
     day: { tg: 'рӯзона', ru: 'днём', uz: 'kunduzi' }, night: { tg: 'шабона', ru: 'ночью', uz: 'kechasi' },
-    // коды погоды WMO → значок и слово
+    // значок погоды MET Norway (symbol_code без _day/_night) → значок и слово; порядок важен: гроза и снег раньше дождя
     codes: [
-        [[0], '☀️', { tg: 'соф', ru: 'ясно', uz: 'ochiq' }],
-        [[1, 2], '⛅', { tg: 'қисман абрнок', ru: 'переменная облачность', uz: 'qisman bulutli' }],
-        [[3], '☁️', { tg: 'абрнок', ru: 'пасмурно', uz: 'bulutli' }],
-        [[45, 48], '🌫', { tg: 'туман', ru: 'туман', uz: 'tuman' }],
-        [[51, 53, 55, 56, 57], '🌦', { tg: 'борони майда', ru: 'морось', uz: "mayda yomg'ir" }],
-        [[61, 63, 65, 66, 67, 80, 81, 82], '🌧', { tg: 'борон', ru: 'дождь', uz: "yomg'ir" }],
-        [[71, 73, 75, 77, 85, 86], '❄️', { tg: 'барф', ru: 'снег', uz: 'qor' }],
-        [[95, 96, 99], '⛈', { tg: 'раъду барқ', ru: 'гроза', uz: 'momaqaldiroq' }]
+        [/thunder/, '⛈', { tg: 'раъду барқ', ru: 'гроза', uz: 'momaqaldiroq' }],
+        [/sleet/, '🌨', { tg: 'барфу борон', ru: 'мокрый снег', uz: "qor aralash yomg'ir" }],
+        [/snow/, '❄️', { tg: 'барф', ru: 'снег', uz: 'qor' }],
+        [/rain/, '🌧', { tg: 'борон', ru: 'дождь', uz: "yomg'ir" }],
+        [/fog/, '🌫', { tg: 'туман', ru: 'туман', uz: 'tuman' }],
+        [/^cloudy/, '☁️', { tg: 'абрнок', ru: 'пасмурно', uz: 'bulutli' }],
+        [/partlycloudy/, '⛅', { tg: 'қисман абрнок', ru: 'переменная облачность', uz: 'qisman bulutli' }],
+        [/fair/, '🌤', { tg: 'асосан соф', ru: 'малооблачно', uz: 'asosan ochiq' }],
+        [/clearsky/, '☀️', { tg: 'соф', ru: 'ясно', uz: 'ochiq' }]
     ]
 };
-const WEATHER_SRC = [{ title: 'open-meteo.com', uri: 'https://open-meteo.com/' }];
-let weatherMemo = { at: 0, day: '', data: null };
-async function weatherToday() {
-    const day = todayTJ().iso;
-    if (weatherMemo.data && weatherMemo.day === day && Date.now() - weatherMemo.at < 30 * MIN) return weatherMemo.data;
-    const q = 'latitude=' + WEATHER_CITIES.map(c => c.lat).join(',') + '&longitude=' + WEATHER_CITIES.map(c => c.lon).join(',') +
-        '&daily=weather_code,temperature_2m_max,temperature_2m_min&timezone=Asia%2FDushanbe&forecast_days=1';
-    const r = await withTimeout(fetch('https://api.open-meteo.com/v1/forecast?' + q, { headers: { 'User-Agent': 'iZamoN/1.0 (https://izamon.vercel.app)' } }), 6000);
-    if (!r.ok) throw new Error('open-meteo ' + r.status);
+const WEATHER_SRC = [{ title: 'api.met.no', uri: 'https://api.met.no/' }, { title: 'creativecommons.org', uri: 'https://creativecommons.org/licenses/by/4.0/' }];
+const WEATHER_UA = 'iZamoN/1.0 https://izamon.vercel.app';
+let weatherMemo = { at: 0, data: null };
+async function cityWeather(c) {
+    const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${c.lat.toFixed(4)}&lon=${c.lon.toFixed(4)}`;
+    const r = await withTimeout(fetch(url, { headers: { 'User-Agent': WEATHER_UA, Accept: 'application/json' } }), 6000);
+    if (!r.ok) throw new Error('met.no ' + r.status);
     const j = await r.json();
-    const list = Array.isArray(j) ? j : [j];
-    if (list.length !== WEATHER_CITIES.length) throw new Error('open-meteo: не те города');
-    const data = list.map((x, i) => {
-        const d = x && x.daily || {};
-        const hi = Number(d.temperature_2m_max && d.temperature_2m_max[0]), lo = Number(d.temperature_2m_min && d.temperature_2m_min[0]), code = Number(d.weather_code && d.weather_code[0]);
-        return Number.isFinite(hi) && Number.isFinite(lo) ? { city: WEATHER_CITIES[i], hi, lo, code, date: d.time && d.time[0] } : null;
-    });
-    if (data.filter(Boolean).length < 3 || data.some(x => x && x.date && x.date !== day)) throw new Error('open-meteo: нет данных на сегодня');
-    weatherMemo = { at: Date.now(), day, data };
+    const now = Date.now();
+    // ближайшие сутки: самая высокая и самая низкая температура и самый частый значок погоды (по 6-часовым отрезкам)
+    const next = ((j && j.properties && j.properties.timeseries) || []).filter(t => { const at = Date.parse(t.time); return at >= now - 3600e3 && at <= now + 24 * 3600e3; });
+    const temps = next.map(t => Number(t.data && t.data.instant && t.data.instant.details && t.data.instant.details.air_temperature)).filter(Number.isFinite);
+    if (temps.length < 6) throw new Error('met.no: мало данных');
+    const count = {};
+    for (const t of next) { const sc = t.data && t.data.next_6_hours && t.data.next_6_hours.summary && t.data.next_6_hours.summary.symbol_code; if (sc) { const k = String(sc).replace(/_(?:day|night|polartwilight)$/, ''); count[k] = (count[k] || 0) + 1; } }
+    const symbol = Object.keys(count).sort((a, b) => count[b] - count[a])[0] || '';
+    return { city: c, hi: Math.max(...temps), lo: Math.min(...temps), symbol };
+}
+async function weatherToday() {
+    if (weatherMemo.data && Date.now() - weatherMemo.at < 30 * MIN) return weatherMemo.data;
+    const got = await Promise.allSettled(WEATHER_CITIES.map(cityWeather));
+    const data = got.map(g => g.status === 'fulfilled' ? g.value : null);
+    if (data.filter(Boolean).length < 3) throw new Error('met.no: ' + ((got.find(g => g.status === 'rejected') || {}).reason || {}).message);
+    weatherMemo = { at: Date.now(), data };
     return data;
 }
 function weatherLines(data, lang) {
     const t = n => (n > 0 ? '+' : '') + Math.round(n) + '°';
     return data.filter(Boolean).map(w => {
-        const c = WEATHER_WORDS.codes.find(([codes]) => codes.includes(w.code));
+        const c = WEATHER_WORDS.codes.find(([re]) => re.test(w.symbol || ''));
         return `${c ? c[1] : '🌡'} ${w.city[lang] || w.city.ru}: ${WEATHER_WORDS.day[lang]} ${t(w.hi)}, ${WEATHER_WORDS.night[lang]} ${t(w.lo)}${c ? ', ' + c[2][lang] : ''}`;
     }).join('\n');
 }
@@ -5221,7 +5228,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
         if (factual && kind === 'weather') {
             try {
                 const w = await weatherToday();
-                return { body: { answer: tipsAnswer(weatherLines(w, lang), WEATHER_SRC, lang, 'weather'), provider: 'open-meteo', grounded: true, sources: WEATHER_SRC, view: 'tips' }, ttl: 30 * MIN };
+                return { body: { answer: tipsAnswer(weatherLines(w, lang), WEATHER_SRC, lang, 'weather'), provider: 'met.no', grounded: true, sources: WEATHER_SRC, view: 'tips' }, ttl: 30 * MIN };
             } catch (err) { console.warn(`[погода Сбой]: ${err.message}`); } // запасной путь — поиск с источниками
         }
         if (factual && MIG_GUIDES[kind]) return { body: { answer: migButtons(kind, lang), provider: 'none', grounded: true, sources: [] }, ttl: 60 * MIN };
@@ -8033,9 +8040,9 @@ async function handleDiag(req, res) {
     if (req.query?.channel === '1') return res.json({ date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), channel_test: await diagChannel() });
     // Как устроены страницы других сайтов объявлений (для прямого подключения): /diag?peek=https://arzon.tj/…&find=текст&from=0&len=2000
     // Только чтение, только сайты объявлений: somon.tj, arzon.tj, ola.tj, paydo.tj, savdo.tj, kifoya.tj, 5shanbe.tj, rg.tj (и его города), lepsh.net; каталог заведений sufra.tj.
-    // проверка погоды: /diag?wx=1 — что ответил Open-Meteo (или почему нет)
+    // проверка погоды: /diag?wx=1 — что ответил MET Norway (или почему нет)
     if (req.query?.wx === '1') {
-        weatherMemo = { at: 0, day: '', data: null };
+        weatherMemo = { at: 0, data: null };
         return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), day: todayTJ().iso, wx: await timed(async () => ({ lines: weatherLines(await weatherToday(), 'ru') })) });
     }
     if (/^https:\/\/(?:www\.|[a-z]{3,20}\.(?=rg\.tj))?(?:(?:somon|arzon|ola|paydo|savdo|kifoya|5shanbe|rg|sufra)\.tj|lepsh\.net)(?:\/[\w\-./%?=&]{0,200})?$/.test(String(req.query?.peek || ''))) {
@@ -8313,7 +8320,7 @@ module.exports = {
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
-    app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, day: '', data: null }; }, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
+    app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; }, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
     unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
