@@ -8033,6 +8033,11 @@ async function handleDiag(req, res) {
     if (req.query?.channel === '1') return res.json({ date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), channel_test: await diagChannel() });
     // Как устроены страницы других сайтов объявлений (для прямого подключения): /diag?peek=https://arzon.tj/…&find=текст&from=0&len=2000
     // Только чтение, только сайты объявлений: somon.tj, arzon.tj, ola.tj, paydo.tj, savdo.tj, kifoya.tj, 5shanbe.tj, rg.tj (и его города), lepsh.net; каталог заведений sufra.tj.
+    // проверка погоды: /diag?wx=1 — что ответил Open-Meteo (или почему нет)
+    if (req.query?.wx === '1') {
+        weatherMemo = { at: 0, day: '', data: null };
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), day: todayTJ().iso, wx: await timed(async () => ({ lines: weatherLines(await weatherToday(), 'ru') })) });
+    }
     if (/^https:\/\/(?:www\.|[a-z]{3,20}\.(?=rg\.tj))?(?:(?:somon|arzon|ola|paydo|savdo|kifoya|5shanbe|rg|sufra)\.tj|lepsh\.net)(?:\/[\w\-./%?=&]{0,200})?$/.test(String(req.query?.peek || ''))) {
         return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), peek: await timed(async () => {
             const page = await fetchPage(String(req.query.peek), { cap: 2500000, timeoutMs: 12000 });
