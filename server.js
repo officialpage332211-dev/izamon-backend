@@ -201,6 +201,8 @@ const SOMON_FARMLAND = {
     fixed: 'farm'
 };
 // Автомобили на продажу, запчасти, шины, мотоциклы и вакансии — не услуги автомеханика.
+// разделы somon.tj с продажей машин и техники: «Газель 33021, 1999 — 55 000 сом.» — продажа, а не грузотакси
+const SALE_TRANSPORT = /\/transport\/(?:legkovyie-avtomobili|spetstehnika-i-kommercheskij-transport|moto-transport|pricepi-konteineri|avtozapchasti-i-prinadlezhnosti|drugoj-transport)\//;
 const SOMON_NOT_AUTO = /legkovyie|gruzov|zapchast|shiny|shinyi|disk|moto|velo|vakansii|spetstehnik|tehnika|bitovoi/i;
 // Комнатные и певчие птицы — не животноводство: в список «Животноводство» не берём
 // «Посуточно» и «Новостройки»: с других сайтов берём только объявления, где это прямо написано
@@ -438,16 +440,16 @@ const PORTAL_RULES = [
     // Остальные подразделы с объявлениями: тот же прямой список somon.tj, что и у недвижимости (фото, цена, место, контакт из текста объявления).
     // «Такси» (новый подраздел «Транспорта»): службы такси — приложения и диспетчерские по городам, межгород. Ссылка — сайт службы (.tj),
     // её страница в Google Play / App Store, Instagram, Telegram или карточка на картах. Только то, что написано в источниках
-    { re: /^(?:такси|таксӣ|taksi)$/, portal: /нақлиёт|транспорт|transport/, mode: 'digest', kind: 'places', opts: { local: true, home: true, apps: true, max: 15, perHost: 6, tokens: 3500 },
+    { re: /^(?:такси|таксӣ|taksi)$/, portal: /нақлиёт|транспорт|transport/, mode: 'digest', kind: 'places', opts: { local: true, home: true, apps: true, allow: /(?:^|\.)tvoe\.taxi$/i, max: 15, perHost: 6, tokens: 3500 },
       query: 'Найди службы такси, которые работают в Таджикистане: приложения и диспетчерские службы такси в Душанбе — название, как заказать (приложение, короткий номер или телефон диспетчера, Telegram-бот), в каких городах работает. Номера телефонов — только как написано в источнике, не выдумывай. Цены не указывай. Ссылка — на страницу самой службы: её сайт (.tj), страница её приложения в Google Play или App Store, Instagram, Telegram или карточка на Яндекс Картах.',
       spread: ['Найди службы такси в городах Таджикистана, кроме Душанбе (Худжанд, Бохтар, Куляб, Истаравшан, Пенджикент, Турсунзаде, Исфара, Вахдат, Хорог), и междугороднее такси (Душанбе — Худжанд, Душанбе — Куляб и др.): название, город или маршрут, как заказать, телефон диспетчера — только как написано в источнике. Цены не указывай. Ссылка — на страницу самой службы: её сайт (.tj), приложение в Google Play или App Store, Instagram, Telegram или карточка на Яндекс Картах.'] },
     // «Такси» → вкладка «Грузотакси»: перевозка грузов на Газели, Портере и т.п. (объявления); продажу машин и запчастей не показываем
     { re: /^(?:грузотакси|таксии\s+боркаш|yuk\s+taksi)$/, kind: 'masters', portal: /нақлиёт|транспорт|transport/, mode: 'ads',
-      somon: { sources: [{ q: 'грузотакси' }, { q: 'газель грузоперевозки' }, { q: 'портер перевозка' }], words: /грузотакс|газел|портер|боркаш|грузоперевоз|перевоз|переезд|yuk\s*tash|yuk\s*taks/iu, notWords: /прода[её]т|продаю|продажа|фурӯш|sotiladi|запчаст|аренд\w*\s+(?:квартир|дом|комнат)|вакансия|требуется/iu, fixed: 'service' },
+      somon: { sources: [{ q: 'грузотакси' }, { q: 'газель грузоперевозки' }, { q: 'портер перевозка' }], notCat: SALE_TRANSPORT, words: /грузотакс|газел|портер|боркаш|грузоперевоз|перевоз|переезд|yuk\s*tash|yuk\s*taks/iu, notWords: /прода[её]т|продаю|продажа|фурӯш|sotiladi|запчаст|аренд\w*\s+(?:квартир|дом|комнат)|вакансия|требуется/iu, fixed: 'service' },
       query: 'Найди актуальные объявления грузотакси и грузоперевозок в Таджикистане (Газель, Портер, бортовые машины, перевозка мебели и вещей), сначала на somon.tj: что за машина, грузоподъёмность, цена или «договорная», город, контакт. Только перевозка: продажу машин и запчастей не показывай.' },
     // «Такси» → вкладка «Эвакуатор»: услуги эвакуатора (объявления)
     { re: /^(?:эвакуатор|эвакуаторы|evakuator)$/, kind: 'masters', portal: /нақлиёт|транспорт|transport/, mode: 'ads',
-      somon: { sources: [{ q: 'эвакуатор' }, { q: 'услуги эвакуатора' }], words: /эвакуат|evakuat/iu, notWords: /прода[её]т|продаю|продажа|фурӯш|sotiladi|вакансия|требуется/iu, fixed: 'service' },
+      somon: { sources: [{ q: 'эвакуатор' }, { q: 'услуги эвакуатора' }], notCat: SALE_TRANSPORT, words: /эвакуат|evakuat/iu, notWords: /прода[её]т|продаю|продажа|фурӯш|sotiladi|вакансия|требуется/iu, fixed: 'service' },
       query: 'Найди актуальные объявления услуг эвакуатора в Таджикистане, сначала на somon.tj: город или район, круглосуточно ли, цена или «договорная», контакт. Только услуги эвакуатора: продажу машин не показывай.' },
     // «Машины» → вкладка «Аренда машин»: прокат легковых машин (с водителем и без); спецтехнику и жильё не показываем.
     // Отдельного раздела аренды машин на somon.tj нет — ищем по словам и оставляем только объявления, где прямо написано «аренда / прокат»
@@ -4560,14 +4562,14 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
     if (Array.isArray(spread) && spread.length) {
         // «Врачи и клиники»: основной поиск и поиск по другим городам — одновременно; ответ ждём не дольше одного поиска
         const dbgs = [query, ...spread].map((q, n) => (debug ? (n ? {} : debug) : null));
-        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: dbgs[n], local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), apps: !!(opts && opts.apps), ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }).catch(err => {
+        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: dbgs[n], local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), apps: !!(opts && opts.apps), allow: opts && opts.allow || null, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }).catch(err => {
             console.warn(`[listings spread Сбой]: ${err && err.status || ''} ${scrub(err && err.message || err)}`);
             return [];
         })));
         items = mergeListings(lists, opts && opts.perHost || 3);
         if (hotel) items = hotelPrices(items);
         if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, len: dbgs[n] && dbgs[n].textLen, end: dbgs[n] && dbgs[n].parseError ? dbgs[n].textEnd : undefined, start: dbgs[n] && dbgs[n].parseError ? dbgs[n].textStart : undefined, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
-    } else items = hotelPrices.when(hotel, await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), apps: !!(opts && opts.apps), ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }));
+    } else items = hotelPrices.when(hotel, await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), apps: !!(opts && opts.apps), allow: opts && opts.allow || null, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }));
     const done = await finishItems(items.slice(0, opts && opts.max || 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
     // курс — заранее, чтобы карточки показали цену в валюте языка
     try { await nbtRatesFor(date); } catch {}
@@ -4576,7 +4578,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
 }
 
 // Поиск по интернету: карточки с настоящими ссылками на страницы, которые поиск действительно открыл. task — что искать, skip — какие сайты не брать.
-async function webListings({ kind, lang, date, query, debug, task, skip, hotel = false, local = false, hostMax = 3, tokens = 2500, home = false, apps = false }) {
+async function webListings({ kind, lang, date, query, debug, task, skip, hotel = false, local = false, hostMax = 3, tokens = 2500, home = false, apps = false, allow = null }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${task || KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"",${local ? '' : '"image":"",'}"points":["",""]}]}
 ${skip ? 'title — название пункта так, как оно написано на странице-источнике: дословно, без перевода и пересказа, коротко.' : `title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).`}
@@ -4627,7 +4629,7 @@ url — обычная ссылка https://… (без Markdown и скобок
         if (!h || BAD_SOURCES.test(h) || (citedHosts.size && !citedHosts.has(h))) { drop.notOpened++; return false; }
         // гостиницы: ещё собственный сайт гостиницы (hyatt.com, serenahotels.com), её страница на booking.com и карточка в Google Отелях
         // доставка еды (opts.apps): ещё страница самого приложения в Google Play или App Store — так люди и заказывают
-        if (local && apps && APP_PAGE.test(String(it.url))) { /* своё приложение службы — оставляем */ }
+        if (local && ((apps && APP_PAGE.test(String(it.url))) || (allow && allow.test(h)))) { /* приложение службы или разрешённая площадка — оставляем */ }
         else if (local && !localPlaceUrl(it.url) && !(hotel && (hotelOwnSite(it.title, it.url) || (/(?:^|\.)booking\.com$/i.test(h) && /\/(?:hotel\/tj|gostinicy\/tj\/[^/]+)\/[^/]+\.html/i.test(String(it.url))) || (/(?:^|\.)google\.[a-z.]{2,6}$/i.test(h) && /\/travel\/hotels\//.test(String(it.url)))))) { drop.foreign = (drop.foreign || 0) + 1; return false; }
         if (skip && skip.test(h)) { drop.skipped = (drop.skipped || 0) + 1; return false; }
         if (itemForbidden(it, kind)) { drop.forbidden++; return false; }
