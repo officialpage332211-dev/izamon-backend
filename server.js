@@ -352,7 +352,7 @@ const PORTAL_RULES = [
       query: 'Найди стоматологии и зубные клиники в Душанбе — государственные и частные: название, адрес, телефон, часы работы, какие услуги есть (лечение зубов, протезирование, имплантация, исправление прикуса, детский стоматолог), страница клиники. Телефон и адрес — только как написано на странице клиники, не выдумывай. Цены не указывай; диагнозов и советов по лечению не давай. Ссылка — на страницу самой клиники: её сайт (.tj), Instagram, Telegram, Facebook или карточка на Яндекс Картах.',
       spread: ['Найди стоматологии и зубные клиники в городах Таджикистана, кроме Душанбе: Худжанд, Бохтар, Куляб, Истаравшан, Пенджикент, Турсунзаде, Исфара, Вахдат, Хорог — название, город и адрес, телефон, часы работы, услуги. Телефон и адрес — только как написано на странице клиники, не выдумывай. Цены не указывай; диагнозов и советов по лечению не давай. Ссылка — на страницу самой клиники: её сайт (.tj), Instagram, Telegram, Facebook или карточка на Яндекс Картах.'] },
     // «Кафе и рестораны» → вкладка «Доставка еды»: службы доставки и заведения с доставкой; без алкоголя и свинины, «халяль» — со слов заведения
-    { re: /^(?:расонидани\s+хӯрок|расонидани\s+хурок|доставка\s+еды|ovqat\s+yetkazib\s+berish)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places', opts: { local: true, max: 20, perHost: 10, tokens: 4000 },
+    { re: /^(?:расонидани\s+хӯрок|расонидани\s+хурок|доставка\s+еды|ovqat\s+yetkazib\s+berish)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places', opts: { local: true, home: true, apps: true, max: 20, perHost: 10, tokens: 4000 },
       query: 'Найди службы доставки еды и кафе с доставкой в Душанбе: название, что привозят (национальная кухня, плов, самбуса, пицца, бургеры, шаурма и т.п.), как заказать (телефон, приложение, Telegram-бот, сайт), часы работы, бесплатная ли доставка (только если написано). Ссылка — на страницу самой службы или заведения: её сайт (.tj), Instagram, Telegram или карточка на Яндекс Картах. Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай доставку алкоголя, бары и места, где подают алкоголь или свинину.',
       spread: ['Найди службы доставки еды и кафе с доставкой в Худжанде, Бохтаре, Кулябе, Истаравшане, Пенджикенте, Турсунзаде, Вахдате и других городах Таджикистана, кроме Душанбе: название, город, что привозят, как заказать (телефон, приложение, Telegram-бот), часы работы. Ссылка — на страницу самой службы или заведения: её сайт (.tj), Instagram, Telegram или карточка на Яндекс Картах. Если заведение само пишет, что оно халяль, отметь «халяль — по словам заведения». Не показывай доставку алкоголя, бары и места, где подают алкоголь или свинину.'] },
     { re: /^(?:ошхонаҳо|ошхона|кафе\s+и\s+рестораны|oshxonalar|oshxona|тарабхонаҳо|тарабхона|рестораны|ресторан|restoranlar|restoran)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'places', opts: { local: true, max: 20, perHost: 10, tokens: 4000 },
@@ -394,7 +394,7 @@ const PORTAL_RULES = [
       query: 'Найди актуальные объявления о посуточной аренде квартир и домов в Таджикистане, сначала на somon.tj (раздел «Аренда посуточно»): что сдаётся, число комнат, цена за сутки, район или город, контакт хозяина. Только посуточно: долгосрочную аренду и продажу не показывай.' },
     // «Продажа жилья» → вкладка «Новостройки»: квартиры в новых домах и от застройщиков; аренду, ремонт и мебель не показываем
     { re: /^(?:биноҳои\s+нав|новостройки|новостройка|yangi\s+binolar)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ q: 'новостройка' }, { q: 'квартира от застройщика' }, { q: 'сдача дома' }], boards: [{ host: 'rg.tj', path: 'flats/sale', words: NEW_BUILD }, { host: 'paydo.tj', path: 'kvartiry-prodazha', words: NEW_BUILD }, { host: 'ola.tj', path: 'prodazha-kvartir', words: NEW_BUILD }], words: /квартир|комн|м2|м²|кв\.?\s*м|этаж|хона|xona|kvartira/iu, notWords: /аренд|сда[её]т|сдаю|сдам|иҷора|ижара|ijara|посуточ|ремонт\s+квартир|услуг|мебел|дизайн|кухн|двер|окн|натяжн|плитк|сантех|электр/iu, fixed: 'estate' },
+      somon: { sources: [{ q: 'новостройка' }, { q: 'квартира от застройщика' }, { q: 'сдача дома' }], cat: /\/nedvizhimost\/prodazha-kvartir\//, boards: [{ host: 'rg.tj', path: 'flats/sale', words: NEW_BUILD }, { host: 'paydo.tj', path: 'kvartiry-prodazha', words: NEW_BUILD }, { host: 'ola.tj', path: 'prodazha-kvartir', words: NEW_BUILD }], words: /квартир|комн|м2|м²|кв\.?\s*м|этаж|хона|xona|kvartira/iu, notWords: /аренд|сда[её]т|сдаю|сдам|иҷора|ижара|ijara|посуточ|ремонт\s+квартир|услуг|мебел|дизайн|кухн|двер|окн|натяжн|плитк|сантех|электр/iu, fixed: 'estate' },
       query: 'Найди актуальные объявления о продаже квартир в новостройках Таджикистана (от застройщика, в строящихся и только что сданных домах), сначала на somon.tj: жилой комплекс или адрес, число комнат, площадь, цена, срок сдачи (если написан), контакт. Только продажа квартир в новых домах: аренду, ремонт и мебель не показывай.' },
     { re: /^(?:иҷора|аренда|ijara)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
       somon: { sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }], boards: [{ host: 'rg.tj', path: 'flats/rent' }, { host: 'rg.tj', path: 'houses/rent' }, { host: 'savdo.tj', path: 'nedvizhimost', words: /аренд|сда[её]т|сдаю|сдам|иҷора|ижара|посуточ|ijara/iu }, { host: 'paydo.tj', path: 'kvartiry-arenda' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-arenda' }, { host: 'ola.tj', path: 'dolgosrochnaya-arenda-kvartir' }],  fixed: 'estate' },
@@ -4468,6 +4468,7 @@ function mixFeeds(main, extra, total = 10) {
 // Несколько списков карточек → один: по очереди из каждого (разнообразие), без повторов ссылки и названия, с одного сайта — не больше 3
 // Места в Таджикистане (opts.local): только таджикские сайты, карты и страницы самого заведения — без зарубежных справочников
 // (bizkontakte.com, top-rated.online и т.п.)
+const APP_PAGE = /^https:\/\/(?:play\.google\.com\/store\/apps\/details\?id=[\w.]+|apps\.apple\.com\/(?:[a-z]{2}\/)?app\/[^/?#]+\/id\d+)/i;
 const LOCAL_PLACE_HOST = /(?:^|\.)(?:[a-z0-9-]+\.tj|instagram\.com|facebook\.com|fb\.com|t\.me|telegram\.me|wa\.me|yandex\.[a-z]{2,3}|google\.[a-z.]{2,6}|maps\.app\.goo\.gl|goo\.gl)$/i;
 function localPlaceUrl(url) {
     const h = hostOf(url);
@@ -4546,14 +4547,14 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
     if (Array.isArray(spread) && spread.length) {
         // «Врачи и клиники»: основной поиск и поиск по другим городам — одновременно; ответ ждём не дольше одного поиска
         const dbgs = [query, ...spread].map((q, n) => (debug ? (n ? {} : debug) : null));
-        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: dbgs[n], local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }).catch(err => {
+        const lists = await Promise.all([query, ...spread].map((q, n) => webListings({ kind, lang, date, query: q, debug: dbgs[n], local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), apps: !!(opts && opts.apps), ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }).catch(err => {
             console.warn(`[listings spread Сбой]: ${err && err.status || ''} ${scrub(err && err.message || err)}`);
             return [];
         })));
         items = mergeListings(lists, opts && opts.perHost || 3);
         if (hotel) items = hotelPrices(items);
         if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, len: dbgs[n] && dbgs[n].textLen, end: dbgs[n] && dbgs[n].parseError ? dbgs[n].textEnd : undefined, start: dbgs[n] && dbgs[n].parseError ? dbgs[n].textStart : undefined, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
-    } else items = hotelPrices.when(hotel, await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }));
+    } else items = hotelPrices.when(hotel, await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), apps: !!(opts && opts.apps), ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }));
     const done = await finishItems(items.slice(0, opts && opts.max || 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
     // курс — заранее, чтобы карточки показали цену в валюте языка
     try { await nbtRatesFor(date); } catch {}
@@ -4562,7 +4563,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
 }
 
 // Поиск по интернету: карточки с настоящими ссылками на страницы, которые поиск действительно открыл. task — что искать, skip — какие сайты не брать.
-async function webListings({ kind, lang, date, query, debug, task, skip, hotel = false, local = false, hostMax = 3, tokens = 2500, home = false }) {
+async function webListings({ kind, lang, date, query, debug, task, skip, hotel = false, local = false, hostMax = 3, tokens = 2500, home = false, apps = false }) {
     const system = `Ты ищешь в интернете реальные актуальные предложения. Сегодня ${date.human}. ${task || KIND_TASK[kind]}
 Верни ТОЛЬКО JSON без пояснений: {"items":[{"title":"","price":"","place":"","date":"","contact":"","who":"","url":"",${local ? '' : '"image":"",'}"points":["",""]}]}
 ${skip ? 'title — название пункта так, как оно написано на странице-источнике: дословно, без перевода и пересказа, коротко.' : `title — коротко, на языке: ${LANG_NAMES[lang]} (марки, модели и названия компаний оставь как есть).`}
@@ -4612,7 +4613,9 @@ url — обычная ссылка https://… (без Markdown и скобок
         // Ссылка должна вести на сайт, который поиск действительно открыл, — выдуманные адреса отсекаются.
         if (!h || BAD_SOURCES.test(h) || (citedHosts.size && !citedHosts.has(h))) { drop.notOpened++; return false; }
         // гостиницы: ещё собственный сайт гостиницы (hyatt.com, serenahotels.com), её страница на booking.com и карточка в Google Отелях
-        if (local && !localPlaceUrl(it.url) && !(hotel && (hotelOwnSite(it.title, it.url) || (/(?:^|\.)booking\.com$/i.test(h) && /\/(?:hotel\/tj|gostinicy\/tj\/[^/]+)\/[^/]+\.html/i.test(String(it.url))) || (/(?:^|\.)google\.[a-z.]{2,6}$/i.test(h) && /\/travel\/hotels\//.test(String(it.url)))))) { drop.foreign = (drop.foreign || 0) + 1; return false; }
+        // доставка еды (opts.apps): ещё страница самого приложения в Google Play или App Store — так люди и заказывают
+        if (local && apps && APP_PAGE.test(String(it.url))) { /* своё приложение службы — оставляем */ }
+        else if (local && !localPlaceUrl(it.url) && !(hotel && (hotelOwnSite(it.title, it.url) || (/(?:^|\.)booking\.com$/i.test(h) && /\/(?:hotel\/tj|gostinicy\/tj\/[^/]+)\/[^/]+\.html/i.test(String(it.url))) || (/(?:^|\.)google\.[a-z.]{2,6}$/i.test(h) && /\/travel\/hotels\//.test(String(it.url)))))) { drop.foreign = (drop.foreign || 0) + 1; return false; }
         if (skip && skip.test(h)) { drop.skipped = (drop.skipped || 0) + 1; return false; }
         if (itemForbidden(it, kind)) { drop.forbidden++; return false; }
         // Одну и ту же страницу объявления дважды не показываем. Если ссылка ведёт на общую страницу списка
