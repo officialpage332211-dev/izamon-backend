@@ -404,6 +404,8 @@ const PORTAL_RULES = [
     // «Коммунальные платежи»: новости и способы оплаты (без тарифов и сумм) + постоянная справка с проверенными контактами
     { re: /^(?:пардохти\s+коммуналӣ|коммунальные\s+платежи|kommunal\s+to.?lovlar)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'utilities',
       query: 'Найди на официальных и новостных сайтах Таджикистана (asiaplus.news, khovar.tj, avesta.tj, сайты банков и коммунальных служб) актуальные новости о том, как оплачивать коммунальные услуги (свет, вода, газ, отопление, вывоз мусора): новые способы оплаты, сроки, где получить счёт. Тарифы и суммы не называй. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение.' },
+    // «Экстренные телефоны»: постоянная справка (SOS_GUIDE), номера — кнопки «позвонить», без поиска
+    { re: /^(?:рақамҳои\s+фаврӣ|рақамҳои\s+фаври|экстренные\s+телефоны|favqulodda\s+raqamlar)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'sos', query: 'Экстренные телефоны' },
     // «Госуслуги»: постоянная справка с официальными ссылками (GOV_GUIDE), без поиска
     { re: /^(?:хизматрасониҳои\s+давлатӣ|госуслуги|davlat\s+xizmatlari)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'gov', query: 'Госуслуги' },
     // «Поездки» → вкладки «Гостиницы» и «Достопримечательности» (кнопки над карточками туров)
@@ -1583,6 +1585,28 @@ const GOV_GUIDE = {
         { head: "🛡 Ehtiyot bo'ling", text: ["Faqat rasmiy saytlarda rasmiylashtiring. SMS kodlarini hech kimga aytmang va pasportni vositachilarga bermang."] }
     ]
 };
+// «Экстренные телефоны»: только номера, которые совпадают в источнике (Википедия, «List of emergency telephone numbers», строка
+// Tajikistan, проверено 18.11.2026): 112, пожарная — 101, милиция — 102, скорая — 103, утечка газа — 104. Каждый номер — кнопка «позвонить».
+const SOS_SRC = 'https://en.wikipedia.org/wiki/List_of_emergency_telephone_numbers';
+const SOS_NUMS = [['101', '🚒'], ['102', '🚓'], ['103', '🚑'], ['104', '🔥'], ['112', '🆘']];
+const SOS_GUIDE = {
+    ru: [
+        { head: '🚨 Экстренные службы Таджикистана', text: ['🚒 101 — пожарная служба', '🚓 102 — милиция', '🚑 103 — скорая помощь', '🔥 104 — утечка газа', '🆘 112 — экстренный номер'], btns: SOS_NUMS.map(([n, e], i) => ({ label: `${e} Позвонить ${n}`, href: `tel:${n}`, main: i === 2 })) },
+        { head: '🗣 Что сказать', text: ['Что случилось, точный адрес (город, улица, дом, ориентир), ваше имя и номер телефона. Не кладите трубку первым.'] },
+        { head: '🔗 Источник', text: ['Список экстренных номеров по странам (Википедия).'], btns: [{ label: '🔗 Открыть источник', href: SOS_SRC }] }
+    ],
+    tg: [
+        { head: '🚨 Хадамоти фаврии Тоҷикистон', text: ['🚒 101 — хадамоти сӯхторхомӯшкунӣ', '🚓 102 — милиса', '🚑 103 — ёрии таъҷилӣ', '🔥 104 — ихроҷи газ', '🆘 112 — рақами фаврӣ'], btns: SOS_NUMS.map(([n, e], i) => ({ label: `${e} Занг задан ба ${n}`, href: `tel:${n}`, main: i === 2 })) },
+        { head: '🗣 Чӣ бояд гуфт', text: ['Чӣ шуд, суроғаи дақиқ (шаҳр, кӯча, хона, нишона), ному рақами телефонатон. Аввал гӯширо нагузоред.'] },
+        { head: '🔗 Манбаъ', text: ['Рӯйхати рақамҳои фаврӣ аз рӯи кишварҳо (Википедия).'], btns: [{ label: '🔗 Кушодани манбаъ', href: SOS_SRC }] }
+    ],
+    uz: [
+        { head: "🚨 Tojikiston favqulodda xizmatlari", text: ["🚒 101 — yong'in xizmati", '🚓 102 — militsiya', '🚑 103 — tez yordam', "🔥 104 — gaz sizishi", '🆘 112 — favqulodda raqam'], btns: SOS_NUMS.map(([n, e], i) => ({ label: `${e} ${n} ga qo'ng'iroq`, href: `tel:${n}`, main: i === 2 })) },
+        { head: '🗣 Nima deyish kerak', text: ["Nima bo'ldi, aniq manzil (shahar, ko'cha, uy, mo'ljal), ismingiz va telefon raqamingiz. Go'shakni birinchi bo'lib qo'ymang."] },
+        { head: '🔗 Manba', text: ["Mamlakatlar bo'yicha favqulodda raqamlar ro'yxati (Vikipediya)."], btns: [{ label: '🔗 Manbani ochish', href: SOS_SRC }] }
+    ]
+};
+function sosButtons(lang) { return guideBlock(SOS_GUIDE[lang] || SOS_GUIDE.ru); }
 function govButtons(lang) { return guideBlock(GOV_GUIDE[lang] || GOV_GUIDE.ru); }
 function utilButtons(lang) { return guideBlock(UTIL_GUIDE[lang] || UTIL_GUIDE.ru); }
 function mmtButtons(lang) { return guideBlock(MMT_GUIDE[lang] || MMT_GUIDE.ru); }
@@ -5135,6 +5159,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
     active++;
     try {
         if (factual && kind === 'gov') return { body: { answer: govButtons(lang), provider: 'none', grounded: true, sources: [] }, ttl: 60 * MIN };
+        if (factual && kind === 'sos') return { body: { answer: sosButtons(lang), provider: 'none', grounded: true, sources: [] }, ttl: 60 * MIN };
         if (factual && MIG_GUIDES[kind]) return { body: { answer: migButtons(kind, lang), provider: 'none', grounded: true, sources: [] }, ttl: 60 * MIN };
         if (factual) {
             // Сначала объявления самого iZamoN (с контактом автора), затем поиск по интернету.
@@ -7887,6 +7912,7 @@ const DIAG_TOPICS = {
     dental: '4. Рӯзмарра - Дандонпизишкӣ',
     markets: '4. Рӯзмарра - Бозорҳо ва мағозаҳо',
     post: '4. Рӯзмарра - Почта ва карго',
+    sos: '4. Рӯзмарра - Рақамҳои фаврӣ',
     delivery: '4. Рӯзмарра - Расонидани хӯрок',
     landcom: '1. Истиқомат ва амвол - Замин ва тиҷоратӣ',
     electric: '8. Хизматрасонӣ - Барқчӣ',
