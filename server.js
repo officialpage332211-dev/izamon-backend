@@ -386,7 +386,7 @@ const PORTAL_RULES = [
       spread: ['Найди отделения банков и банкоматы в Худжанде, Бохтаре, Кулябе, Истаравшане, Пенджикенте, Турсунзаде, Исфаре, Вахдате, Хороге и других городах Таджикистана, кроме Душанбе: банк, город и адрес, часы работы, что можно сделать (наличные, денежные переводы, обмен валюты). Телефон и адрес — только как написано на сайте банка, не выдумывай. Не пиши про кредиты, вклады, депозиты, проценты и рассрочку. POS-терминалы в магазинах не показывай. Ссылка — на страницу отделений или банкоматов на сайте самого банка (.tj) или карточка на Яндекс Картах.',
         'Найди на сайтах банков Таджикистана (Эсхата, Амонатбонк, Алиф, Душанбе Сити, Спитамен, Арванд, Ориёнбонк, Халык, Международный банк Таджикистана и др.) банкоматы в Душанбе: банк, точный адрес или ориентир (торговый центр, улица), работает ли круглосуточно — только если так написано, можно ли внести наличные. Адрес — только как написано на сайте банка, не выдумывай. Не пиши про кредиты, вклады, депозиты, проценты и рассрочку. POS-терминалы в магазинах не показывай. Ссылка — на страницу банкоматов на сайте самого банка (.tj) или карточка на Яндекс Картах.'] },
     // «5. Финансы» → «Денежные переводы»: страницы переводов на сайтах банков (какие системы, откуда, как получить) и приложения банков; без комиссий, кредитов и процентов
-    { re: /^(?:интиқоли\s+пул|интиқоли\s+пулӣ|интиколи\s+пул|денежные\s+переводы|pul\s+o.?tkazmalari)$/, portal: /молия|финанс|moliya/, mode: 'digest', kind: 'places', opts: { local: true, home: true, apps: true, max: 15, perHost: 2, tokens: 4000, dropPoints: /комисси|тариф|kommissiya|tarif|ҳаққи\s+хизмат|минимальн[а-яё]*\s+сумм|максимальн[а-яё]*\s+сумм|лимит|limit/i },
+    { re: /^(?:интиқоли\s+пул|интиқоли\s+пулӣ|интиколи\s+пул|денежные\s+переводы|pul\s+o.?tkazmalari)$/, portal: /молия|финанс|moliya/, mode: 'digest', kind: 'places', opts: { local: true, home: true, apps: true, nameOnPage: true, max: 15, perHost: 2, tokens: 4000, dropPoints: /комисси|тариф|kommissiya|tarif|ҳаққи\s+хизмат|минимальн[а-яё]*\s+сумм|максимальн[а-яё]*\s+сумм|лимит|limit/i },
       query: 'Найди на сайтах банков Таджикистана — Эсхата, Амонатбонк, Алиф, Душанбе Сити, Спитамен, Арванд, Ориёнбонк, Халык, Международный банк Таджикистана, Коммерцбанк — их страницы «Денежные переводы»: через какие системы переводов банк выдаёт и отправляет деньги (названия систем — как написано на странице банка), из каких стран можно получить перевод, как получить: в кассе по паспорту, на карту или в приложении банка. Одна карточка — один банк, данные каждой карточки — только с его собственной страницы. Комиссии, тарифы и курсы не пиши. Не выдумывай: только то, что написано на странице банка. Не пиши про кредиты, вклады, депозиты и проценты. Ссылка — на страницу переводов на сайте самого банка (.tj).',
       spread: ['Найди приложения банков Таджикистана (Алиф, Эсхата, Душанбе Сити, Амонатбонк, Спитамен, Арванд, Халык и др.), через которые можно перевести деньги по номеру телефона или на карту внутри страны и получить перевод из-за рубежа: название приложения и банка, что оно умеет (перевод по номеру телефона, на карту «Корти милли» или Visa, получение переводов из других стран) — только как написано на странице банка или приложения. Комиссии, тарифы и лимиты не пиши. Не пиши про кредиты, вклады, депозиты, проценты и рассрочку. Ссылка — на страницу приложения на сайте банка (.tj) или в Google Play / App Store.'] },
     // «5. Финансы» → «Рассрочка без процентов»: магазины, которые сами пишут «рассрочка без процентов / без переплаты / 0%» (поиск по сайтам магазинов);
@@ -4462,7 +4462,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
 // Перевод, фото и сверка со страницами — общий хвост для обоих источников.
 // одно и то же без регистра, пробелов и знаков («Худжанд | Согд» и «Худжанд, Согд»)
 const sameLoose = (a, b) => { const n = x => String(x || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''); return !!n(a) && n(a) === n(b); };
-async function finishItems(top, kind, lang, debug, fixed = '') {
+async function finishItems(top, kind, lang, debug, fixed = '', check = null) {
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
     const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug, fixed === 'hotel')]);
     if (debug && photos.specs) debug.kwAll = photos.specs.slice(0, 10).map(x => x && x.kw ? x.kw.replace(/, sell, buy, ads on Somon\.tj$/i, '').slice(0, 180) : null);
@@ -4474,7 +4474,7 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
             if (fromPage) t.contact = fromPage;
         }
     });
-    const verified = await verifyItems(top, localized, kind, debug);
+    const verified = await verifyItems(top, localized, kind, debug, check && check.nameOnPage);
     // Время публикации (у карточек с somon.tj): до недели — «5 дней назад», старше — календарная дата цифрами
     const dates = await Promise.all(top.map(async it => {
         // Нет разбора времени со страницы somon.tj — пробуем обычную дату от модели («2026-11-01»): словами или ДД.ММ.ГГГГ.
@@ -4487,6 +4487,7 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
         return dateLabel(it.pub, lang, iso);
     }));
     return verified.map((it, i) => {
+        if (!it) return null;
         const t = top[i];
         // Фото: со страницы объявления; нет — для somon.tj берём фото из его списка (адрес настоящий, он оттуда же)
         const img = photos[i] || (t.trusted ? t.image : null) || null;
@@ -4502,7 +4503,7 @@ async function finishItems(top, kind, lang, debug, fixed = '') {
             full: kind === 'tickets' || kind === 'tours' ? '' : fullText(...[photos.descs && photos.descs[i], t.listDesc].map(d => sameLoose(d, it.place || t.place) ? '' : d)),
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
         return fixed ? { ...base, ...fixedSlots(base, lang, fixed, { specs: photos.specs && photos.specs[i], desc: t.trusted ? photos.descs && photos.descs[i] : '', title0: t.title }) } : base;
-    });
+    }).filter(Boolean);
 }
 
 // ---------- Другие сайты рядом с somon.tj ----------
@@ -4707,7 +4708,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
     } else items = hotelPrices.when(hotel, await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), apps: !!(opts && opts.apps), allow: opts && opts.allow || null, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }));
     // opts.dropPoints: строки карточки, которые в этом разделе не показываем (у переводов — комиссии и тарифы: они меняются, а поиск их путает)
     if (opts && opts.dropPoints) items = items.map(it => ({ ...it, points: (it.points || []).filter(p => !opts.dropPoints.test(p)) }));
-    const done = await finishItems(items.slice(0, opts && opts.max || 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''));
+    const done = await finishItems(items.slice(0, opts && opts.max || 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''), { nameOnPage: !!(opts && opts.nameOnPage) });
     // курс — заранее, чтобы карточки показали цену в валюте языка
     try { await nbtRatesFor(date); } catch {}
     if (hotel) return done;
@@ -6108,10 +6109,22 @@ function verifyPoints(it, facts, kind) {
     return { kept: keep, dropped };
 }
 
+// Есть ли название с карточки на странице: слова от 4 букв без общих («банк», «филиал», «офис»…); «банк/бонк/bank» внутри слова
+// не считаем («Амонатбанк» = «Амонатбонк»), кириллицу проверяем и латиницей («Эсхата» = «eskhata»). Слов нет — проверять нечего.
+const NAME_STOP = /^(?:банк|бонк|bank|филиал|филиалы|отделение|головной|главный|офис|денежные|денежных|переводы|переводов|перевод|интиқол|интиқоли|пул|пули|мобильный|приложение|приложения|система|системы|центр|обслуживания|таджикистана|таджикистан|тоҷикистон|тоҷикистони|точикистон|tajikistan|деньги|дар|для|через|international|money|transfer|transfers|mobile|app)$/;
+const TRANSLIT = { а: 'a', б: 'b', в: 'v', г: 'g', ғ: 'g', д: 'd', е: 'e', ё: 'yo', ж: 'zh', з: 'z', и: 'i', ӣ: 'i', й: 'y', к: 'k', қ: 'q', л: 'l', м: 'm', н: 'n', о: 'o', п: 'p', р: 'r', с: 's', т: 't', у: 'u', ӯ: 'u', ф: 'f', х: 'kh', ҳ: 'h', ц: 'ts', ч: 'ch', ҷ: 'j', ш: 'sh', щ: 'sh', ъ: '', ы: 'y', ь: '', э: 'e', ю: 'yu', я: 'ya' };
+function nameOnPage(title, lower) {
+    const page = String(lower || '').replace(/ё/g, 'е');
+    const words = String(title || '').toLowerCase().replace(/ё/g, 'е').split(/[^\p{L}\p{N}]+/u)
+        .map(w => w.replace(/(?:банк|бонк|bank)$/u, '')).filter(w => w.length >= 4 && !NAME_STOP.test(w));
+    if (!words.length) return true;
+    return words.some(w => page.includes(w) || (/[а-яӣӯқғҳҷ]/.test(w) && (page.includes([...w].map(ch => TRANSLIT[ch] ?? ch).join('')) || page.includes([...w].map(ch => TRANSLIT[ch] ?? ch).join('').replace(/kh/g, 'h')))));
+}
+
 // Сверка карточек со страницами: чужие и выдуманные контакты и характеристики убираются. Страницу открыть не удалось — контакт не показываем.
-async function verifyItems(original, current, kind, debug) {
+async function verifyItems(original, current, kind, debug, nameCheck = false) {
     if (process.env.PHOTO_CHECK === 'off') return current;
-    const stat = { pagesOk: 0, pagesFailed: 0, contactsKept: 0, contactsDropped: 0, pointsDropped: 0 };
+    const stat = { pagesOk: 0, pagesFailed: 0, contactsKept: 0, contactsDropped: 0, pointsDropped: 0, notOnPage: 0 };
     const facts = await Promise.all(original.map(async it => {
         try { return pageFacts((await withTimeout(getPage(it.url), 9000)).html); } catch { return null; }
     }));
@@ -6123,6 +6136,9 @@ async function verifyItems(original, current, kind, debug) {
         if (c.kept) stat.contactsKept++;
         const pts = verifyPoints(it, f, kind);
         stat.pointsDropped += pts.dropped;
+        // nameCheck (переводы): название с карточки должно быть на открытой странице — иначе модель перепутала банк и страницу;
+        // такая карточка — null (номера карточек должны совпадать с top для фото и дат), убирает её finishItems
+        if (nameCheck && f && !nameOnPage(original[i].title, f.lower)) { stat.notOnPage++; return null; }
         return { ...it, contact: c.kept, points: pts.kept };
     });
     if (debug) debug.verify = stat;
@@ -8339,7 +8355,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, nameOnPage, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; }, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
