@@ -381,7 +381,7 @@ const PORTAL_RULES = [
       query: 'Найди в Таджикистане почту и курьерские службы (Почтаи Тоҷик, экспресс-доставка по городу и стране): название, что доставляют, адрес или как вызвать курьера, телефон — только как написано в источнике, часы работы. Цены и сроки не придумывай: пиши только если они опубликованы. Ссылка — на страницу самой службы: её сайт (.tj), приложение в Google Play или App Store, Instagram, Telegram или карточка на Яндекс Картах.',
       spread: ['Найди в Таджикистане карго-компании, которые доставляют посылки и товары из Китая, России, Турции, ОАЭ и других стран: название, откуда возят, где забрать посылку (город, адрес), как связаться (телефон, Telegram, Instagram) — только как написано в источнике. Цены и сроки — только если опубликованы. Ссылка — на страницу самой компании: её сайт (.tj), Instagram, Telegram или карточка на Яндекс Картах.'] },
     // «5. Финансы» → «Банки и банкоматы»: где отделение или банкомат, часы, что можно сделать (наличные, переводы, обмен); без кредитов, вкладов и процентов
-    { re: /^(?:бонкҳо\s+ва\s+банкоматҳо|бонкхо\s+ва\s+банкоматхо|банки\s+и\s+банкоматы|banklar\s+va\s+bankomatlar)$/, portal: /молия|финанс|moliya/, mode: 'digest', kind: 'places', opts: { local: true, home: true, max: 20, perHost: 6, tokens: 4000 },
+    { re: /^(?:бонкҳо\s+ва\s+банкоматҳо|бонкхо\s+ва\s+банкоматхо|банки\s+и\s+банкоматы|banklar\s+va\s+bankomatlar)$/, portal: /молия|финанс|moliya/, mode: 'digest', kind: 'places', opts: { local: true, home: true, listPages: true, allow: /(?:^|\.)kurstjs\.com$/i, max: 20, perHost: 6, tokens: 4000 },
       query: 'Найди отделения банков и банкоматы в Душанбе: банк, адрес отделения или банкомата, часы работы (круглосуточно — только если так написано), что там можно сделать: снять или внести наличные, получить денежный перевод, обменять валюту, оплатить услуги. Телефон и адрес — только как написано на сайте банка, не выдумывай. Не пиши про кредиты, вклады, депозиты, проценты и рассрочку. POS-терминалы в магазинах не показывай. Ссылка — на страницу отделений или банкоматов на сайте самого банка (.tj) или карточка на Яндекс Картах.',
       spread: ['Найди отделения банков и банкоматы в Худжанде, Бохтаре, Кулябе, Истаравшане, Пенджикенте, Турсунзаде, Исфаре, Вахдате, Хороге и других городах Таджикистана, кроме Душанбе: банк, город и адрес, часы работы, что можно сделать (наличные, денежные переводы, обмен валюты). Телефон и адрес — только как написано на сайте банка, не выдумывай. Не пиши про кредиты, вклады, депозиты, проценты и рассрочку. POS-терминалы в магазинах не показывай. Ссылка — на страницу отделений или банкоматов на сайте самого банка (.tj) или карточка на Яндекс Картах.',
         'Найди на сайтах банков Таджикистана (Эсхата, Амонатбонк, Алиф, Душанбе Сити, Спитамен, Арванд, Ориёнбонк, Халык, Международный банк Таджикистана и др.) банкоматы в Душанбе: банк, точный адрес или ориентир (торговый центр, улица), работает ли круглосуточно — только если так написано, можно ли внести наличные. Адрес — только как написано на сайте банка, не выдумывай. Не пиши про кредиты, вклады, депозиты, проценты и рассрочку. POS-терминалы в магазинах не показывай. Ссылка — на страницу банкоматов на сайте самого банка (.tj) или карточка на Яндекс Картах.'] },
@@ -4627,7 +4627,7 @@ function hotelPrices(items) {
     return items.map(x => { const k = key(x.price); return k && (!/\d/.test(k) || cnt[k] >= 3 || /₸|тенге|\bkzt\b/i.test(k)) ? { ...x, price: '' } : x; });
 }
 hotelPrices.when = (on, items) => (on ? hotelPrices(items) : items);
-function mergeListings(lists, hostMax = 3) {
+function mergeListings(lists, hostMax = 3, listPages = false) {
     const out = [], seenU = new Set(), seenT = new Set(), perHost = {};
     const max = Math.max(0, ...lists.map(l => l.length));
     for (let k = 0; k < max; k++) for (const l of lists) {
@@ -4636,11 +4636,13 @@ function mergeListings(lists, hostMax = 3) {
         // одна и та же страница на разных языках сайта («sufra.tj/ru/v/x», «sufra.tj/v/x», «sufra.tj/en/v/x») — одна карточка
         const u = String(it.url || '').replace(/[?#].*$/, '').replace(/\/+$/, '').toLowerCase().replace(/^https?:\/\/(?:www\.)?/, '').replace(/^([^/]+)\/(?:ru|en|tg|uz)(?=\/)/, '$1');
         const t = (String(it.title || '') + '|' + String(it.place || '')).toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}|]+/gu, '');
-        if ((u && seenU.has(u)) || seenT.has(t)) continue;
+        // listPages (банки): отделения и банкоматы стоят на одной общей странице банка — там одна ссылка, разные пункты оставляем
+        const uk = listPages && u && !/\d{3,}/.test(u.replace(/^[^/]+/, '')) ? `${u}|${t}` : u;
+        if ((uk && seenU.has(uk)) || seenT.has(t)) continue;
         const h = hostOf(it.url);
         perHost[h] = (perHost[h] || 0) + 1;
         if (perHost[h] > hostMax) continue;
-        if (u) seenU.add(u);
+        if (uk) seenU.add(uk);
         seenT.add(t);
         out.push(it);
     }
@@ -4691,7 +4693,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
             console.warn(`[listings spread Сбой]: ${err && err.status || ''} ${scrub(err && err.message || err)}`);
             return [];
         })));
-        items = mergeListings(lists, opts && opts.perHost || 3);
+        items = mergeListings(lists, opts && opts.perHost || 3, !!(opts && opts.listPages));
         if (hotel) items = hotelPrices(items);
         if (debug) debug.spread = lists.map((l, n) => ({ n: l.length, len: dbgs[n] && dbgs[n].textLen, end: dbgs[n] && dbgs[n].parseError ? dbgs[n].textEnd : undefined, start: dbgs[n] && dbgs[n].parseError ? dbgs[n].textStart : undefined, raw: dbgs[n] && dbgs[n].rawItems, drop: dbgs[n] && dbgs[n].drop, hosts: dbgs[n] && dbgs[n].hosts, urls: dbgs[n] && dbgs[n].rawUrls, parseError: dbgs[n] && dbgs[n].parseError, incomplete: dbgs[n] && dbgs[n].incomplete }));
     } else items = hotelPrices.when(hotel, await webListings({ kind, lang, date, query, debug, local, hostMax: opts && opts.perHost || 3, tokens: opts && opts.tokens || 2500, home: !!(opts && opts.home), apps: !!(opts && opts.apps), allow: opts && opts.allow || null, ...(hotel ? { task: HOTEL_TASK, hotel: true } : {}) }));
