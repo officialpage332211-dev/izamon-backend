@@ -4652,7 +4652,7 @@ url — обычная ссылка https://… (без Markdown и скобок
             try { path = new URL(it.url).pathname; } catch { path = '/'; }
             // у гостиницы своя главная страница («hyatt.com») — это и есть её страница
             // главная страница своего таджикского сайта у магазина или кабинета (opts.home: «puresabz.tj») — это и есть его страница
-            if (/^\/?(?:[a-z]{2}(?:-[a-z]{2})?\/?)?$/i.test(path) && !(hotel && hotelOwnSite(it.title, it.url)) && !(home && /\.tj$/i.test(hostOf(it.url)))) { drop.home = (drop.home || 0) + 1; return false; }
+            if (/^\/?(?:[a-z]{2}(?:-[a-z]{2})?\/?)?$/i.test(path) && !(hotel && hotelOwnSite(it.title, it.url)) && !(home && (/\.tj$/i.test(hostOf(it.url)) || (allow && allow.test(hostOf(it.url)))))) { drop.home = (drop.home || 0) + 1; return false; }
             const h = hostOf(it.url);
             perHost[h] = (perHost[h] || 0) + 1;
             if (perHost[h] > hostMax) { drop.sameSite = (drop.sameSite || 0) + 1; return false; }
