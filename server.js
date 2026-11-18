@@ -404,6 +404,9 @@ const PORTAL_RULES = [
     // «Коммунальные платежи»: новости и способы оплаты (без тарифов и сумм) + постоянная справка с проверенными контактами
     { re: /^(?:пардохти\s+коммуналӣ|коммунальные\s+платежи|kommunal\s+to.?lovlar)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'utilities',
       query: 'Найди на официальных и новостных сайтах Таджикистана (asiaplus.news, khovar.tj, avesta.tj, сайты банков и коммунальных служб) актуальные новости о том, как оплачивать коммунальные услуги (свет, вода, газ, отопление, вывоз мусора): новые способы оплаты, сроки, где получить счёт. Тарифы и суммы не называй. Формат каждой строки: эмодзи, короткий заголовок из 2–4 слов, двоеточие, одно простое предложение.' },
+    // «Погода»: прогноз на сегодня по городам — только цифры со страниц сайтов погоды (поиск с источниками); ответ живёт час
+    { re: /^(?:обу\s+ҳаво|обу\s+хаво|погода|ob-havo|ob\s+havo)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'weather',
+      query: d => `Сегодня ${String(d.human).replace(/\.+$/, '')}. Найди прогноз погоды именно на сегодня для городов Таджикистана: Душанбе, Худжанд, Бохтар, Куляб, Хорог, Истаравшан. Бери сайты погоды (meteo.tj — Агентство по гидрометеорологии, gismeteo, yandex погода, weather.com и т.п.) и опирайся только на найденные страницы. Ответ — до 6 строк, по одной на город, в таком виде: эмодзи погоды (☀️, ⛅, ☁️, 🌧, ❄️, 🌫), пробел, название города, двоеточие, пробел, температура днём и ночью в °C и осадки (например: «днём +14°, ночью +3°, без осадков»). Только цифры из источника на сегодняшнюю дату; нет данных по городу — эту строку не пиши. Без вступления.` },
     // «Экстренные телефоны»: постоянная справка (SOS_GUIDE), номера — кнопки «позвонить», без поиска
     { re: /^(?:рақамҳои\s+фаврӣ|рақамҳои\s+фаври|экстренные\s+телефоны|favqulodda\s+raqamlar)$/, portal: /рӯзмарра|повседнев|kundalik/, mode: 'digest', kind: 'sos', query: 'Экстренные телефоны' },
     // «Госуслуги»: постоянная справка с официальными ссылками (GOV_GUIDE), без поиска
@@ -1478,7 +1481,8 @@ const TEXT_CARDS = {
     facts: { icon: '📚', head: { tg: 'Донишномаҳо', ru: 'Энциклопедии', uz: 'Kitoblar' }, max: 3 },
     sowing: { icon: '🌱', head: { tg: 'Кишт', ru: 'Посев', uz: 'Ekin' }, max: 3 },
     customs: { icon: '📦', head: { tg: 'Гумрук', ru: 'Растаможка', uz: 'Bojxona' }, max: 5 },
-    utilities: { icon: '🧾', head: { tg: 'Пардохти коммуналӣ', ru: 'Коммунальные платежи', uz: "Kommunal to'lovlar" }, max: 4 }
+    utilities: { icon: '🧾', head: { tg: 'Пардохти коммуналӣ', ru: 'Коммунальные платежи', uz: "Kommunal to'lovlar" }, max: 4 },
+    weather: { icon: '🌤', head: { tg: 'Обу ҳаво', ru: 'Погода', uz: 'Ob-havo' }, max: 6 }
 };
 // «Растаможка»: под ответом всегда — официальные ссылки и честное «сумма ориентировочная». Своих ставок не считаем.
 // Две кнопки: телефон — официальная форма imei.tj (IMEI и код с картинки человек вводит сам); машина — звонок в Центр «Единое окно»
@@ -5205,7 +5209,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             if (geminiUp()) engines.push({ name: 'gemini', run: (sys, msg) => askGemini(sys, msg, true) });
             if (openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             // «ММТ», «Посев», «Советы», «Энциклопедии»: поиск находит источники (или пишет карточки) не с первого раза — даём второму поиску ещё одну попытку
-            if ((kind === 'mmt' || kind === 'sowing' || kind === 'tips' || kind === 'facts' || kind === 'customs' || kind === 'utilities') && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
+            if ((kind === 'mmt' || kind === 'sowing' || kind === 'tips' || kind === 'facts' || kind === 'customs' || kind === 'utilities' || kind === 'weather') && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             // «Энциклопедии»: поиск нередко отвечает фактами без единого источника (такой ответ не показываем) — даём ещё одну попытку
             if (kind === 'facts' && openai) engines.push({ name: 'openai', run: (sys, msg) => askOpenAISearch(sys, msg) });
             for (const eng of engines) {
@@ -5243,7 +5247,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                     let web = TEXT_CARDS[kind] ? tipsAnswer(text, sources, lang, kind) : finalize(text, sources, lang);
                     if (kind === 'utilities') web += utilButtons(lang);
                     if (kind === 'customs') web += `\n${finalize(CUSTOMS_LINKS[lang] || CUSTOMS_LINKS.ru, [], lang)}${customsButtons(lang)}`;
-                    const made = { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(TEXT_CARDS[kind] ? { view: 'tips' } : {}) }, ttl: ttlFor(mode) };
+                    const made = { body: { answer: ownBlock ? `${ownBlock}\n${web}` : web, provider: eng.name, grounded: true, sources, ...(TEXT_CARDS[kind] ? { view: 'tips' } : {}) }, ttl: kind === 'weather' ? 60 * MIN : ttlFor(mode) };
                     if (kind === 'tips' || kind === 'facts') {
                         const n = (web.match(/class="iz-tip"/g) || []).length;
                         if (n < 2) { if (n > 0 && (!thin || n > thin.n)) thin = { n, made }; if (step) step.thin = n; continue; }
@@ -7913,6 +7917,7 @@ const DIAG_TOPICS = {
     markets: '4. Рӯзмарра - Бозорҳо ва мағозаҳо',
     post: '4. Рӯзмарра - Почта ва карго',
     sos: '4. Рӯзмарра - Рақамҳои фаврӣ',
+    weather: '4. Рӯзмарра - Обу ҳаво',
     delivery: '4. Рӯзмарра - Расонидани хӯрок',
     landcom: '1. Истиқомат ва амвол - Замин ва тиҷоратӣ',
     electric: '8. Хизматрасонӣ - Барқчӣ',
