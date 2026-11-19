@@ -7396,9 +7396,9 @@ app.post('/api/upload/video', handleUploadVideo);
 // Запретное (алкоголь, азартные игры, концерты и шоу-бизнес и т.п.) не показываем.
 // ---------------------------------------------------------------------------
 const NEWS_FEEDS = {
-    tg: { tj: [['Ховар', 'https://khovar.tj/feed/'], ['Озодӣ', 'https://www.ozodi.org/api/'], ['Asia-Plus', 'https://asiaplustj.info/tj/rss']],
-        world: [['Ховар', 'https://khovar.tj/category/jahon/feed/'], ['BBC Форсӣ', 'https://feeds.bbci.co.uk/persian/rss.xml']] },
-    ru: { tj: [['Ховар', 'https://khovar.tj/rus/feed/'], ['Asia-Plus', 'https://asiaplustj.info/ru/rss'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml'], ['Авеста', 'https://avesta.tj/feed/']],
+    tg: { tj: [['Ховар', 'https://khovar.tj/feed/'], ['Asia-Plus', 'https://asiaplus.news/tj/feed/']],
+        world: [['Ховар', 'https://khovar.tj/category/jahon/feed/']] },
+    ru: { tj: [['Ховар', 'https://khovar.tj/rus/feed/'], ['Asia-Plus', 'https://asiaplus.news/feed/'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml'], ['Авеста', 'https://avesta.tj/feed/']],
         world: [['BBC News Русская служба', 'https://feeds.bbci.co.uk/russian/rss.xml']] },
     uz: { tj: [['Kun.uz', 'https://kun.uz/news/rss']], world: [['BBC Oʻzbek', 'https://feeds.bbci.co.uk/uzbek/rss.xml']] }
 };
