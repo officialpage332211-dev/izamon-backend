@@ -2451,7 +2451,12 @@ async function askChat(client, model, system, userText, maxTokens = 300, extra =
         if (Date.now() < OPENAI_CHAT.noCreditUntil) throw Object.assign(new Error('openai: нет средств (пауза)'), { status: 429 });
         if (OPENAI_CHAT.viaResponses) {
             try { return await openaiByResponses(model, system, userText, maxTokens, timeoutMs); }
-            catch (err) { OPENAI_CHAT.viaResponses = false; OPENAI_CHAT.noCreditUntil = Date.now() + 10 * 60e3; throw err; }
+            catch (err) {
+                // Пауза на 10 минут — только если и Responses честно сказал «нет средств». Тайм-аут или временный сбой одного
+                // запроса (при нагрузке их бывает несколько одновременно) не должен на 10 минут оставлять сайт без перевода.
+                if (/no credits|quota|billing|insufficient/i.test(String(err && err.message))) { OPENAI_CHAT.viaResponses = false; OPENAI_CHAT.noCreditUntil = Date.now() + 10 * 60e3; }
+                throw err;
+            }
         }
     }
     aiSpend();
@@ -2474,7 +2479,7 @@ async function askChat(client, model, system, userText, maxTokens = 300, extra =
                 const r = await openaiByResponses(model, system, userText, maxTokens, timeoutMs);
                 OPENAI_CHAT.viaResponses = true;
                 return r;
-            } catch { OPENAI_CHAT.noCreditUntil = Date.now() + 10 * 60e3; throw err; }
+            } catch (e2) { if (/no credits|quota|billing|insufficient/i.test(String(e2 && e2.message))) OPENAI_CHAT.noCreditUntil = Date.now() + 10 * 60e3; else OPENAI_CHAT.viaResponses = true; throw err; }
         }
         if (!(err && err.status === 400 && /max_tokens|max_completion_tokens|unsupported parameter/i.test(String(err.message)))) throw err;
         client.__izTokParam = (client.__izTokParam || 'max_tokens') === 'max_tokens' ? 'max_completion_tokens' : 'max_tokens';
@@ -9273,7 +9278,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    detach, TTLCache, mixedWhy, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
+    detach, TTLCache, mixedWhy, OPENAI_CHAT, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
