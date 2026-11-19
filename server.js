@@ -8741,13 +8741,13 @@ async function handleDiag(req, res) {
     if (req.query?.geo2 === '1') {
         const lit = (x, l) => `"${String(x).replace(/["\\]/g, '')}"@${l}`;
         const vals = CITIES.flatMap(c => [lit(c.names.ru, 'ru'), lit(c.names.tg, 'tg')]).join(' ');
-        const q = `SELECT ?name ?coord ?d WHERE { VALUES ?name { ${vals} } ?item rdfs:label ?name; wdt:P17 wd:Q863; wdt:P625 ?coord. OPTIONAL { ?item schema:description ?d FILTER(lang(?d) = "ru") } }`;
+        const q = `SELECT ?name ?coord ?d ?elev WHERE { VALUES ?name { ${vals} } ?item rdfs:label ?name; wdt:P17 wd:Q863; wdt:P625 ?coord. OPTIONAL { ?item wdt:P2044 ?elev } OPTIONAL { ?item schema:description ?d FILTER(lang(?d) = "ru") } }`;
         try {
             const r = await fetch('https://query.wikidata.org/sparql', { method: 'POST', headers: { 'User-Agent': WEATHER_UA, Accept: 'application/sparql-results+json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'format=json&query=' + encodeURIComponent(q), signal: AbortSignal.timeout(20000) });
             const j = r.ok ? await r.json() : null;
             const rows = ((j && j.results && j.results.bindings) || []).map(b => {
                 const m = String(b.coord && b.coord.value || '').match(/Point\(([-\d.]+) ([-\d.]+)\)/);
-                return [b.name.value, m ? Number(m[2]).toFixed(4) : '', m ? Number(m[1]).toFixed(4) : '', String(b.d && b.d.value || '').slice(0, 40)].join('|');
+                return [b.name.value, m ? Number(m[2]).toFixed(4) : '', m ? Number(m[1]).toFixed(4) : '', b.elev ? Math.round(Number(b.elev.value)) : '', String(b.d && b.d.value || '').slice(0, 30)].join('|');
             });
             return res.json({ status: r.status, n: rows.length, rows });
         } catch (err) { return res.json({ error: String(err && err.message || err).slice(0, 80) }); }
