@@ -67,7 +67,8 @@ const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 // Таджикский и узбекский (перевод карточек и разговор): модель сильнее — меньше смеси языков. Тариф OpenAI оплачен (2026-11);
 // модель недоступна — дальше обычная OPENAI_MODEL
-const OPENAI_TG_MODEL = process.env.OPENAI_TG_MODEL || 'gpt-4o';
+// Экономный режим: таджикский и узбекский тоже через gpt-4o-mini (в ~16 раз дешевле gpt-4o); основной переводчик — Gemini
+const OPENAI_TG_MODEL = process.env.OPENAI_TG_MODEL || 'gpt-4o-mini';
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini';
 const OPENAI_SEARCH_MODEL = process.env.OPENAI_SEARCH_MODEL || 'gpt-4o-mini';
 const SB_URL = () => (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
@@ -9247,6 +9248,7 @@ app.get('/health', (req, res) => {
         ok: true,
         providers: { openai: !!openai, gemini: !!gemini, openrouter: !!openrouter },
         geminiModel: GEMINI_MODEL,
+        openaiModels: [...new Set([OPENAI_MODEL, OPENAI_TG_MODEL, OPENAI_SEARCH_MODEL])],
         active,
         // память сервера (МБ): rss — всего, heap — занято JS; помогает видеть, не близко ли к пределу
         mem: Object.assign(memNow(), { peak: blackbox.peak }),
