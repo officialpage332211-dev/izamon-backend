@@ -87,8 +87,15 @@ function withTimeout(promise, ms) {
     return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
+// Отвязка от больших страниц: строка, вырезанная из страницы (slice/match), в V8 держит в памяти ВСЮ страницу (1–2 МБ).
+// Кэш с сотнями таких кусочков незаметно съедал сотни МБ — сервер падал «Exited 134». Копия через JSON — новые короткие строки.
+function detach(v) {
+    if (v == null || typeof v !== 'object' && typeof v !== 'string') return v;
+    try { return JSON.parse(JSON.stringify(v)); } catch { return v; }
+}
+
 class TTLCache {
-    constructor(max) { this.max = max; this.map = new Map(); }
+    constructor(max, opts = {}) { this.max = max; this.map = new Map(); this.detach = !!opts.detach; }
     get(key) {
         const e = this.map.get(key);
         if (!e) return undefined;
@@ -97,7 +104,7 @@ class TTLCache {
     }
     set(key, value, ttlMs) {
         if (this.map.size >= this.max) this.map.delete(this.map.keys().next().value);
-        this.map.set(key, { value, exp: Date.now() + ttlMs });
+        this.map.set(key, { value: this.detach ? detach(value) : value, exp: Date.now() + ttlMs });
     }
 }
 
@@ -2466,9 +2473,9 @@ async function askChat(client, model, system, userText, maxTokens = 300, extra =
 // ---------------------------------------------------------------------------
 // Чат: кэш, один запрос на одинаковые вопросы, лимит одновременных обращений к ИИ
 // ---------------------------------------------------------------------------
-const answerCache = new TTLCache(400);
+const answerCache = new TTLCache(400, { detach: true });
 let SWEEP = { running: false, rows: [] }; // /diag?sweep — полная проверка подразделов
-const staleCache = new TTLCache(300);
+const staleCache = new TTLCache(300, { detach: true });
 const STALE_MS = (Number(process.env.STALE_MIN) || 180) * 60000;
 const inflight = new Map();
 let active = 0;
@@ -3131,7 +3138,7 @@ function somonGet(url) {
     const hit = SOMON_CACHE.get(url);
     if (hit && Date.now() - hit.at < SOMON_CACHE_MS) return hit.p;
     const p = fetchPage(url, { cap: 1800000, timeoutMs: 7000 }).then(r => {
-        const list = parseSomonAdverts(r.html);
+        const list = detach(parseSomonAdverts(r.html));
         if (!list.length) throw new Error('в странице нет списка');
         return list;
     });
@@ -4590,7 +4597,7 @@ function boardGet(host, url) {
     if (hit && Date.now() - hit.at < BOARD_CACHE_MS) return hit.p;
     // ola.tj бывает медленным (страница раздела ~600 КБ, 8–15 с): грузим до 25 с, но человек ждёт не дольше BOARD_WAIT_MS — остальное ляжет в запас
     const p = fetchPage(url, { cap: 2500000, timeoutMs: 25000 }).then(r => {
-        const list = host === 'ola.tj' ? parseOlaCards(r.html) : host === 'savdo.tj' ? parseSavdoCards(r.html) : host === 'rg.tj' ? parseRgCards(r.html) : parsePaydoAds(r.html);
+        const list = detach(host === 'ola.tj' ? parseOlaCards(r.html) : host === 'savdo.tj' ? parseSavdoCards(r.html) : host === 'rg.tj' ? parseRgCards(r.html) : parsePaydoAds(r.html));
         if (!list.length) throw new Error('в странице нет списка');
         return list;
     });
@@ -4886,7 +4893,7 @@ function webExtra({ kind, lang, date, query, somon }) {
             items = items.filter(x => x.price || x.contact || (x.points || []).length);
             dbg.finish = { loc: fin.localized || fin.localizeError || null };
         } catch (err) { failed = true; dbg.error = scrub(err && err.message || err).slice(0, 100); }
-        webExtraCache.set(key, { at: Date.now(), ttl: failed ? WEB_EXTRA_FAIL_TTL_MS : items.length ? WEB_EXTRA_TTL_MS : WEB_EXTRA_EMPTY_TTL_MS, items });
+        webExtraCache.set(key, { at: Date.now(), ttl: failed ? WEB_EXTRA_FAIL_TTL_MS : items.length ? WEB_EXTRA_TTL_MS : WEB_EXTRA_EMPTY_TTL_MS, items: detach(items) });
         if (webExtraCache.size > 120) webExtraCache.delete(webExtraCache.keys().next().value);
         return { items, ms: Date.now() - t0, dbg };
     })(), WEB_EXTRA_JOB_MS).catch(() => ({ items: [], late: true })).finally(() => webExtraBusy.delete(key)); // зависший поиск не должен занимать место вечно
@@ -5150,7 +5157,7 @@ async function localizeItems(items, lang, debug) {
 // По 3 карточки: ответ модели короче — каждая тройка приходит за 4–6 с вместо 9–10 (тройки идут одновременно).
 const LOCALIZE_CHUNK = 3;
 // Уже переведённые карточки помним 6 часов: те же объявления в другом разделе или у другого человека не переводим заново.
-const LOC_CACHE = new TTLCache(3000), LOC_CACHE_MS = 6 * 60 * 60 * 1000;
+const LOC_CACHE = new TTLCache(3000, { detach: true }), LOC_CACHE_MS = 6 * 60 * 60 * 1000;
 const locKey = (it, lang) => lang + '|' + JSON.stringify([it.title, it.price, it.place, it.date, it.who, it.points]);
 async function localizeItemsModel(items, lang, debug) {
     const keys = items.map(it => locKey(it, lang));
@@ -5787,7 +5794,7 @@ async function conceptPicture(text, lang) {
             break;
         } catch (e) { tr.err = String(e && e.message || e).slice(0, 120); /* нет связи с Википедией — без картинки */ }
     }
-    WIKI_CACHE.set(key, { at: Date.now(), v });
+    WIKI_CACHE.set(key, { at: Date.now(), v: detach(v) });
     if (WIKI_CACHE.size > 500) WIKI_CACHE.delete(WIKI_CACHE.keys().next().value);
     return v;
 }
@@ -6375,7 +6382,7 @@ function nuxtData(html) {
 
 // Страницы объявлений одним запросом: фото и проверка контактов берут одну и ту же страницу.
 const PAGE_CACHE = new Map(); // адрес → { at, p }
-const PAGE_CACHE_MS = 5 * 60 * 1000, PAGE_CACHE_MAX = 60;
+const PAGE_CACHE_MS = 5 * 60 * 1000, PAGE_CACHE_MAX = 25;
 function getPage(url) {
     const hit = PAGE_CACHE.get(url);
     if (hit && Date.now() - hit.at < PAGE_CACHE_MS) return hit.p;
@@ -6653,7 +6660,7 @@ async function resolvePhotos(items, debug, hotel = false) {
             // запоминаем только удачу: сбой сети или таймаут не должен надолго лишать объявление фото
             if (r.img) {
                 if (PHOTO_CACHE.size >= PHOTO_CACHE_MAX) PHOTO_CACHE.delete(PHOTO_CACHE.keys().next().value);
-                PHOTO_CACHE.set(items[i].url, { at: Date.now(), img: r.img, why: r.why, gallery: r.gallery || [], desc: r.desc || '', specs: r.specs || null });
+                PHOTO_CACHE.set(items[i].url, Object.assign({ at: Date.now() }, detach({ img: r.img, why: r.why, gallery: r.gallery || [], desc: r.desc || '', specs: r.specs || null })));
             }
         }
         if (r.img) { if (r.why.startsWith('model')) stat.fromModel++; else stat.fromPage++; if (r.unchecked) stat.unchecked = (stat.unchecked || 0) + 1; } else { stat.none++; why(r.why); }
@@ -6782,7 +6789,7 @@ category — одно из: estate, transport, goods, finance, other.
     throw lastErr;
 }
 
-const importCache = new TTLCache(200);
+const importCache = new TTLCache(200, { detach: true });
 
 // Фото объявления со страницы для альбома: somon.tj — полный набор из данных страницы, остальные сайты — то, что страница сама заявляет
 // (og:image, JSON-LD). Первым идёт то фото, что уже стоит в форме. Только https, без повторов, не больше 10.
@@ -7502,7 +7509,7 @@ const NEWS_FEEDS = {
     uz: { tj: [['Kun.uz', 'https://kun.uz/news/rss', 'tj']], world: [['Kun.uz', 'https://kun.uz/news/rss'], ['BBC Oʻzbek', 'https://feeds.bbci.co.uk/uzbek/rss.xml']] }
 };
 const NEWS_SKIP = /(?:концерт|шоу-бизнес|шоубизнес|певиц|певец|клип|эстрад|казино|ставк[аи] на спорт|букмекер|лотере|алкогол|пиво|вино(?:дел)?|водк|коньяк|ночн(?:ой|ые) клуб|эротик|гей|ЛГБТ|сериал|kontsert|qo'shiqchi|klip|kazino|alkogol|консерт|сароянда|клип|майзада|шароб|қиморбоз|казино)/i;
-const newsCache = new TTLCache(50);
+const newsCache = new TTLCache(50, { detach: true });
 
 function rssItems(xml, source) {
     const out = [];
@@ -8846,7 +8853,7 @@ async function handleDiag(req, res) {
     // проверка погоды: /diag?wx=1 — что ответил MET Norway (или почему нет)
     // Полная проверка: все подразделы сайта (берём из app.js на сайте) на одном языке — время, карточки, смесь языков, пустые ответы.
     // /diag?sweep=start&lang=tg — запустить в фоне (по 3 раздела одновременно); /diag?sweep=report — итог. Заодно прогревает кэш.
-    if (req.query?.sweep) {
+    if (req.query?.sweep || req.query?.blackbox) {
         const v = String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7);
         if (req.query.blackbox === '1') {
             try {
@@ -9234,7 +9241,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
+    detach, TTLCache, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
