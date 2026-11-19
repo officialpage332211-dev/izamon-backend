@@ -7421,9 +7421,16 @@ function rssItems(xml, source) {
         let link = text(tag(b, 'link'));
         if (!link) { const m = b.match(/<link\b[^>]*href=["']([^"']+)["']/i); link = m ? m[1] : ''; }
         const when = Date.parse(text(tag(b, 'pubDate')) || text(tag(b, 'published')) || text(tag(b, 'updated')) || text(tag(b, 'dc:date')));
-        const desc = text(tag(b, 'description') || tag(b, 'summary'));
+        const rawDesc = tag(b, 'description') || tag(b, 'summary');
+        const desc = text(rawDesc);
         if (!title || !/^https:\/\/[^\s"'<>]+$/i.test(link)) continue;
-        out.push({ title: title.slice(0, 220), link: link.slice(0, 500), source, date: Number.isFinite(when) ? new Date(when).toISOString() : '', text: desc.slice(0, 300) });
+        // фото новости: enclosure / media:content / media:thumbnail / первая картинка в тексте
+        const pic = [/<enclosure\b[^>]*url=["']([^"']+)["'][^>]*type=["']image/i, /<enclosure\b[^>]*type=["']image[^"']*["'][^>]*url=["']([^"']+)["']/i,
+            /<media:content\b[^>]*url=["']([^"']+)["']/i, /<media:thumbnail\b[^>]*url=["']([^"']+)["']/i]
+            .map(re => (b.match(re) || [])[1]).find(Boolean)
+            || ((decodeEntities(rawDesc + ' ' + tag(b, 'content:encoded')).match(/<img\b[^>]*src=["']([^"']+)["']/i) || [])[1]) || '';
+        const image = /^https:\/\/[^\s"'<>]+$/i.test(pic) && !/\.(?:gif|svg)(?:[?#]|$)|pixel|counter|1x1/i.test(pic) ? pic.slice(0, 500) : '';
+        out.push({ title: title.slice(0, 220), link: link.slice(0, 500), source, date: Number.isFinite(when) ? new Date(when).toISOString() : '', text: desc.slice(0, 300), image });
     }
     return out;
 }
@@ -7455,7 +7462,7 @@ async function getNews(lang, topic, debug) {
         .filter(x => { const k = norm(x.title).slice(0, 60); if (seen.has(k)) return false; seen.add(k); return true; })
         .filter(x => !mixedLanguage(x.title, lang))
         .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))
-        .slice(0, 15);
+        .slice(0, 30);
     const out = { items, sources: [...new Set(items.map(x => x.source))] };
     if (items.length) newsCache.set(key, out, 15 * MIN);
     return debug ? { ...out, report } : out;
