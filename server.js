@@ -7399,7 +7399,7 @@ const NEWS_FEEDS = {
     tg: { tj: [['Ховар', 'https://khovar.tj/feed/'], ['Asia-Plus', 'https://asiaplus.news/tj/feed/']],
         world: [['Asia-Plus', 'https://asiaplus.news/tj/feed/', 'world'], ['Ховар', 'https://khovar.tj/feed/', 'world']] },
     ru: { tj: [['Ховар', 'https://khovar.tj/rus/feed/'], ['Asia-Plus', 'https://asiaplus.news/feed/'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml', 'tj'], ['Авеста', 'https://avesta.tj/feed/']],
-        world: [['BBC News Русская служба', 'https://feeds.bbci.co.uk/russian/rss.xml'], ['Asia-Plus', 'https://asiaplus.news/feed/', 'world'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml', 'world']] },
+        world: [['BBC News Русская служба', 'https://feeds.bbci.co.uk/russian/rss.xml'], ['Asia-Plus', 'https://asiaplus.news/feed/', 'world']] },
     uz: { tj: [['Kun.uz', 'https://kun.uz/news/rss', 'tj']], world: [['Kun.uz', 'https://kun.uz/news/rss'], ['BBC Oʻzbek', 'https://feeds.bbci.co.uk/uzbek/rss.xml']] }
 };
 const NEWS_SKIP = /(?:концерт|шоу-бизнес|шоубизнес|певиц|певец|клип|эстрад|казино|ставк[аи] на спорт|букмекер|лотере|алкогол|пиво|вино(?:дел)?|водк|коньяк|ночн(?:ой|ые) клуб|эротик|гей|ЛГБТ|сериал|kontsert|qo'shiqchi|klip|kazino|alkogol|консерт|сароянда|клип|майзада|шароб|қиморбоз|казино)/i;
@@ -7431,7 +7431,7 @@ async function newsFeed(name, url, need) {
 // Kun.uz в RSS пишет «ö ğ ş ç» вместо узбекских «oʻ gʻ sh ch» — приводим к обычной узбекской латинице
 const kunLatin = t => String(t || '').replace(/ö/g, "o'").replace(/Ö/g, "O'").replace(/ğ/g, "g'").replace(/Ğ/g, "G'").replace(/ş/g, 'sh').replace(/Ş/g, 'Sh').replace(/ç/g, 'ch').replace(/Ç/g, 'Ch');
 // ленты, где много чужих новостей: во вкладку «Таджикистан» — только про Таджикистан
-const NEWS_TJ = /таджик|тоҷик|душанбе|худжанд|хуҷанд|бохтар|куляб|кӯлоб|хорог|хоруғ|памир|помир|рахмон|раҳмон|сомони|сомонӣ|tojik|dushanbe|xo'jand/i;
+const NEWS_TJ = /таджик|тоҷик|душанбе|худжанд|хуҷанд|бохтар|куляб|кӯлоб|хорог|хоруғ|памир|помир|рахмон|раҳмон|сомони|сомонӣ|согд|суғд|сугд|хатлон|бадахшан|бадахшон|гбао|вмкб|гиссар|ҳисор|истаравшан|пенджикент|панҷакент|вахдат|ваҳдат|турсунзод|нурек|норак|рогун|роғун|tojik|dushanbe|xo'jand/i;
 async function getNews(lang, topic, debug) {
     const feeds = (NEWS_FEEDS[lang] || NEWS_FEEDS.tg)[topic === 'world' ? 'world' : 'tj'] || [];
     const key = `${lang}:${topic}`;
