@@ -3064,7 +3064,7 @@ async function repairJson(text) {
 // а кнопка «Открыть» ведёт на само объявление.
 // ---------------------------------------------------------------------------
 const SOMON_CACHE = new Map(); // адрес → { at, p }
-const SOMON_CACHE_MS = 3 * 60 * 1000, SOMON_CACHE_MAX = 40;
+const SOMON_CACHE_MS = 10 * 60 * 1000, SOMON_CACHE_MAX = 80;
 
 function somonText(s) {
     return String(s || '')
@@ -3128,7 +3128,7 @@ function somonUrl(src, slug = '') {
 function somonGet(url) {
     const hit = SOMON_CACHE.get(url);
     if (hit && Date.now() - hit.at < SOMON_CACHE_MS) return hit.p;
-    const p = fetchPage(url, { cap: 1800000, timeoutMs: 9000 }).then(r => {
+    const p = fetchPage(url, { cap: 1800000, timeoutMs: 7000 }).then(r => {
         const list = parseSomonAdverts(r.html);
         if (!list.length) throw new Error('в странице нет списка');
         return list;
@@ -4436,7 +4436,7 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
 // Те же поля, что у списка somon.tj: { id, title, description, price, priceNote, thumb, imgCount, images, published, path, url, location, who, cats }.
 // Все сайты равны: ни один не ставится впереди других (см. somonListings).
 const BOARD_HOSTS = { 'ola.tj': 'https://ola.tj/category/', 'paydo.tj': 'https://paydo.tj/ru/all/', 'savdo.tj': 'https://savdo.tj/category/', 'rg.tj': 'https://rg.tj/' };
-const BOARD_WAIT_MS = 8000;           // дольше не ждём медленный сайт: покажем остальные, а его список ляжет в запас
+const BOARD_WAIT_MS = 5000;           // дольше не ждём медленный сайт: покажем остальные, а его список ляжет в запас
 const BOARD_CACHE = new Map();        // адрес → { at, p }
 const BOARD_CACHE_MS = 20 * 60 * 1000, BOARD_CACHE_MAX = 60; // списки других сайтов держим 20 минут: ola.tj грузится долго
 const htmlText = s => decodeEntities(String(s || '').replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
@@ -5145,12 +5145,28 @@ async function localizeItems(items, lang, debug) {
 
 // Карточки переводим по 5 штук одновременно: короткий ответ модели реже ломается (битый JSON, потерянные карточки)
 // и приходит быстрее. Сбой одной пятёрки не лишает перевода остальные.
-const LOCALIZE_CHUNK = 5;
+// По 3 карточки: ответ модели короче — каждая тройка приходит за 4–6 с вместо 9–10 (тройки идут одновременно).
+const LOCALIZE_CHUNK = 3;
+// Уже переведённые карточки помним 6 часов: те же объявления в другом разделе или у другого человека не переводим заново.
+const LOC_CACHE = new TTLCache(3000), LOC_CACHE_MS = 6 * 60 * 60 * 1000;
+const locKey = (it, lang) => lang + '|' + JSON.stringify([it.title, it.price, it.place, it.date, it.who, it.points]);
 async function localizeItemsModel(items, lang, debug) {
-    if (items.length <= LOCALIZE_CHUNK) return localizeChunk(items, lang, debug);
+    const keys = items.map(it => locKey(it, lang));
+    const ready = keys.map(k => process.env.LOC_CACHE === 'off' ? undefined : LOC_CACHE.get(k));
+    const todo = items.filter((_, i) => !ready[i]);
+    if (debug) debug.locCached = items.length - todo.length;
+    if (!todo.length) return items.map((it, i) => ({ ...it, ...ready[i] }));
     const parts = [];
-    for (let i = 0; i < items.length; i += LOCALIZE_CHUNK) parts.push(items.slice(i, i + LOCALIZE_CHUNK));
-    return (await Promise.all(parts.map(p => localizeChunk(p, lang, debug)))).flat();
+    for (let i = 0; i < todo.length; i += LOCALIZE_CHUNK) parts.push(todo.slice(i, i + LOCALIZE_CHUNK));
+    const done = (await Promise.all(parts.map(p => localizeChunk(p, lang, debug)))).flat();
+    let j = 0;
+    return items.map((it, i) => {
+        if (ready[i]) return { ...it, ...ready[i] };
+        const o = done[j++] || it;
+        // запоминаем только настоящий перевод (если модель не ответила, вернулась исходная карточка)
+        if (o !== it && o.title !== undefined) LOC_CACHE.set(keys[i], { title: o.title, price: o.price, place: o.place, date: o.date, who: o.who, points: o.points }, LOC_CACHE_MS);
+        return o;
+    });
 }
 
 async function localizeChunk(items, lang, debug) {
