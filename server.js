@@ -4567,6 +4567,8 @@ function boardUrl(b, city = null) {
 
 // Список объявлений для карточек: spec.sources — страницы somon.tj (поиск q= или раздел path=), spec.boards — разделы ola.tj и paydo.tj,
 // spec.cat/spec.words — что считать подходящим. Сайты равны: в ленту по очереди идёт самое свежее объявление каждого сайта.
+// Сколько объявлений показываем (было 10; 2026-11-19 — больше, по просьбе владельца). Все — со своих страниц-источников
+const FEED_MAX = 15;
 async function somonListings(spec, kind, debug, lang = 'ru') {
     const stat = { urls: 0, ok: 0, failed: [], parsed: 0, kept: 0, withPhoto: 0, hosts: {} };
     if (debug) debug.somon = stat;
@@ -4671,20 +4673,20 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
     // spec.mix: у каждого раздела сайта своя очередь («Земля и коммерческая»: участки не тонут среди помещений, которых больше)
     for (const x of flat) { const qk = spec.mix ? `${x.host}#${x.li}` : x.host; (queues[qk] = queues[qk] || []).push(x); }
     const out = [];
-    while (out.length < 10 && Object.values(queues).some(q => q.length)) {
+    while (out.length < FEED_MAX && Object.values(queues).some(q => q.length)) {
         const round = [];
         for (const q of Object.values(queues)) {
             while (q.length) { const x = q.shift(); if (ok(x)) { round.push(x); break; } }
         }
         round.sort((x, y) => (x.age - y.age) || (x.n - y.n));
         for (const x of round) {
-            if (out.length >= 10) break;
+            if (out.length >= FEED_MAX) break;
             const it = somonItem(x.a, kind, lang, spec.facts || null);
             if (it.title && it.url) { out.push(it); stat.hosts[x.host].kept++; }
         }
     }
     for (const x of overflow) {
-        if (out.length >= 10) break;
+        if (out.length >= FEED_MAX) break;
         x.late = true;
         if (!ok(x)) continue;
         const it = somonItem(x.a, kind, lang, spec.facts || null);
@@ -4746,7 +4748,7 @@ async function finishItems(top, kind, lang, debug, fixed = '', check = null) {
 // Список somon.tj быстрый (точные ссылки, фото), но он один. Поиск по остальному интернету (другие сайты объявлений и вакансий,
 // Telegram-каналы, соцсети, сайты компаний) идёт одновременно с ним, а карточки встают одной лентой: somon.tj, другой сайт, somon.tj…
 const WEB_EXTRA_KINDS = new Set(['ads', 'jobs', 'services', 'masters']);
-const WEB_EXTRA_MAX = 5;                 // сколько карточек с других сайтов
+const WEB_EXTRA_MAX = 8;                 // сколько карточек с других сайтов (было 5)
 const WEB_EXTRA_WAIT_MS = Number(process.env.WEB_EXTRA_WAIT_MS) || 8000; // человек не ждёт: не успели — покажем somon.tj, проверенное ляжет в запас для следующих; дольше не ждём: покажем список somon.tj, а найденное ляжет в запас для следующего раза
 const WEB_EXTRA_JOB_MS = 70000;          // самый долгий поиск вместе с переводом и проверкой страниц
 const WEB_EXTRA_TTL_MS = 15 * 60000;     // готовые карточки с других сайтов держим 15 минут
@@ -4905,7 +4907,7 @@ async function widenCity(spec, direct, kind, lang) {
     const seen = new Set(direct.map(x => x.url));
     const more = all.filter(x => !seen.has(x.url));
     if (direct.length + more.length < 3) return null;
-    return { items: [...direct, ...more].slice(0, 10), wide: { city: spec.city, n: direct.length } };
+    return { items: [...direct, ...more].slice(0, FEED_MAX), wide: { city: spec.city, n: direct.length } };
 }
 async function searchListings({ kind, lang, date, query, debug, somon, spread, fixed = null, opts = null }) {
     const hotel = kind === 'places' && fixed === 'hotel';
