@@ -7397,9 +7397,9 @@ app.post('/api/upload/video', handleUploadVideo);
 // ---------------------------------------------------------------------------
 const NEWS_FEEDS = {
     tg: { tj: [['Ховар', 'https://khovar.tj/feed/'], ['Asia-Plus', 'https://asiaplus.news/tj/feed/']],
-        world: [['Ховар', 'https://khovar.tj/category/jahon/feed/']] },
+        world: [['Asia-Plus', 'https://asiaplus.news/tj/feed/', 'world'], ['Ховар', 'https://khovar.tj/feed/', 'world']] },
     ru: { tj: [['Ховар', 'https://khovar.tj/rus/feed/'], ['Asia-Plus', 'https://asiaplus.news/feed/'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml', 'tj'], ['Авеста', 'https://avesta.tj/feed/']],
-        world: [['BBC News Русская служба', 'https://feeds.bbci.co.uk/russian/rss.xml']] },
+        world: [['BBC News Русская служба', 'https://feeds.bbci.co.uk/russian/rss.xml'], ['Asia-Plus', 'https://asiaplus.news/feed/', 'world'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml', 'world']] },
     uz: { tj: [['Kun.uz', 'https://kun.uz/news/rss', 'tj']], world: [['Kun.uz', 'https://kun.uz/news/rss'], ['BBC Oʻzbek', 'https://feeds.bbci.co.uk/uzbek/rss.xml']] }
 };
 const NEWS_SKIP = /(?:концерт|шоу-бизнес|шоубизнес|певиц|певец|клип|эстрад|казино|ставк[аи] на спорт|букмекер|лотере|алкогол|пиво|вино(?:дел)?|водк|коньяк|ночн(?:ой|ые) клуб|эротик|гей|ЛГБТ|сериал|kontsert|qo'shiqchi|klip|kazino|alkogol|консерт|сароянда|клип|майзада|шароб|қиморбоз|казино)/i;
@@ -7423,9 +7423,13 @@ function rssItems(xml, source) {
 }
 async function newsFeed(name, url, need) {
     const page = await fetchPage(url, { cap: 2000000, timeoutMs: 9000, xml: true });
-    const items = rssItems(page.html, name);
-    return need ? items.filter(x => need.test(`${x.title} ${x.text}`)) : items;
+    const items = rssItems(page.html, name).map(x => /kun\.uz/.test(url) ? { ...x, title: kunLatin(x.title), text: kunLatin(x.text) } : x);
+    if (need === 'tj') return items.filter(x => NEWS_TJ.test(`${x.title} ${x.text}`));
+    if (need === 'world') return items.filter(x => !NEWS_TJ.test(`${x.title} ${x.text}`));
+    return items;
 }
+// Kun.uz в RSS пишет «ö ğ ş ç» вместо узбекских «oʻ gʻ sh ch» — приводим к обычной узбекской латинице
+const kunLatin = t => String(t || '').replace(/ö/g, "o'").replace(/Ö/g, "O'").replace(/ğ/g, "g'").replace(/Ğ/g, "G'").replace(/ş/g, 'sh').replace(/Ş/g, 'Sh').replace(/ç/g, 'ch').replace(/Ç/g, 'Ch');
 // ленты, где много чужих новостей: во вкладку «Таджикистан» — только про Таджикистан
 const NEWS_TJ = /таджик|тоҷик|душанбе|худжанд|хуҷанд|бохтар|куляб|кӯлоб|хорог|хоруғ|памир|помир|рахмон|раҳмон|сомони|сомонӣ|tojik|dushanbe|xo'jand/i;
 async function getNews(lang, topic, debug) {
@@ -7435,7 +7439,7 @@ async function getNews(lang, topic, debug) {
     if (hit) return hit;
     const report = [];
     const lists = await Promise.all(feeds.map(async ([name, url, need]) => {
-        try { const items = await newsFeed(name, url, need === 'tj' ? NEWS_TJ : null); report.push({ name, url, n: items.length, first: items[0] ? items[0].title.slice(0, 80) : '' }); return items; }
+        try { const items = await newsFeed(name, url, need); report.push({ name, url, n: items.length, first: items[0] ? items[0].title.slice(0, 80) : '' }); return items; }
         catch (err) { report.push({ name, url, error: scrub(err.message || String(err)).slice(0, 80) }); return []; }
     }));
     const weekAgo = Date.now() - 7 * 864e5, seen = new Set();
@@ -9026,7 +9030,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, rssItems, getNews, handleNews, handleUpload, photoType, handleUploadVideo, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
+    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
