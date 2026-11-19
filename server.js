@@ -8771,6 +8771,22 @@ async function handleDiag(req, res) {
         } catch (err) { return res.json({ error: String(err && err.message || err).slice(0, 80) }); }
     }
     // проверка погоды: /diag?wx=1 — что ответил MET Norway (или почему нет)
+    // сравнение погоды: met.no и Open-Meteo по 6 городам (днём макс / ночью мин на сутки) — проверка, кто ближе к сводке Гидромета
+    if (req.query?.wxcmp === '1') {
+        const out = [];
+        for (const c of WEATHER_CITIES) {
+            const row = { city: c.ru };
+            try {
+                const u = `https://api.open-meteo.com/v1/forecast?latitude=${c.lat}&longitude=${c.lon}&daily=temperature_2m_max,temperature_2m_min&current=temperature_2m&timezone=Asia%2FDushanbe&forecast_days=2`;
+                const r = await withTimeout(fetch(u, { headers: { 'User-Agent': WEATHER_UA } }), 7000);
+                const j = r.ok ? await r.json() : null;
+                row.om = j ? { now: j.current && j.current.temperature_2m, max: j.daily.temperature_2m_max, min: j.daily.temperature_2m_min, elev: j.elevation } : r.status;
+            } catch (err) { row.om = String(err.message || err).slice(0, 40); }
+            try { const w = await cityWeather(c); row.met = w; } catch (err) { row.met = String(err.message || err).slice(0, 40); }
+            out.push(row);
+        }
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), out });
+    }
     // ленты новостей: сколько пришло из каждой (проверка источников)
     if (req.query?.news === '1') {
         const lang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
