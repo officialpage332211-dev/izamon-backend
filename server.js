@@ -2840,7 +2840,10 @@ function cardHtml(it, kind, lang) {
         return m ? `<div class="iz-tile"><span>${escapeHtml(m[1])}</span><b>${escapeHtml(mv(m[2]))}</b></div>` : `<div class="iz-tile"><b>${escapeHtml(mv(x))}</b></div>`;
     }).join('');
     const parts = [
-        it.image
+        it.video
+            // видео объявления iZamoN: всегда без звука (muted, кнопки звука нет); нажатие — играть/пауза (izamon-video.js)
+            ? `<div class="iz-lc-img iz-lc-vid"><video src="${escapeAttr(it.video)}"${it.image ? ` poster="${escapeAttr(it.image)}"` : ''} muted playsinline loop preload="metadata" disablepictureinpicture controlslist="nodownload noremoteplayback"></video><span class="iz-vid-b" aria-hidden="true">▶</span></div>`
+            : it.image
             ? `<div class="iz-lc-img"${it.photoCount ? ` data-n="${Number(it.photoCount) || 0}"` : ''}${it.gallery && it.gallery.length > 1 ? ` data-g="${escapeAttr(it.gallery.join(' '))}" data-gd="${escapeAttr((it.galleryDirect || []).join(' '))}"` : ''}><img src="${escapeAttr(it.imageProxy || it.image)}"${it.imageProxy ? ` data-d="${escapeAttr(it.image)}"` : ''} alt="" referrerpolicy="no-referrer" onerror="var d=this.getAttribute('data-d');if(d){this.removeAttribute('data-d');this.src=d}else{this.parentNode.classList.add('iz-noimg');this.remove()}"><span class="iz-src">${escapeHtml(host)}</span>${it.photoCount ? `<span class="iz-cnt">📷 ${Number(it.photoCount) || 0}</span>` : ''}<i>${KIND_EMOJI[look] || '🏷️'}</i></div>`
             : `<div class="iz-lc-img iz-noimg"><span class="iz-src">${escapeHtml(host)}</span><i>${KIND_EMOJI[look] || '🏷️'}</i></div>`,
         badges,
@@ -2898,6 +2901,8 @@ function ownItems(rows, lang) {
             points: adPoints(a.description),
             full: fullText(String(a.description || '').split(/\n/).filter(l => !/^\s*[•·\-*]\s*[^:\n]{2,25}:\s*\S/.test(l)).join('\n')),
             adId: /^\d{1,15}$/.test(String(a.id == null ? '' : a.id)) ? String(a.id) : '',
+            image: typeof a.image_url === 'string' && /^https:\/\/[^\s"'<>]+$/i.test(a.image_url) ? a.image_url : '',
+            video: ourVideo(a.video_url) || '',
             _cat: String(a.category || '')
         };
     }).map(it => { const c = it._cat; delete it._cat; return c === 'estate' ? { ...it, ...estateSlots(it, lang || 'ru', 'estate') } : c === 'transport' ? { ...it, ...carSlots(it, lang || 'ru') } : it; });
@@ -6890,7 +6895,18 @@ async function sb(path, { method = 'GET', body, prefer } = {}) {
     return r.status === 204 ? null : await r.json().catch(() => null);
 }
 
-const AD_FIELDS = 'id,created_at,title,price,currency,description,category,location,contact,condition,image_url,source_url,seller_name';
+const AD_FIELDS_BASE = 'id,created_at,title,price,currency,description,category,location,contact,condition,image_url,source_url,seller_name';
+// Видео в объявлении: колонка ads.video_url появляется после SQL (sql/ads_video.sql). Пока её нет — всё работает без видео.
+let videoColAt = 0, videoColOk = false;
+async function videoCol() {
+    if (!adsOn()) return false;
+    if (videoColOk || Date.now() - videoColAt < 10 * MIN) return videoColOk;
+    videoColAt = Date.now();
+    try { await sb('ads?select=video_url&limit=1'); videoColOk = true; } catch (err) { videoColOk = false; }
+    return videoColOk;
+}
+async function adFields() { return AD_FIELDS_BASE + (await videoCol() ? ',video_url' : ''); }
+const AD_FIELDS = AD_FIELDS_BASE;
 const AD_DAYS = Number(process.env.AD_DAYS) || 30;
 const adsSince = () => new Date(Date.now() - AD_DAYS * 24 * 60 * MIN).toISOString();
 
@@ -6907,14 +6923,23 @@ function cleanNewAd(b) {
         condition: clip(x.condition, 60) || null,
         image_url: typeof x.image_url === 'string' && /^https:\/\/[^\s"'<>]+$/i.test(x.image_url) ? x.image_url.slice(0, 500) : null,
         source_url: typeof x.source_url === 'string' && /^https?:\/\/[^\s"'<>]+$/i.test(x.source_url) ? x.source_url.slice(0, 500) : null,
+        video_url: ourVideo(x.video_url),
         owner: clip(x.owner, 64) || null,
         lang: ['tg', 'ru', 'uz'].includes(x.lang) ? x.lang : 'tg',
         status: 'active'
     };
+    if (!ad.video_url) delete ad.video_url;
     return ad.title ? ad : null;
+}
+// видео принимаем только из нашего хранилища (загружено через /api/upload/video)
+function ourVideo(u) {
+    if (typeof u !== 'string' || !SB_URL()) return null;
+    const base = `${SB_URL()}/storage/v1/object/public/${VIDEO_BUCKET}/`;
+    return u.startsWith(base) && /^[\w\/.-]+$/.test(u.slice(base.length)) && !u.includes('..') && u.length <= 500 ? u : null;
 }
 
 async function createAd(ad) {
+    if (ad.video_url && !(await videoCol())) delete ad.video_url; // колонки ещё нет — объявление без видео
     const rows = await sb('ads', { method: 'POST', body: ad, prefer: 'return=representation' });
     return rows && rows[0] ? rows[0].id : null;
 }
@@ -6957,7 +6982,7 @@ async function searchAds(q, limit = 5, all = false) {
     const words = [...new Set(norm(String(q || '')).split(' ').filter(w => w.length >= 3))].slice(0, 4);
     if (!words.length) return [];
     const conds = words.flatMap(w => ['title', 'description', 'location'].map(f => `${f}.ilike.*${w}*`));
-    const rows = await sb(`ads?select=${AD_FIELDS}&status=eq.active&created_at=gte.${encodeURIComponent(adsSince())}&order=created_at.desc&limit=40&or=(${encodeURIComponent(conds.join(','))})`);
+    const rows = await sb(`ads?select=${await adFields()}&status=eq.active&created_at=gte.${encodeURIComponent(adsSince())}&order=created_at.desc&limit=40&or=(${encodeURIComponent(conds.join(','))})`);
     return (rows || [])
         .map(a => {
             const hay = `${a.title} ${a.description} ${a.location}`.toLowerCase();
@@ -7313,6 +7338,58 @@ async function handleUpload(req, res) {
 }
 app.post('/api/upload', handleUpload);
 
+// Видео объявления: до 60 секунд и до 40 МБ (mp4 / mov / webm). Файл большой — сайт грузит его прямо в хранилище
+// по одноразовой ссылке (POST /api/upload/video → { upload, url }), а не через наш сервер.
+const VIDEO_BUCKET = 'ad-videos', VIDEO_MAX = 40 * 1024 * 1024;
+const VIDEO_TYPES = { 'video/mp4': 'mp4', 'video/quicktime': 'mov', 'video/webm': 'webm' };
+let videoBucket = null;
+function ensureVideoBucket() {
+    if (videoBucket) return videoBucket;
+    const h = { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` };
+    videoBucket = (async () => {
+        const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/bucket/${VIDEO_BUCKET}`, { headers: h }), 8000);
+        if (r.ok) return true;
+        const c = await withTimeout(fetch(`${SB_URL()}/storage/v1/bucket`, {
+            method: 'POST', headers: { ...h, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: VIDEO_BUCKET, name: VIDEO_BUCKET, public: true, file_size_limit: VIDEO_MAX, allowed_mime_types: Object.keys(VIDEO_TYPES) })
+        }), 8000);
+        const txt = c.ok ? '' : await c.text().catch(() => '');
+        if (!c.ok && !/already exists|Duplicate/i.test(txt)) throw new Error(`video bucket ${c.status}`);
+        return true;
+    })().catch(err => { videoBucket = null; throw err; });
+    return videoBucket;
+}
+async function handleUploadVideo(req, res) {
+    if (uploadLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    if (!adsOn()) return res.status(503).json({ ok: false, error: 'store_off' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    let seller;
+    try { seller = await getSeller(user.id); } catch (err) { seller = null; }
+    if (!seller) return res.status(403).json({ ok: false, error: 'seller_required' });
+    const b = req.body && typeof req.body === 'object' ? req.body : {};
+    const ext = VIDEO_TYPES[String(b.type || '').toLowerCase()];
+    const size = Number(b.size), dur = Number(b.duration);
+    if (!ext) return res.status(400).json({ ok: false, error: 'bad_type' });
+    if (!(size > 0) || size > VIDEO_MAX) return res.status(400).json({ ok: false, error: 'too_big', max: VIDEO_MAX });
+    if (!(dur > 0) || dur > 61) return res.status(400).json({ ok: false, error: 'too_long', max: 60 });
+    try {
+        await ensureVideoBucket();
+        const name = `${String(user.id).replace(/[^a-z0-9-]/gi, '').slice(0, 40)}/${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}.${ext}`;
+        const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/object/upload/sign/${VIDEO_BUCKET}/${name}`, {
+            method: 'POST', headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, 'Content-Type': 'application/json' }, body: '{}'
+        }), 8000);
+        const d = r.ok ? await r.json().catch(() => null) : null;
+        const signed = d && (d.url || d.signedURL || d.signedUrl);
+        if (!signed || !/token=/.test(signed)) throw new Error(`sign ${r.status}`);
+        return res.json({ ok: true, upload: `${SB_URL()}/storage/v1${signed.startsWith('/') ? '' : '/'}${signed}`, url: `${SB_URL()}/storage/v1/object/public/${VIDEO_BUCKET}/${name}`, contentType: String(b.type).toLowerCase() });
+    } catch (err) {
+        console.warn(`[upload video Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+app.post('/api/upload/video', handleUploadVideo);
+
 async function handleAdsSearch(req, res) {
     if (!adsOn()) return res.json({ ok: true, items: [] });
     try {
@@ -7327,7 +7404,7 @@ async function handleAdsMine(req, res) {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ ok: false, error: 'login_required', items: [] });
     try {
-        const rows = await sb(`ads?select=${AD_FIELDS}&owner=eq.${encodeURIComponent(user.id)}&status=eq.active&order=created_at.desc&limit=50`);
+        const rows = await sb(`ads?select=${await adFields()}&owner=eq.${encodeURIComponent(user.id)}&status=eq.active&order=created_at.desc&limit=50`);
         // days — сколько дней объявление видно в поиске; bumpHours — как часто можно «поднять»
         return res.json({ ok: true, items: rows || [], days: AD_DAYS, bumpHours: BUMP_EVERY / (60 * MIN) });
     } catch (err) {
@@ -8591,7 +8668,11 @@ async function handleDiag(req, res) {
     if (req.query?.bucket === '1') {
         const v = String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7);
         if (!adsOn()) return res.json({ version: v, bucket: 'store_off' });
-        try { await ensurePhotoBucket(); return res.json({ version: v, bucket: 'ok' }); } catch (err) { return res.json({ version: v, bucket: 'error', error: scrub(err.message) }); }
+        const out = { version: v };
+        try { await ensurePhotoBucket(); out.bucket = 'ok'; } catch (err) { out.bucket = 'error'; out.error = scrub(err.message); }
+        try { await ensureVideoBucket(); out.video = 'ok'; } catch (err) { out.video = 'error'; out.videoError = scrub(err.message); }
+        videoColAt = 0; out.videoColumn = await videoCol();
+        return res.json(out);
     }
     if (req.query?.wx === '1') {
         weatherMemo = { at: 0, data: null };
@@ -8869,7 +8950,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, handleUpload, photoType, handleCoinsClaim, handleCoinsGet, checkSolution,
+    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, handleUpload, photoType, handleUploadVideo, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
