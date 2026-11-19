@@ -1351,6 +1351,22 @@ function mixedLanguage(text, lang) {
     return false;
 }
 
+// Для проверки: какой кусок текста посчитан «чужим языком» (слово и 30 знаков вокруг)
+function mixedWhy(text, lang) {
+    if (!mixedLanguage(text, lang)) return '';
+    const t = String(text).replace(/<[^>]*>/g, ' ').replace(/https?:\/\/\S+/g, ' ').replace(/(?<![\p{L}])[\p{L}\d-]+\.(?:tj|com|ru|org|net|uz|io|me|info)(?![\p{L}])/giu, ' ').replace(/\s+/g, ' ');
+    const res = [/(?<![A-Za-z\u00C0-\u024F])[a-z\u00DF-\u024F][a-z\u00DF-\u024F]{3,}(?![A-Za-z\u00C0-\u024F])/g];
+    if (lang === 'tg') res.push(new RegExp(RU_LEAK.source, 'gi' + (RU_LEAK.unicode ? 'u' : '')), new RegExp(RU_WORDS.source, 'gi' + (RU_WORDS.unicode ? 'u' : '')), new RegExp(RU_ENDINGS.source, 'gi' + (RU_ENDINGS.unicode ? 'u' : '')), /[ыщьц]/gi);
+    if (lang === 'ru') res.push(/[ӣӯқғҳҷ]/g);
+    if (lang === 'uz') res.push(/[а-яё]+/gi);
+    res.push(/[\u0600-\u06FF]{2,}/g);
+    for (const re of res) for (const m of t.matchAll(re)) {
+        if (re === res[0] && LATIN_OK.has(m[0].toLowerCase())) continue;
+        return t.slice(Math.max(0, m.index - 30), m.index + m[0].length + 30).trim();
+    }
+    return '?';
+}
+
 // ---------------------------------------------------------------------------
 // Шариат: iZamoN не консультирует по кредитам, процентам, азартным играм, алкоголю и т.п.
 // ---------------------------------------------------------------------------
@@ -8857,7 +8873,7 @@ async function handleDiag(req, res) {
         const v = String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7);
         if (req.query.blackbox === '1') {
             try {
-                const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/object/${PHOTO_BUCKET}/${BLACKBOX_PATH}`, { headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` } }), 8000);
+                const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/object/${DIAG_BUCKET}/${BLACKBOX_PATH}`, { headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` } }), 8000);
                 return res.json({ version: v, ok: r.ok, saved: r.ok ? await r.json() : null, now: memNow() });
             } catch (err) { return res.json({ version: v, ok: false, error: String(err.message || err).slice(0, 100), now: memNow() }); }
         }
@@ -8893,7 +8909,8 @@ async function handleDiag(req, res) {
                             const flags = [];
                             if (!out || out.error) flags.push('ошибка');
                             else if (out.provider === 'none' && !cards && !/iz-tips|iz-rates/.test(html)) flags.push('пусто/нет данных');
-                            if (text && mixedLanguage(text.replace(/https?:\/\/\S+/g, ''), lang)) flags.push('смесь языков');
+                            const why = text ? mixedWhy(text.replace(/https?:\/\/\S+/g, ''), lang) : '';
+                            if (why) flags.push('смесь языков «' + why.slice(0, 80) + '»');
                             if (/undefined|NaN|\[object/.test(text)) flags.push('мусор в тексте');
                             SWEEP.cur.delete(item);
                             SWEEP.rows.push({ item: item.replace(/^\d+\.\s*/, ''), ms: Date.now() - t0, cards, provider: out && out.provider, view: out && out.view || null, flags });
@@ -8996,7 +9013,7 @@ async function handleDiag(req, res) {
         const places = [...html.matchAll(/<div class="iz-lc-m">📍 ([^<·]*)/g)].map(m => m[1].trim());
         // full=1: текст первых карточек целиком (что видит человек), для проверки цен и контактов
         const full = req.query.full === '1' ? html.split('class="iz-lc"').slice(1, 4).map(c => c.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400)) : undefined;
-        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, times, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, wiki: WIKI_LAST, pic: /iz-wpic/.test(html), view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, imgs: (html.match(/<div class="iz-lc-img"[^>]*><img /g) || []).length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, times, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, mix: mixedWhy(html.replace(/<[^>]*>/g, ' '), askLang) || undefined, wiki: WIKI_LAST, pic: /iz-wpic/.test(html), view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, imgs: (html.match(/<div class="iz-lc-img"[^>]*><img /g) || []).length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
     }
     // /diag?orders=1: проверка таблиц заявок на настоящей базе. Пишет одну пробную строку (заявка с номером 0 и продавцом «diag») и сразу её удаляет.
     if (req.query?.orders === '1') {
@@ -9184,7 +9201,22 @@ app.get('/diag', handleDiag);
 // Проверка состояния и «будильник» для бесплатного хостинга. Ключи не показываются.
 // «Чёрный ящик» памяти: если занятая память растёт к пределу, каждые 5 с сохраняем снимок (сколько памяти, что сейчас считается)
 // в хранилище Supabase. Сервер упал — после перезапуска /diag?blackbox=1 покажет, что было перед падением. Без текстов пользователей.
-const BLACKBOX_PATH = 'diag/blackbox.json';
+const BLACKBOX_PATH = 'blackbox.json', DIAG_BUCKET = 'iz-diag'; // отдельное закрытое хранилище (в «ad-photos» можно класть только фото)
+let diagBucket = null;
+function ensureDiagBucket() {
+    if (diagBucket) return diagBucket;
+    const h = { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` };
+    diagBucket = (async () => {
+        const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/bucket/${DIAG_BUCKET}`, { headers: h }), 8000);
+        if (r.ok) return true;
+        const c = await withTimeout(fetch(`${SB_URL()}/storage/v1/bucket`, { method: 'POST', headers: { ...h, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: DIAG_BUCKET, name: DIAG_BUCKET, public: false, file_size_limit: 65536 }) }), 8000);
+        const txt = c.ok ? '' : await c.text().catch(() => '');
+        if (!c.ok && !/already exists|Duplicate/i.test(txt)) throw new Error(`bucket ${c.status}`);
+        return true;
+    })().catch(err => { diagBucket = null; throw err; });
+    return diagBucket;
+}
 const BLACKBOX_MB = Number(process.env.BLACKBOX_MB) || 120;
 function memNow() {
     const m = process.memoryUsage(), mb = x => Math.round(x / 1048576);
@@ -9199,7 +9231,7 @@ if (process.env.NODE_ENV !== 'test' && !process.env.BLACKBOX_OFF) {
         blackbox.saving = true; blackbox.last = Date.now();
         const snap = { at: new Date().toISOString(), version: String(process.env.RENDER_GIT_COMMIT || '').slice(0, 7), mem, peak: blackbox.peak, upMin: Math.round(process.uptime() / 60),
             busy: computeGate.running, queued: computeGate.queue.length, active, sweep: SWEEP.running ? [...(SWEEP.cur || [])] : [] };
-        ensurePhotoBucket().then(() => withTimeout(fetch(`${SB_URL()}/storage/v1/object/${PHOTO_BUCKET}/${BLACKBOX_PATH}`, {
+        ensureDiagBucket().then(() => withTimeout(fetch(`${SB_URL()}/storage/v1/object/${DIAG_BUCKET}/${BLACKBOX_PATH}`, {
             method: 'POST', headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, 'Content-Type': 'application/json', 'x-upsert': 'true' }, body: JSON.stringify(snap)
         }), 8000)).catch(() => {}).finally(() => { blackbox.saving = false; });
     }, 1000).unref();
@@ -9241,7 +9273,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    detach, TTLCache, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
+    detach, TTLCache, mixedWhy, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
