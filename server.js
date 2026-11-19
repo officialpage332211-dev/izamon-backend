@@ -1870,11 +1870,60 @@ async function weatherToday() {
     return data;
 }
 // ---------- Погода в шапке сайта: сейчас и на сутки для города из анкеты человека ----------
-// id — как в CITIES; координаты городов — OpenStreetMap Nominatim (каждое место сверено по полному названию). Нет города — Душанбе.
-const CITY_COORDS = {};
+// id — как в CITIES; координаты — Викиданные (wikidata.org): взяты только места, у которых описание подтверждает город,
+// посёлок или центр района; спорные (реки, джамоаты, однофамильные сёла) не взяты. Нет координат — областной центр
+// (Согд — Худжанд, Хатлон — Бохтар, ГБАО — Хорог, остальное — Душанбе), и подпись в шапке — этого центра.
+const CITY_COORDS = {
+    dushanbe: [38.5731, 68.7864],
+    vahdat: [38.5531, 69.0197],
+    hisor: [38.5264, 68.5381],
+    tursunzoda: [38.5144, 68.2333],
+    roghun: [38.6979, 69.7523],
+    rudaki: [38.4167, 68.8333],
+    varzob: [38.7736, 68.8178],
+    tojikobod: [39.1170, 70.8470],
+    lakhsh: [39.2222, 71.1922],
+    shahrinav: [38.5772, 68.3297],
+    khujand: [40.2794, 69.6319],
+    istaravshan: [39.9108, 69.0064],
+    panjakent: [39.5031, 67.6150],
+    isfara: [40.1167, 70.6333],
+    konibodom: [40.2833, 70.4167],
+    buston: [40.2386, 69.6967],
+    gafurov: [40.2186, 69.7355],
+    guliston: [40.2647, 69.7894],
+    istiqlol: [40.5689, 69.6403],
+    ayni: [39.3975, 68.5406],
+    mastchoh: [40.5217, 69.3308],
+    shahriston: [39.7667, 68.8167],
+    zafarobod: [40.1833, 68.8833],
+    bokhtar: [37.8364, 68.7803],
+    kulob: [37.9119, 69.7808],
+    nurek: [38.3883, 69.3250],
+    yovon: [38.3117, 69.0381],
+    danghara: [38.0983, 69.3467],
+    farkhor: [37.5000, 69.4000],
+    vose: [37.8050, 69.6464],
+    muminobod: [38.1000, 70.0333],
+    baljuvon: [38.3000, 69.6833],
+    khovaling: [38.3390, 69.9730],
+    vakhsh: [37.7147, 68.8344],
+    jomi: [37.9458, 68.8117],
+    qubodiyon: [37.4075, 68.1850],
+    panj: [37.2353, 69.0972],
+    khuroson: [37.9810, 68.6968],
+    jayhun: [37.3486, 68.6733],
+    khorog: [37.4917, 71.5575],
+    ishkoshim: [36.7248, 71.6133],
+    murghob: [38.1711, 73.9669],
+    roshtqala: [37.2636, 71.8175],
+    rushon: [37.9442, 71.5575],
+    vanj: [38.3731, 71.4553]
+};
+const WEATHER_REGION_CITY = { sughd: 'khujand', khatlon: 'bokhtar', gbao: 'khorog' };
 const nowWeatherMemo = new Map(), nowWeatherBusy = new Map();
 async function nowWeather(id) {
-    const key = CITY_COORDS[id] ? id : 'dushanbe';
+    const key = CITY_COORDS[id] ? id : (WEATHER_REGION_CITY[(CITIES.find(c => c.id === id) || {}).region] || 'dushanbe');
     const hit = nowWeatherMemo.get(key);
     if (hit && Date.now() - hit.at < 30 * MIN) return hit.data;
     if (nowWeatherBusy.has(key)) return nowWeatherBusy.get(key);
@@ -8205,24 +8254,7 @@ async function handleDiag(req, res) {
     if (req.query?.channel === '1') return res.json({ date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), channel_test: await diagChannel() });
     // Как устроены страницы других сайтов объявлений (для прямого подключения): /diag?peek=https://arzon.tj/…&find=текст&from=0&len=2000
     // Только чтение, только сайты объявлений: somon.tj, arzon.tj, ola.tj, paydo.tj, savdo.tj, kifoya.tj, 5shanbe.tj, rg.tj (и его города), lepsh.net; каталог заведений sufra.tj.
-    // координаты городов для погоды в шапке: /diag?geo=1&from=0&n=20 — OpenStreetMap Nominatim (по 1 запросу в секунду, по правилам сервиса).
-    // Нужна один раз: найденные координаты сверяются по полному названию места и вписываются в CITY_COORDS
-    if (req.query?.geo === '1') {
-        const from = Math.max(0, Math.floor(Number(req.query.from) || 0)), n = Math.min(25, Math.max(1, Math.floor(Number(req.query.n) || 20)));
-        const out = [];
-        for (const c of CITIES.slice(from, from + n)) {
-            const q = String(req.query.alt === '1' ? `${c.names.tg}, Тоҷикистон` : `${c.names.ru}, Таджикистан`);
-            try {
-                const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=tj&accept-language=ru&q=${encodeURIComponent(q)}`, { headers: { 'User-Agent': WEATHER_UA, Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
-                const j = r.ok ? await r.json() : null;
-                const f = Array.isArray(j) && j[0];
-                out.push(f ? { id: c.id, lat: Number(f.lat).toFixed(4), lon: Number(f.lon).toFixed(4), type: `${f.class}/${f.type}`, name: String(f.display_name || '').slice(0, 90) } : { id: c.id, miss: r.status });
-            } catch (err) { out.push({ id: c.id, error: String(err && err.message || err).slice(0, 60) }); }
-            await new Promise(r => setTimeout(r, 1100));
-        }
-        return res.json({ total: CITIES.length, from, geo: out });
-    }
-    // те же координаты из Викиданных одним запросом (Nominatim с общего адреса Render отвечает 429): /diag?geo2=1
+    // координаты городов для погоды в шапке — из Викиданных одним запросом (Nominatim с общего адреса Render отвечает 429): /diag?geo2=1
     if (req.query?.geo2 === '1') {
         const lit = (x, l) => `"${String(x).replace(/["\\]/g, '')}"@${l}`;
         const vals = CITIES.flatMap(c => [lit(c.names.ru, 'ru'), lit(c.names.tg, 'tg')]).join(' ');
