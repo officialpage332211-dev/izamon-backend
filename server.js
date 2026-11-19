@@ -8839,7 +8839,7 @@ async function handleDiag(req, res) {
             const r = SWEEP;
             const rows = r.rows || [];
             const bad = rows.filter(x => x.flags.length);
-            return res.json({ version: v, lang: r.lang, running: !!r.running, done: rows.length, total: r.total || 0, startedAt: r.at, msAvg: rows.length ? Math.round(rows.reduce((a, x) => a + x.ms, 0) / rows.length) : 0,
+            return res.json({ version: v, lang: r.lang, running: !!r.running, done: rows.length, total: r.total || 0, startedAt: r.at, error: r.error || null, msAvg: rows.length ? Math.round(rows.reduce((a, x) => a + x.ms, 0) / rows.length) : 0,
                 slow: rows.filter(x => x.ms > 15000).map(x => `${x.item} ${Math.round(x.ms / 1000)}с`), bad: bad.map(x => `${x.item}: ${x.flags.join(', ')}`), ok: rows.length - bad.length });
         }
         if (req.query.sweep === 'start' && !SWEEP.running) {
@@ -8848,6 +8848,7 @@ async function handleDiag(req, res) {
             (async () => {
                 try {
                     const r = await withTimeout(fetch('https://izamon.vercel.app/app.js?sweep=' + Date.now(), { headers: { 'User-Agent': WEATHER_UA } }), 10000);
+                    if (!r.ok) throw new Error('app.js ' + r.status);
                     const src = await r.text();
                     const blocks = src.split(/\n\s*(?=tg:\s*\{|ru:\s*\{|uz:\s*\{)/);
                     const block = blocks.find(b => b.trim().startsWith(lang + ':')) || '';
