@@ -6006,7 +6006,7 @@ async function fetchPage(startUrl, opts = {}) {
         const loc = r.headers.get('location');
         if (r.status >= 300 && r.status < 400 && loc) { url = new URL(loc, u).href; continue; }
         if (!r.ok) throw new Error(`Сайт ответил ${r.status}`);
-        if (!/html|text/i.test(r.headers.get('content-type') || '')) throw new Error('Это не страница');
+        if (!(opts.xml ? /html|text|xml|rss|atom/i : /html|text/i).test(r.headers.get('content-type') || '')) throw new Error('Это не страница');
         return { html: await withTimeout(readCapped(r, cap), ms), url: u.href };
     }
     throw new Error('Слишком много перенаправлений');
@@ -7398,9 +7398,9 @@ app.post('/api/upload/video', handleUploadVideo);
 const NEWS_FEEDS = {
     tg: { tj: [['Ховар', 'https://khovar.tj/feed/'], ['Asia-Plus', 'https://asiaplus.news/tj/feed/']],
         world: [['Ховар', 'https://khovar.tj/category/jahon/feed/']] },
-    ru: { tj: [['Ховар', 'https://khovar.tj/rus/feed/'], ['Asia-Plus', 'https://asiaplus.news/feed/'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml'], ['Авеста', 'https://avesta.tj/feed/']],
+    ru: { tj: [['Ховар', 'https://khovar.tj/rus/feed/'], ['Asia-Plus', 'https://asiaplus.news/feed/'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml', 'tj'], ['Авеста', 'https://avesta.tj/feed/']],
         world: [['BBC News Русская служба', 'https://feeds.bbci.co.uk/russian/rss.xml']] },
-    uz: { tj: [['Kun.uz', 'https://kun.uz/news/rss']], world: [['BBC Oʻzbek', 'https://feeds.bbci.co.uk/uzbek/rss.xml']] }
+    uz: { tj: [['Kun.uz', 'https://kun.uz/news/rss']], world: [['Kun.uz', 'https://kun.uz/news/rss'], ['BBC Oʻzbek', 'https://feeds.bbci.co.uk/uzbek/rss.xml']] }
 };
 const NEWS_SKIP = /(?:концерт|шоу-бизнес|шоубизнес|певиц|певец|клип|эстрад|казино|ставк[аи] на спорт|букмекер|лотере|алкогол|пиво|вино(?:дел)?|водк|коньяк|ночн(?:ой|ые) клуб|эротик|гей|ЛГБТ|сериал|kontsert|qo'shiqchi|klip|kazino|alkogol|консерт|сароянда|клип|майзада|шароб|қиморбоз|казино)/i;
 const newsCache = new TTLCache(50);
@@ -7421,18 +7421,21 @@ function rssItems(xml, source) {
     }
     return out;
 }
-async function newsFeed(name, url) {
-    const page = await fetchPage(url, { cap: 2000000, timeoutMs: 9000 });
-    return rssItems(page.html, name);
+async function newsFeed(name, url, need) {
+    const page = await fetchPage(url, { cap: 2000000, timeoutMs: 9000, xml: true });
+    const items = rssItems(page.html, name);
+    return need ? items.filter(x => need.test(`${x.title} ${x.text}`)) : items;
 }
+// ленты, где много чужих новостей: во вкладку «Таджикистан» — только про Таджикистан
+const NEWS_TJ = /таджик|тоҷик|душанбе|худжанд|хуҷанд|бохтар|куляб|кӯлоб|хорог|хоруғ|памир|помир|рахмон|раҳмон|сомони|сомонӣ|tojik|dushanbe|xo'jand/i;
 async function getNews(lang, topic, debug) {
     const feeds = (NEWS_FEEDS[lang] || NEWS_FEEDS.tg)[topic === 'world' ? 'world' : 'tj'] || [];
     const key = `${lang}:${topic}`;
     const hit = !debug && newsCache.get(key);
     if (hit) return hit;
     const report = [];
-    const lists = await Promise.all(feeds.map(async ([name, url]) => {
-        try { const items = await newsFeed(name, url); report.push({ name, url, n: items.length, first: items[0] ? items[0].title.slice(0, 80) : '' }); return items; }
+    const lists = await Promise.all(feeds.map(async ([name, url, need]) => {
+        try { const items = await newsFeed(name, url, need === 'tj' ? NEWS_TJ : null); report.push({ name, url, n: items.length, first: items[0] ? items[0].title.slice(0, 80) : '' }); return items; }
         catch (err) { report.push({ name, url, error: scrub(err.message || String(err)).slice(0, 80) }); return []; }
     }));
     const weekAgo = Date.now() - 7 * 864e5, seen = new Set();
