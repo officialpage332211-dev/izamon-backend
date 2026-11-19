@@ -1869,6 +1869,48 @@ async function weatherToday() {
     weatherMemo = { at: Date.now(), data };
     return data;
 }
+// ---------- Погода в шапке сайта: сейчас и на сутки для города из анкеты человека ----------
+// id — как в CITIES; координаты городов — OpenStreetMap Nominatim (каждое место сверено по полному названию). Нет города — Душанбе.
+const CITY_COORDS = {};
+const nowWeatherMemo = new Map(), nowWeatherBusy = new Map();
+async function nowWeather(id) {
+    const key = CITY_COORDS[id] ? id : 'dushanbe';
+    const hit = nowWeatherMemo.get(key);
+    if (hit && Date.now() - hit.at < 30 * MIN) return hit.data;
+    if (nowWeatherBusy.has(key)) return nowWeatherBusy.get(key);
+    const job = (async () => {
+        const [lat, lon] = CITY_COORDS[key] || [38.5598, 68.787];
+        const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${Number(lat).toFixed(4)}&lon=${Number(lon).toFixed(4)}`;
+        const r = await withTimeout(fetch(url, { headers: { 'User-Agent': WEATHER_UA, Accept: 'application/json' } }), 6000);
+        if (!r.ok) throw new Error('met.no ' + r.status);
+        const j = await r.json();
+        const now = Date.now();
+        const all = ((j && j.properties && j.properties.timeseries) || []).filter(t => Number.isFinite(Date.parse(t.time)));
+        const cur = all.filter(t => Date.parse(t.time) >= now - 3600e3)[0];
+        const temp = t => Number(t && t.data && t.data.instant && t.data.instant.details && t.data.instant.details.air_temperature);
+        if (!cur || !Number.isFinite(temp(cur))) throw new Error('met.no: нет текущей погоды');
+        const day = all.filter(t => { const at = Date.parse(t.time); return at >= now - 3600e3 && at <= now + 24 * 3600e3; }).map(temp).filter(Number.isFinite);
+        const sum = k => cur.data && cur.data[k] && cur.data[k].summary && cur.data[k].summary.symbol_code;
+        const data = { id: key, t: Math.round(temp(cur)), sym: String(sum('next_1_hours') || sum('next_6_hours') || ''), hi: day.length ? Math.round(Math.max(...day)) : null, lo: day.length ? Math.round(Math.min(...day)) : null };
+        nowWeatherMemo.set(key, { at: Date.now(), data });
+        return data;
+    })();
+    nowWeatherBusy.set(key, job);
+    try { return await job; } finally { nowWeatherBusy.delete(key); }
+}
+// GET /api/weather?city=khujand — { ok, id, t, sym, hi, lo, src }; ответ можно держать 10 минут
+async function handleWeatherNow(req, res) {
+    const id = /^[a-z]{2,20}$/.test(String(req.query?.city || '')) ? String(req.query.city) : 'dushanbe';
+    try {
+        const d = await nowWeather(id);
+        if (typeof res.set === 'function') res.set('Cache-Control', 'public, max-age=600');
+        res.json({ ok: true, ...d, src: 'api.met.no' });
+    } catch (err) {
+        console.warn(`[погода в шапке Сбой]: ${scrub(err && err.message || err)}`);
+        res.status(503).json({ ok: false, error: 'weather_unavailable' });
+    }
+}
+
 function weatherLines(data, lang) {
     const t = n => (n > 0 ? '+' : '') + Math.round(n) + '°';
     return data.filter(Boolean).map(w => {
@@ -7863,6 +7905,7 @@ app.post('/api/tg/unlink', handleTgUnlink);
 app.post(TG_HOOK_PATH, handleTgHook);
 
 app.get('/api/config', handleConfig);
+app.get('/api/weather', handleWeatherNow);
 app.get('/api/me', handleMe);
 app.post('/api/seller', handleSeller);
 app.delete('/api/ads/:id', handleAdsDelete);
@@ -8179,6 +8222,21 @@ async function handleDiag(req, res) {
         }
         return res.json({ total: CITIES.length, from, geo: out });
     }
+    // те же координаты из Викиданных одним запросом (Nominatim с общего адреса Render отвечает 429): /diag?geo2=1
+    if (req.query?.geo2 === '1') {
+        const lit = (x, l) => `"${String(x).replace(/["\\]/g, '')}"@${l}`;
+        const vals = CITIES.flatMap(c => [lit(c.names.ru, 'ru'), lit(c.names.tg, 'tg')]).join(' ');
+        const q = `SELECT ?name ?coord ?d WHERE { VALUES ?name { ${vals} } ?item rdfs:label ?name; wdt:P17 wd:Q863; wdt:P625 ?coord. OPTIONAL { ?item schema:description ?d FILTER(lang(?d) = "ru") } }`;
+        try {
+            const r = await fetch('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(q), { headers: { 'User-Agent': WEATHER_UA, Accept: 'application/sparql-results+json' }, signal: AbortSignal.timeout(20000) });
+            const j = r.ok ? await r.json() : null;
+            const rows = ((j && j.results && j.results.bindings) || []).map(b => {
+                const m = String(b.coord && b.coord.value || '').match(/Point\(([-\d.]+) ([-\d.]+)\)/);
+                return [b.name.value, m ? Number(m[2]).toFixed(4) : '', m ? Number(m[1]).toFixed(4) : '', String(b.d && b.d.value || '').slice(0, 40)].join('|');
+            });
+            return res.json({ status: r.status, n: rows.length, rows });
+        } catch (err) { return res.json({ error: String(err && err.message || err).slice(0, 80) }); }
+    }
     // проверка погоды: /diag?wx=1 — что ответил MET Norway (или почему нет)
     if (req.query?.wx === '1') {
         weatherMemo = { at: 0, data: null };
@@ -8459,7 +8517,7 @@ module.exports = {
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, nameOnPage, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
-    app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; }, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
+    app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
     unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
