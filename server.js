@@ -2758,6 +2758,22 @@ function unifyPrice(price, lang, rates = null) {
     return p;
 }
 
+// Контакт на карточке — нажимается: телефон → звонок, WhatsApp → wa.me, Telegram @имя → t.me, Instagram @имя → instagram.com.
+// Остальное (адрес почты, текст) — как есть. Номер без +992 из 9 цифр считаем таджикским.
+function contactHtml(contact) {
+    const segs = String(contact || '').split(/[;\n|]+|\s·\s/).map(x => x.trim()).filter(Boolean);
+    const link = (href, text) => `<a class="iz-ct" href="${escapeAttr(href)}" target="_blank" rel="noopener noreferrer">${escapeHtml(text)}</a>`;
+    const digitsOf = x => { const d = String(x).replace(/\D/g, ''); return d.length === 9 ? '992' + d : d; };
+    return segs.map(seg => {
+        const handle = (seg.match(/@([A-Za-z0-9_.]{3,32})/) || [])[1];
+        const num = (seg.match(/\+?\d[\d\s().-]{7,}\d/) || [])[0];
+        if (/whats\s*app|ватсап|вотсап|wa\.me/i.test(seg) && num) return link(`https://wa.me/${digitsOf(num)}`, seg);
+        if (/telegram|телеграм|(?<![\p{L}])tg(?![\p{L}])|t\.me/iu.test(seg) && handle) return link(`https://t.me/${handle}`, seg);
+        if (/instagram|инстаграм|insta/i.test(seg) && handle) return link(`https://instagram.com/${handle.replace(/\.$/, '')}`, seg);
+        if (num && !/x/i.test(seg)) { const d = digitsOf(num); if (d.length >= 9 && d.length <= 13) return `<a class="iz-ct" href="tel:+${escapeAttr(d)}">${escapeHtml(seg)}</a>`; }
+        return escapeHtml(seg);
+    }).join(' · ');
+}
 function cardHtml(it, kind, lang) {
     const host = hostOf(it.url);
     const phone = firstCallable(it.contact);
@@ -2786,7 +2802,7 @@ function cardHtml(it, kind, lang) {
         it.sellerSince && it.sellerCount > 0 && SELLER_LINE[lang] ? `<div class="iz-lc-sl">${escapeHtml(SELLER_LINE[lang](it.sellerSince, it.sellerCount))}</div>` : '',
         it.place || it.who ? `<div class="iz-lc-m">${it.place ? '📍 ' + escapeHtml(it.place) : ''}${it.place && it.who ? ' · ' : ''}${it.who ? '👤 ' + escapeHtml(it.who) : ''}</div>` : '',
         tiles ? `<div class="iz-tiles">${tiles}</div>` : '',
-        it.contact ? `<div class="iz-lc-m">📞 ${escapeHtml(it.contact)}</div>` : '',
+        it.contact ? `<div class="iz-lc-m iz-lc-ct">📞 ${contactHtml(it.contact)}</div>` : '',
         `<div class="iz-lc-btns"><a class="iz-lc-a" href="${escapeAttr(it.url)}" target="_blank" rel="noopener noreferrer">${OPEN_LABEL[lang]}</a>${callable ? `<a class="iz-lc-call" href="tel:${escapeAttr(phone)}">📞 ${CALL_LABEL[lang]}</a>` : ''}</div>`
     ];
     // Для кнопок «Дешевле» / «Новее» на сайте: цена числом, её валюта и возраст объявления в минутах (только то, что известно точно)
@@ -6366,7 +6382,9 @@ async function verifyItems(original, current, kind, debug, nameCheck = false) {
     const out = current.map((it, i) => {
         const f = facts[i];
         if (f) stat.pagesOk++; else stat.pagesFailed++;
-        const c = original[i].trusted ? { kept: clipContact(original[i].contact), dropped: 0 } : f ? verifyContact(original[i].contact, f) : { kept: '', dropped: original[i].contact ? 1 : 0 };
+        // страница не открылась (сайт не пустил наш сервер) — контакт, который поиск взял с этой страницы, оставляем: проверить нечем,
+        // а без контакта карточка бесполезна; открылась и номера на ней нет — убираем (выдуман)
+        const c = original[i].trusted ? { kept: clipContact(original[i].contact), dropped: 0 } : f ? verifyContact(original[i].contact, f) : { kept: clipContact(original[i].contact), dropped: 0 };
         stat.contactsDropped += c.dropped;
         if (c.kept) stat.contactsKept++;
         const pts = verifyPoints(it, f, kind);
@@ -8621,7 +8639,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
