@@ -2466,6 +2466,8 @@ async function askChat(client, model, system, userText, maxTokens = 300, extra =
 // Чат: кэш, один запрос на одинаковые вопросы, лимит одновременных обращений к ИИ
 // ---------------------------------------------------------------------------
 const answerCache = new TTLCache(500);
+const staleCache = new TTLCache(800);
+const STALE_MS = (Number(process.env.STALE_MIN) || 180) * 60000;
 const inflight = new Map();
 let active = 0;
 
@@ -5808,7 +5810,11 @@ async function runShared(key, cacheable, fn) {
     if (inflight.has(key)) return inflight.get(key);
     const p = (async () => {
         const r = await fn();
-        if (r.ttl) answerCache.set(key, r.body, r.ttl);
+        if (r.ttl) {
+            answerCache.set(key, r.body, r.ttl);
+            // запасная копия на 3 часа (только хорошие ответы): пока собирается свежий, человек видит её сразу
+            if (r.body && r.body.provider !== 'none' && !/rate-limit|busy/.test(r.body.provider || '')) staleCache.set(key, { body: r.body, day: todayTJ().iso }, STALE_MS);
+        }
         return r;
     })().finally(() => inflight.delete(key));
     inflight.set(key, p);
@@ -5932,13 +5938,20 @@ async function handleChat(req, res) {
         const pic = await Promise.race([picP, new Promise(z => setTimeout(() => z(null), 3000))]);
         return pic ? { ...b, answer: withPictureHtml(b.answer, pic, lang), picture: pic.page } : b;
     };
+    const run = () => compute({ plain: cleaned, heartTopic: heart ? heartTopicOf(body.heartTopic) : '', mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null });
     if (cacheable) {
         const hit = answerCache.get(key);
         if (hit) return res.json(await withPic({ ...hit, cached: true }));
+        // «Старый, но сегодняшний» ответ отдаём сразу (без ожидания 10–25 секунд), а свежий собираем в фоне для следующего человека
+        const old = staleCache.get(key);
+        if (old && old.day === todayTJ().iso) {
+            runShared(key, true, run).catch(err => console.warn(`[фон Сбой]: ${scrub(err && err.message || err)}`));
+            return res.json(await withPic({ ...old.body, cached: true, stale: true }));
+        }
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ plain: cleaned, heartTopic: heart ? heartTopicOf(body.heartTopic) : '', mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null }));
+        const r = await runShared(key, cacheable, run);
         return res.json(await withPic(r.body));
     } catch (err) {
         console.error('chat failed:', err);
