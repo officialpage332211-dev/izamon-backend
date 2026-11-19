@@ -7400,6 +7400,91 @@ async function ownAd(user, id) {
     return rows && rows[0] && rows[0].status === 'active' ? rows[0] : null;
 }
 
+// ---------------------------------------------------------------------------
+// Монеты из игр («Бозӣ»): хранятся в аккаунте (Supabase auth, app_metadata — его меняет только сервер).
+// Получить: POST /api/coins/claim { game: 'scan' | 'sudoku', level, fill, hints } — сервер сам строит головоломку дня
+// (games-core.js, тот же код, что на сайте) и проверяет решение; за одну головоломку — один раз в день.
+// Потратить: «поднять» объявление раньше суток — BUMP_COINS монет. Баланс: GET /api/coins.
+// ---------------------------------------------------------------------------
+const GAMES = require('./games-core.js');
+const BUMP_COINS = Number(process.env.BUMP_COINS) || 30;
+const coinsLimited = makeLimiter(20);
+async function authAdmin(uid, method = 'GET', body) {
+    const r = await withTimeout(fetch(`${SB_URL()}/auth/v1/admin/users/${encodeURIComponent(uid)}`, {
+        method, headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, 'Content-Type': 'application/json' },
+        body: body ? JSON.stringify(body) : undefined
+    }), 8000);
+    if (!r.ok) { const e = new Error(`auth admin ${r.status}`); e.status = r.status; throw e; }
+    return r.json().catch(() => ({}));
+}
+const coinLocks = new Map(); // по одному изменению баланса на человека за раз
+function withCoinLock(uid, fn) {
+    const prev = coinLocks.get(uid) || Promise.resolve();
+    const run = prev.catch(() => {}).then(fn);
+    coinLocks.set(uid, run.finally(() => { if (coinLocks.get(uid) === run) coinLocks.delete(uid); }));
+    return run;
+}
+function coinMeta(u) {
+    const m = (u && u.app_metadata && typeof u.app_metadata === 'object') ? u.app_metadata : {};
+    return { coins: Math.max(0, Math.floor(Number(m.iz_coins) || 0)), claims: Array.isArray(m.iz_claims) ? m.iz_claims.filter(x => typeof x === 'string').slice(-60) : [] };
+}
+async function getCoins(uid) { return coinMeta(await authAdmin(uid)).coins; }
+async function spendCoins(uid, n) {
+    return withCoinLock(uid, async () => {
+        const u = await authAdmin(uid), m = coinMeta(u);
+        if (m.coins < n) return null;
+        await authAdmin(uid, 'PUT', { app_metadata: { ...(u.app_metadata || {}), iz_coins: m.coins - n } });
+        return m.coins - n;
+    });
+}
+// решение головоломки дня: { ok, key, prize } или null
+function checkSolution(b, date) {
+    const game = b && b.game, fill = b && b.fill && typeof b.fill === 'object' ? b.fill : null;
+    if (!fill) return null;
+    const hints = Math.max(0, Math.min(99, Math.floor(Number(b.hints) || 0)));
+    if (game === 'scan') {
+        const P = GAMES.SCAN.build(date);
+        const ok = Object.keys(P.grid).every(k => fill[k] === P.grid[k].ch);
+        return ok ? { key: `scan:${date}`, prize: Math.max(3, 10 - hints) } : null;
+    }
+    if (game === 'sudoku') {
+        const lv = Number(b.level);
+        if (![0, 1, 2].includes(lv)) return null;
+        const P = GAMES.SUDOKU.build(date, lv);
+        for (let i = 0; i < 81; i++) if (!P.puz[i] && Number(fill[i]) !== P.sol[i]) return null;
+        return { key: `sudoku${lv}:${date}`, prize: Math.max(2, GAMES.SUDOKU.PRIZE[lv] - hints) };
+    }
+    return null;
+}
+async function handleCoinsClaim(req, res) {
+    if (coinsLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    const sol = checkSolution(req.body, todayTJ().iso);
+    if (!sol) return res.status(400).json({ ok: false, error: 'not_solved' });
+    try {
+        const out = await withCoinLock(user.id, async () => {
+            const u = await authAdmin(user.id), m = coinMeta(u);
+            if (m.claims.includes(sol.key)) return { ok: true, already: true, coins: m.coins, prize: 0 };
+            const coins = m.coins + sol.prize;
+            await authAdmin(user.id, 'PUT', { app_metadata: { ...(u.app_metadata || {}), iz_coins: coins, iz_claims: m.claims.concat(sol.key).slice(-60) } });
+            return { ok: true, coins, prize: sol.prize };
+        });
+        return res.json(out);
+    } catch (err) {
+        console.warn(`[coins Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+async function handleCoinsGet(req, res) {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    try { return res.json({ ok: true, coins: await getCoins(user.id), bumpCost: BUMP_COINS }); }
+    catch (err) { return res.status(503).json({ ok: false, error: 'store_failed' }); }
+}
+app.post('/api/coins/claim', handleCoinsClaim);
+app.get('/api/coins', handleCoinsGet);
+
 async function handleAdBump(req, res) {
     if (bumpLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
     const user = await getUser(req);
@@ -7410,10 +7495,17 @@ async function handleAdBump(req, res) {
         const ad = await ownAd(user, id);
         if (!ad) return res.status(404).json({ ok: false, error: 'not_found' });
         const next = Date.parse(ad.created_at) + BUMP_EVERY;
-        if (next > Date.now()) return res.status(429).json({ ok: false, error: 'too_soon', next: new Date(next).toISOString() });
+        let coinsLeft = null;
+        if (next > Date.now()) {
+            // раньше суток — только за монеты из игр, если человек сам попросил (coins: true)
+            if (!(req.body && req.body.coins === true)) return res.status(429).json({ ok: false, error: 'too_soon', next: new Date(next).toISOString(), cost: BUMP_COINS });
+            const spent = await spendCoins(user.id, BUMP_COINS);
+            if (spent === null) return res.status(402).json({ ok: false, error: 'no_coins', cost: BUMP_COINS });
+            coinsLeft = spent;
+        }
         const at = new Date().toISOString();
         await sb(`ads?id=eq.${id}&owner=eq.${encodeURIComponent(user.id)}`, { method: 'PATCH', body: { created_at: at }, prefer: 'return=minimal' });
-        return res.json({ ok: true, created_at: at });
+        return res.json({ ok: true, created_at: at, ...(coinsLeft !== null ? { coins: coinsLeft } : {}) });
     } catch (err) {
         console.warn(`[ads bump Сбой]: ${err.message}`);
         return res.status(503).json({ ok: false, error: 'store_failed' });
@@ -8777,7 +8869,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, handleUpload, photoType,
+    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, handleUpload, photoType, handleCoinsClaim, handleCoinsGet, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
