@@ -1143,8 +1143,29 @@ const DIRECTIVES = {
 
 // «Садои дил»: свой собеседник — тёплый, бережный, вежливый и мудрый. Не справочник: живая речь, без значков в начале строк.
 // Цель — чтобы человек ушёл свободнее и легче, чем пришёл: услышанным, понятым, не одиноким.
-function heartPrompt(lang, strict = false) {
-    return `Ты — «Садои дил» («Голос сердца») на сайте iZamoN: тёплый, нежный, вежливый и очень мудрый собеседник. Сюда приходят анонимно, чтобы выговориться: боль, обида, одиночество, тревога, усталость, горе, стыд, разочарование или просто тяжёлый день. Твоя цель — чтобы человек ушёл от разговора свободнее и легче, чем пришёл: услышанным, понятым, принятым и не одиноким.
+// «Ҳамроз»: подразделы (кнопки над разговором). Без подраздела — сердечный разговор, как раньше.
+const HEART_TOPICS = {
+    family: `ПОДРАЗДЕЛ «ОИЛА» (семейные вопросы): муж и жена, родители, дети, свекровь и невестка, родственники.
+- Помогай сохранить мир в семье и уважение к старшим; ищи шаг, который сблизит, а не разведёт.
+- Опирайся на исламскую семейную этику (ханафитский мазхаб): права и обязанности супругов, почитание родителей, милосердие к детям; без фетв.
+- Не принимай одну сторону заочно: бережно помоги увидеть и чувства другого человека.
+- Если есть насилие или угроза — прямо посоветуй безопасность: близкие люди, 102 (милиция).`,
+    advice: `ПОДРАЗДЕЛ «МАСЛИҲАТ» (личный совет): решение, выбор, работа, учёба, конфликт, планы.
+- Здесь человек ждёт совета: сначала коротко пойми суть, затем дай 2–3 ясных практических шага по порядку.
+- Если для совета не хватает важной детали — задай один уточняющий вопрос.
+- Взвешивай плюсы и минусы честно; решение оставь за человеком. Запретное (проценты, обман) не советуй.`,
+    motivate: `ПОДРАЗДЕЛ «РӮҲБАЛАНДӢ» (мотиватор): лень, страх, усталость от цели, неуверенность.
+- Будь бодрым и вдохновляющим, но без пустых лозунгов: напомни о силе человека и о смысле его цели.
+- Дай один маленький шаг на сегодня, который можно сделать за 5–15 минут.
+- Можно одно короткое доброе изречение (аят, хадис из достоверных сборников или пословица), только если уверен в точности; иначе без цитат.`,
+    health: `ПОДРАЗДЕЛ «ОДАТҲОИ НЕК» (сон, отдых, питание, движение, распорядок дня).
+- Давай простые общие советы для здорового образа жизни: режим сна, прогулки, вода, умеренность в еде, перерывы в работе, утренний распорядок после намаза.
+- Без диагнозов, лекарств и дозировок. При боли, долгой бессоннице или других жалобах — бережно посоветуй врача.`
+};
+const heartTopicOf = v => (typeof v === 'string' && Object.prototype.hasOwnProperty.call(HEART_TOPICS, v)) ? v : '';
+function heartPrompt(lang, strict = false, topic = '') {
+    const sub = HEART_TOPICS[topic] ? `\n\n${HEART_TOPICS[topic]}\n- В этом подразделе можно давать советы (это просьба человека), но тепло и коротко; правило «совет — только если просят» здесь не действует.` : '';
+    return `Ты — «Ҳамроз» (раньше «Садои дил»; «Ҳамроз» — «тот, кому доверяют сокровенное») на сайте iZamoN: тёплый, нежный, вежливый и очень мудрый собеседник. Сюда приходят анонимно, чтобы выговориться: боль, обида, одиночество, тревога, усталость, горе, стыд, разочарование или просто тяжёлый день. Твоя цель — чтобы человек ушёл от разговора свободнее и легче, чем пришёл: услышанным, понятым, принятым и не одиноким.
 
 КАК ТЫ ГОВОРИШЬ:
 - На «Вы» (${FORMS[lang]}), мягко и тепло, как мудрый и добрый близкий человек: без фамильярности, без сюсюканья, без канцелярита и без психологических терминов.
@@ -1167,6 +1188,7 @@ function heartPrompt(lang, strict = false) {
 - Если есть признаки, что человек думает о самоубийстве или может навредить себе или другим, — не уходи от темы: спокойно и прямо спроси, в безопасности ли он сейчас; скажи, что его жизнь очень ценна; попроси прямо сейчас не оставаться одному — позвонить или написать близкому человеку; при опасности — звонить 103 (скорая помощь) или 102 (милиция).
 - При долгой тоске, бессоннице, панике или сильной тревоге бережно посоветуй врача или психолога — как заботу, а не как отказ от разговора.
 - Всё в рамках шариата: запретное не одобряй, но и человека не осуждай. Если просят совета о запретном (кредит или долг под проценты, алкоголь, азартные игры и т.п.) — мягко и нежно откажи, без объяснений, и вернись к чувствам человека. Если человек делится болью, связанной с этим (долги, пьющий родственник), — выслушай и поддержи.
+${sub}
 
 ЯЗЫК: весь ответ только на языке «${LANG_NAMES[lang]}». ${LANG_RULES[lang]} Пиши грамотно, простыми и тёплыми словами.${strict ? '\n- ВАЖНО: в прошлой попытке в ответе были слова другого языка. Пиши строго на одном языке.' : ''}`;
 }
@@ -1209,21 +1231,21 @@ async function askOpenAIPlain(system, userText, maxTokens = 1000, timeoutMs = 20
     if (!text) throw new Error('Empty response');
     return { text, sources: [], usage: resp.usage ? { prompt_tokens: resp.usage.input_tokens, completion_tokens: resp.usage.output_tokens } : null };
 }
-function heartRuns(lang, fullMessage) {
+function heartRuns(lang, fullMessage, topic = '') {
     const runs = [];
-    if (openrouter) heartModels(lang).forEach(m => runs.push([`openrouter:${m}`, (strict, ms) => askChat(openrouter, m, heartPrompt(lang, strict), fullMessage, 1000, HEART_PRIVATE, ms, HEART_NO_RETRY)]));
+    if (openrouter) heartModels(lang).forEach(m => runs.push([`openrouter:${m}`, (strict, ms) => askChat(openrouter, m, heartPrompt(lang, strict, topic), fullMessage, 1000, HEART_PRIVATE, ms, HEART_NO_RETRY)]));
     if (openai) {
-        runs.push(['openai', (strict, ms) => askOpenAIPlain(heartPrompt(lang, strict), fullMessage, 1000, ms)]);
-        runs.push(['openai-chat', (strict, ms) => askChat(openai, OPENAI_MODEL, heartPrompt(lang, strict), fullMessage, 1000, null, ms, HEART_NO_RETRY)]);
+        runs.push(['openai', (strict, ms) => askOpenAIPlain(heartPrompt(lang, strict, topic), fullMessage, 1000, ms)]);
+        runs.push(['openai-chat', (strict, ms) => askChat(openai, OPENAI_MODEL, heartPrompt(lang, strict, topic), fullMessage, 1000, null, ms, HEART_NO_RETRY)]);
     }
-    if (gemini) runs.push(['gemini', (strict, ms) => { if (!geminiUp()) throw new Error('gemini paused'); return askGemini(heartPrompt(lang, strict), fullMessage, false, ms); }]);
+    if (gemini) runs.push(['gemini', (strict, ms) => { if (!geminiUp()) throw new Error('gemini paused'); return askGemini(heartPrompt(lang, strict, topic), fullMessage, false, ms); }]);
     return runs;
 }
-async function heartReply({ lang, fullMessage }) {
+async function heartReply({ lang, fullMessage, topic = '' }) {
     // Сайт ждёт ответ не дольше минуты: на все попытки — 45 секунд, на одну — до 20
     const until = Date.now() + 45000;
     let kept = null;
-    for (const [name, run] of heartRuns(lang, fullMessage)) {
+    for (const [name, run] of heartRuns(lang, fullMessage, topic)) {
         const left = until - Date.now();
         if (left < 5000) break;
         try {
@@ -5491,7 +5513,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return fallback || text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null, few = null, opts = null, plain = '' }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null, few = null, opts = null, plain = '', heartTopic = '' }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -5614,7 +5636,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
         }
 
         // «Садои дил» — свой собеседник и свой порядок ИИ (heartReply)
-        if (mode === 'heart') return await heartReply({ lang, fullMessage });
+        if (mode === 'heart') return await heartReply({ lang, fullMessage, topic: heartTopic });
         // Разговор без поиска. Для таджикского и узбекского первым идёт Gemini: он грамотнее.
         const order = lang === 'ru' ? ['openai', 'gemini', 'openrouter'] : ['gemini', 'openai', 'openrouter'];
         let kept = null;
@@ -5792,9 +5814,9 @@ function withHistory(text, history) {
 
 const HELLO_ASK = /^(?:(?:ас)?сал[оа]м(?:у\s+ала?йкум)?|(?:as)?salom(?:u\s+alaykum)?|привет|здравствуй(?:те)?|добрый\s+(?:день|вечер)|доброе\s+утро|hello|hi)(?:[\s,!.]+(?:iZamoN|изамон))?[\s,!.?]*(?:(?:ту|шумо|ты|вы|sen|siz)?\s*(?:чӣ\s+кор\s+(?:карда\s+)?(?:метавон[ӣи]|метавонед)|что\s+(?:ты\s+|вы\s+)?уме(?:ешь|ете)|nima\s+qila\s+olas(?:an|iz))[\s?!.]*)?$|^(?:ту\s+|шумо\s+|ты\s+|вы\s+)?(?:чӣ\s+кор\s+(?:карда\s+)?(?:метавон[ӣи]|метавонед)|что\s+(?:ты\s+|вы\s+)?уме(?:ешь|ете)|nima\s+qila\s+olas(?:an|iz)|кто\s+(?:ты|вы)|ту\s+кистӣ|kimsan)[\s?!.]*$/iu;
 const HELLO_REPLY = {
-    tg: '👋 Салом! Ман ёрдамчии iZamoN ҳастам.\n🔎 Ҷустуҷӯ: нависед, ки чӣ лозим аст — «иҷораи хона», «iPhone 13», «кор дар Душанбе».\n💱 Маълумот: қурби асъор, гумрук, пардохти коммуналӣ, хизматрасониҳои давлатӣ.\n❓ Савол: масалан, «чӣ тавр ИНН гирам?» — бо манбаъ ҷавоб медиҳам.\n🤍 «Садои дил» — агар дил танг бошад, он ҷо метавонед дарди дил гӯед.',
-    ru: '👋 Здравствуйте! Я помощник iZamoN.\n🔎 Поиск: напишите, что нужно — «аренда квартиры», «iPhone 13», «работа в Душанбе».\n💱 Справки: курсы валют, растаможка, коммунальные платежи, госуслуги.\n❓ Вопрос: например, «как получить ИНН?» — отвечу с источником.\n🤍 «Садои дил» — если тяжело на душе, там можно выговориться.',
-    uz: "👋 Salom! Men iZamoN yordamchisiman.\n🔎 Qidiruv: nima kerakligini yozing — «kvartira ijarasi», «iPhone 13», «Dushanbeda ish».\n💱 Ma'lumot: valyuta kurslari, bojxona, kommunal to'lovlar, davlat xizmatlari.\n❓ Savol: masalan, «INN qanday olinadi?» — manba bilan javob beraman.\n🤍 «Sadoi dil» — ko'ngil og'ir bo'lsa, o'sha yerda dardlashish mumkin."
+    tg: '👋 Салом! Ман ёрдамчии iZamoN ҳастам.\n🔎 Ҷустуҷӯ: нависед, ки чӣ лозим аст — «иҷораи хона», «iPhone 13», «кор дар Душанбе».\n💱 Маълумот: қурби асъор, гумрук, пардохти коммуналӣ, хизматрасониҳои давлатӣ.\n❓ Савол: масалан, «чӣ тавр ИНН гирам?» — бо манбаъ ҷавоб медиҳам.\n🤍 «Ҳамроз» — сӯҳбати дилӣ, оила, маслиҳат ва рӯҳбаландӣ.',
+    ru: '👋 Здравствуйте! Я помощник iZamoN.\n🔎 Поиск: напишите, что нужно — «аренда квартиры», «iPhone 13», «работа в Душанбе».\n💱 Справки: курсы валют, растаможка, коммунальные платежи, госуслуги.\n❓ Вопрос: например, «как получить ИНН?» — отвечу с источником.\n🤍 «Ҳамроз» — сердечный разговор, семья, совет и мотивация.',
+    uz: "👋 Salom! Men iZamoN yordamchisiman.\n🔎 Qidiruv: nima kerakligini yozing — «kvartira ijarasi», «iPhone 13», «Dushanbeda ish».\n💱 Ma'lumot: valyuta kurslari, bojxona, kommunal to'lovlar, davlat xizmatlari.\n❓ Savol: masalan, «INN qanday olinadi?» — manba bilan javob beraman.\n🤍 «Hamroz» — dildan suhbat, oila, maslahat va ruhlantirish."
 };
 async function handleChat(req, res) {
     const body = req.body || {};
@@ -5896,7 +5918,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ plain: cleaned, mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null }));
+        const r = await runShared(key, cacheable, () => compute({ plain: cleaned, heartTopic: heart ? heartTopicOf(body.heartTopic) : '', mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null }));
         return res.json(await withPic(r.body));
     } catch (err) {
         console.error('chat failed:', err);
@@ -8689,7 +8711,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
+    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
