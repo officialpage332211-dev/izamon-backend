@@ -47,6 +47,8 @@ for (const m of ['get', 'post', 'put', 'patch', 'delete']) {
 const allowedOrigins = (process.env.ALLOWED_ORIGINS || '').split(',').map(s => s.trim()).filter(Boolean);
 app.use(cors({ ...(allowedOrigins.length ? { origin: allowedOrigins } : {}), methods: ['GET', 'POST', 'DELETE'], allowedHeaders: ['Content-Type', 'Authorization'] }));
 app.use('/api/stt', express.raw({ type: () => true, limit: '6mb' }));
+// фото объявления: сайт сам сжимает до JPEG ~1280px, сюда приходит готовый файл (до 1 МБ)
+app.use('/api/upload', express.raw({ type: () => true, limit: '1mb' }));
 app.use(express.json({ limit: '20kb' }));
 
 const geminiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
@@ -7253,6 +7255,64 @@ async function handleAdsCreate(req, res) {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Фото объявления с телефона: POST /api/upload (тело — JPEG/WebP до 1 МБ, только продавец).
+// Хранится в Supabase Storage, корзина «ad-photos» (публичная; создаётся сама при первой загрузке).
+// Проверяем начало файла (подпись JPEG/WebP), а не только заголовок; имя файла — случайное.
+// ---------------------------------------------------------------------------
+const PHOTO_BUCKET = 'ad-photos';
+const uploadLimited = makeLimiter(20);
+let photoBucket = null;
+function ensurePhotoBucket() {
+    if (photoBucket) return photoBucket;
+    const h = { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` };
+    photoBucket = (async () => {
+        const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/bucket/${PHOTO_BUCKET}`, { headers: h }), 8000);
+        if (r.ok) return true;
+        const c = await withTimeout(fetch(`${SB_URL()}/storage/v1/bucket`, {
+            method: 'POST', headers: { ...h, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ id: PHOTO_BUCKET, name: PHOTO_BUCKET, public: true, file_size_limit: 1048576, allowed_mime_types: ['image/jpeg', 'image/webp'] })
+        }), 8000);
+        const txt = c.ok ? '' : await c.text().catch(() => '');
+        if (!c.ok && !/already exists|Duplicate/i.test(txt)) throw new Error(`bucket ${c.status}`);
+        return true;
+    })().catch(err => { photoBucket = null; throw err; });
+    return photoBucket;
+}
+function photoType(buf) {
+    if (!Buffer.isBuffer(buf) || buf.length < 12) return '';
+    if (buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) return 'image/jpeg';
+    if (buf.toString('ascii', 0, 4) === 'RIFF' && buf.toString('ascii', 8, 12) === 'WEBP') return 'image/webp';
+    return '';
+}
+async function handleUpload(req, res) {
+    if (uploadLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    if (!adsOn()) return res.status(503).json({ ok: false, error: 'store_off' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    let seller;
+    try { seller = await getSeller(user.id); } catch (err) { seller = null; }
+    if (!seller) return res.status(403).json({ ok: false, error: 'seller_required' });
+    const type = photoType(req.body);
+    if (!type) return res.status(400).json({ ok: false, error: 'bad_image' });
+    if (req.body.length < 2000) return res.status(400).json({ ok: false, error: 'too_small' });
+    try {
+        await ensurePhotoBucket();
+        const name = `${String(user.id).replace(/[^a-z0-9-]/gi, '').slice(0, 40)}/${Date.now().toString(36)}-${crypto.randomBytes(6).toString('hex')}.${type === 'image/webp' ? 'webp' : 'jpg'}`;
+        const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/object/${PHOTO_BUCKET}/${name}`, {
+            method: 'POST',
+            headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, 'Content-Type': type, 'Cache-Control': 'max-age=31536000', 'x-upsert': 'false' },
+            body: req.body
+        }), 15000);
+        if (!r.ok) throw new Error(`upload ${r.status}`);
+        return res.json({ ok: true, url: `${SB_URL()}/storage/v1/object/public/${PHOTO_BUCKET}/${name}` });
+    } catch (err) {
+        console.warn(`[upload Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+app.post('/api/upload', handleUpload);
+
 async function handleAdsSearch(req, res) {
     if (!adsOn()) return res.json({ ok: true, items: [] });
     try {
@@ -8435,6 +8495,12 @@ async function handleDiag(req, res) {
         } catch (err) { return res.json({ error: String(err && err.message || err).slice(0, 80) }); }
     }
     // проверка погоды: /diag?wx=1 — что ответил MET Norway (или почему нет)
+    // корзина для фото объявлений: есть ли / создалась ли (без загрузки файлов)
+    if (req.query?.bucket === '1') {
+        const v = String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7);
+        if (!adsOn()) return res.json({ version: v, bucket: 'store_off' });
+        try { await ensurePhotoBucket(); return res.json({ version: v, bucket: 'ok' }); } catch (err) { return res.json({ version: v, bucket: 'error', error: scrub(err.message) }); }
+    }
     if (req.query?.wx === '1') {
         weatherMemo = { at: 0, data: null };
         return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), day: todayTJ().iso, wx: await timed(async () => ({ lines: weatherLines(await weatherToday(), 'ru') })) });
@@ -8711,7 +8777,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf,
+    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, handleUpload, photoType,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
