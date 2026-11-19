@@ -7390,6 +7390,73 @@ async function handleUploadVideo(req, res) {
 }
 app.post('/api/upload/video', handleUploadVideo);
 
+// ---------------------------------------------------------------------------
+// «Ахбор» — новости из проверенных лент (RSS) на языке человека: Таджикистан и мир. Источник и время — всегда.
+// GET /api/news?lang=tg|ru|uz&topic=tj|world → { items: [{ title, link, source, date, text }] }, кэш 15 минут.
+// Запретное (алкоголь, азартные игры, концерты и шоу-бизнес и т.п.) не показываем.
+// ---------------------------------------------------------------------------
+const NEWS_FEEDS = {
+    tg: { tj: [['Ховар', 'https://khovar.tj/feed/'], ['Озодӣ', 'https://www.ozodi.org/api/'], ['Asia-Plus', 'https://asiaplustj.info/tj/rss']],
+        world: [['Ховар', 'https://khovar.tj/category/jahon/feed/'], ['BBC Форсӣ', 'https://feeds.bbci.co.uk/persian/rss.xml']] },
+    ru: { tj: [['Ховар', 'https://khovar.tj/rus/feed/'], ['Asia-Plus', 'https://asiaplustj.info/ru/rss'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml'], ['Авеста', 'https://avesta.tj/feed/']],
+        world: [['BBC News Русская служба', 'https://feeds.bbci.co.uk/russian/rss.xml']] },
+    uz: { tj: [['Kun.uz', 'https://kun.uz/news/rss']], world: [['BBC Oʻzbek', 'https://feeds.bbci.co.uk/uzbek/rss.xml']] }
+};
+const NEWS_SKIP = /(?:концерт|шоу-бизнес|шоубизнес|певиц|певец|клип|эстрад|казино|ставк[аи] на спорт|букмекер|лотере|алкогол|пиво|вино(?:дел)?|водк|коньяк|ночн(?:ой|ые) клуб|эротик|гей|ЛГБТ|сериал|kontsert|qo'shiqchi|klip|kazino|alkogol|консерт|сароянда|клип|майзада|шароб|қиморбоз|казино)/i;
+const newsCache = new TTLCache(50);
+
+function rssItems(xml, source) {
+    const out = [];
+    const blocks = String(xml || '').match(/<item\b[\s\S]*?<\/item>|<entry\b[\s\S]*?<\/entry>/gi) || [];
+    const tag = (b, n) => { const m = b.match(new RegExp(`<${n}\\b[^>]*>([\\s\\S]*?)<\\/${n}>`, 'i')); return m ? m[1].replace(/^\s*<!\[CDATA\[|\]\]>\s*$/g, '').trim() : ''; };
+    const text = h => decodeEntities(String(h || '').replace(/<[^>]+>/g, ' ').replace(/&laquo;/g, '«').replace(/&raquo;/g, '»').replace(/&mdash;/g, '—').replace(/&ndash;/g, '–')).replace(/\s+/g, ' ').trim();
+    for (const b of blocks.slice(0, 40)) {
+        const title = text(tag(b, 'title'));
+        let link = text(tag(b, 'link'));
+        if (!link) { const m = b.match(/<link\b[^>]*href=["']([^"']+)["']/i); link = m ? m[1] : ''; }
+        const when = Date.parse(text(tag(b, 'pubDate')) || text(tag(b, 'published')) || text(tag(b, 'updated')) || text(tag(b, 'dc:date')));
+        const desc = text(tag(b, 'description') || tag(b, 'summary'));
+        if (!title || !/^https:\/\/[^\s"'<>]+$/i.test(link)) continue;
+        out.push({ title: title.slice(0, 220), link: link.slice(0, 500), source, date: Number.isFinite(when) ? new Date(when).toISOString() : '', text: desc.slice(0, 300) });
+    }
+    return out;
+}
+async function newsFeed(name, url) {
+    const page = await fetchPage(url, { cap: 2000000, timeoutMs: 9000 });
+    return rssItems(page.html, name);
+}
+async function getNews(lang, topic, debug) {
+    const feeds = (NEWS_FEEDS[lang] || NEWS_FEEDS.tg)[topic === 'world' ? 'world' : 'tj'] || [];
+    const key = `${lang}:${topic}`;
+    const hit = !debug && newsCache.get(key);
+    if (hit) return hit;
+    const report = [];
+    const lists = await Promise.all(feeds.map(async ([name, url]) => {
+        try { const items = await newsFeed(name, url); report.push({ name, url, n: items.length, first: items[0] ? items[0].title.slice(0, 80) : '' }); return items; }
+        catch (err) { report.push({ name, url, error: scrub(err.message || String(err)).slice(0, 80) }); return []; }
+    }));
+    const weekAgo = Date.now() - 7 * 864e5, seen = new Set();
+    const items = lists.flat()
+        .filter(x => !NEWS_SKIP.test(`${x.title} ${x.text}`) && !HARAM_LINE.test(x.title))
+        .filter(x => !x.date || Date.parse(x.date) > weekAgo)
+        .filter(x => { const k = norm(x.title).slice(0, 60); if (seen.has(k)) return false; seen.add(k); return true; })
+        .filter(x => !mixedLanguage(x.title, lang))
+        .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))
+        .slice(0, 15);
+    const out = { items, sources: [...new Set(items.map(x => x.source))] };
+    if (items.length) newsCache.set(key, out, 15 * MIN);
+    return debug ? { ...out, report } : out;
+}
+const newsLimited = makeLimiter(30);
+async function handleNews(req, res) {
+    if (newsLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const lang = ['tg', 'ru', 'uz'].includes(req.query?.lang) ? req.query.lang : 'tg';
+    const topic = req.query?.topic === 'world' ? 'world' : 'tj';
+    try { return res.json({ ok: true, ...(await getNews(lang, topic)) }); }
+    catch (err) { return res.status(503).json({ ok: false, error: 'news_failed' }); }
+}
+app.get('/api/news', handleNews);
+
 async function handleAdsSearch(req, res) {
     if (!adsOn()) return res.json({ ok: true, items: [] });
     try {
@@ -8664,6 +8731,12 @@ async function handleDiag(req, res) {
         } catch (err) { return res.json({ error: String(err && err.message || err).slice(0, 80) }); }
     }
     // проверка погоды: /diag?wx=1 — что ответил MET Norway (или почему нет)
+    // ленты новостей: сколько пришло из каждой (проверка источников)
+    if (req.query?.news === '1') {
+        const lang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
+        const r = await getNews(lang, req.query.topic === 'world' ? 'world' : 'tj', true);
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang, n: r.items.length, report: r.report, top: r.items.slice(0, 4).map(x => `${x.source}: ${x.title.slice(0, 70)}`) });
+    }
     // корзина для фото объявлений: есть ли / создалась ли (без загрузки файлов)
     if (req.query?.bucket === '1') {
         const v = String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7);
@@ -8950,7 +9023,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, handleUpload, photoType, handleUploadVideo, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
+    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, rssItems, getNews, handleNews, handleUpload, photoType, handleUploadVideo, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
