@@ -1464,7 +1464,7 @@ const ITEM_WOMEN = jobRe([
     `женск${CYR}\\s+(?:одежд|обув|туфл|сапог|сумк|кофт|костюм|куртк|пальто|брюк|джинс|кроссов|босонож|халат)${CYR}`, `(?:туфли|сапоги|босоножки|сумк[аи])\\s+женск${CYR}`, `для\\s+(?:женщин|девушек)`,
     `бижутер${CYR}`, `ювелир${CYR}`, `серьг${CYR}`, `серёжк${CYR}`, `сережк${CYR}`, `колье`, `ожерель${CYR}`, `кулон${CYR}`, `подвеск${CYR}\\s+(?:золот|серебр)`, `браслет${CYR}(?!\\s+(?:для|на)\\s+час)`,
     `(?:золот|серебр)${CYR}\\s+(?:кольц|цепоч|серьг|браслет|кулон|комплект)${CYR}`, `обручальн${CYR}`,
-    `косметик${CYR}`, `макияж${CYR}`, `помад${CYR}`, `тушь\\s+для\\s+ресниц`, `тональн${CYR}\\s+крем`, `пудр[аы]`, `румян${CYR}`, `тени\\s+для\\s+век`, `лак${CYR}\\s+для\\s+ногт${CYR}`, `духи`, `духов(?![а-яё])`, `парфюм${CYR}`, `туалетн${CYR}\\s+вод${CYR}`,
+    `косметик${CYR}`, `макияж${CYR}`, `эпилятор${CYR}`, `эпиляци${CYR}`, `депилятор${CYR}`, `помад${CYR}`, `тушь\\s+для\\s+ресниц`, `тональн${CYR}\\s+крем`, `пудр[аы]`, `румян${CYR}`, `тени\\s+для\\s+век`, `лак${CYR}\\s+для\\s+ногт${CYR}`, `духи`, `духов(?![а-яё])`, `парфюм${CYR}`, `туалетн${CYR}\\s+вод${CYR}`,
     `либос${CYR}\\s+(?:и\\s+)?занона`, `куртаи\\s+занона`, `пойафзол${CYR}\\s+занона`, `зевар${CYR}`, `гӯшвор${CYR}`, `гушвор${CYR}`, `ангуштарин${CYR}`, `пардоз${CYR}`, `(?<![а-яё])атр(?:ҳо|и)?(?![а-яёӣӯқғҳҷ])`,
     "ayollar\\s+kiyim", "ko'?ylak", "ko‘ylak", "zargarlik", "taqinchoq", "kosmetika", "atir(?![a-z])", "pardoz",
     'zhenskaya-odezhda', 'zhenskaya-obuv', 'jenskay-odejda', 'jenskaya-odejda', 'ukrasheniya', 'bizhuteriya', 'yuvelir', 'kosmetika', 'parfyumeriya'
@@ -4675,8 +4675,8 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             // notText — то же, но и по описанию (свадьба: «оформление, арка, музыканты» — такое объявление не показываем)
             // запретное (а у вакансий — и работу, которой на iZamoN нет места) тихо пропускаем
             if (itemForbidden(a, kind)) { stat.forbidden = (stat.forbidden || 0) + 1; continue; }
-            // spec.uniq: одно и то же объявление, выложенное дважды (то же название и цена), показываем один раз
-            if (spec.uniq) { const k = `${norm(a.title)}|${a.price || ''}`; seenAd = seenAd || new Set(); if (seenAd.has(k)) continue; seenAd.add(k); }
+            // spec.uniq: одно и то же объявление, выложенное дважды (то же название), показываем один раз
+            if (spec.uniq) { const k = norm(a.title); seenAd = seenAd || new Set(); if (seenAd.has(k)) continue; seenAd.add(k); }
             const p = parsePublished(a.published);
             flat.push({ a, host: j.host, li, age: p ? p.ageMin : Infinity, n: flat.length });
         }
