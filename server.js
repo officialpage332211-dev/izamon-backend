@@ -457,11 +457,11 @@ const PORTAL_RULES = [
     // «8. Услуги» → «Свадебные услуги»: тӯйхона и банкетные залы, свадебные платья и костюмы, торты, оформление, кортеж, фото и видео;
     // музыканты, певцы, DJ, танцоры, тамада и шоу, алкоголь — не показываем (тихо, без объяснений)
     { re: /^(?:хизматҳои\s+тӯй|хизматхои\s+туй|свадебные\s+услуги|to.?y\s+xizmatlari)$/, kind: 'masters', portal: /хизматрасонӣ|услуги|xizmatlar/, mode: 'ads',
-      somon: { sources: [{ q: 'тойхона' }, { q: 'банкетный зал' }, { q: 'свадебные платья' }, { q: 'оформление свадьбы' }, { q: 'свадебный торт' }, { q: 'кортеж' }],
+      somon: { sources: [{ q: 'тойхона' }, { q: 'банкетный зал' }, { q: 'оформление свадьбы' }, { q: 'свадебный торт' }, { q: 'кортеж' }],
         words: /то[йи]хон|тӯйхон|тӯй|(?<![\p{L}])той(?![\p{L}])|свад|банкет|торжеств|кортеж|платье|костюм|декор|оформлен|торт|фото|видео|to.?yxona|to.?y(?![\p{L}])/iu,
         notWords: /музык|музыкант|певец|певиц|певч|сароянд|ҳофиз|хофиз|xonanda|(?<![\p{L}])dj(?![\p{L}])|диджей|ди-джей|танц|раққос|раккос|raqqos|караоке|шоу|тамада|ведущ|вокал|оркестр|алкогол|(?<![\p{L}])вин[оа](?![\p{L}])|шампан|кальян|вакан|требует|ремонт|отделк/iu,
         notText: /музык|музыкант|певец|певиц|сароянд|ҳофиз|хофиз|xonanda|(?<![\p{L}])dj(?![\p{L}])|диджей|ди-джей|танц|раққос|раккос|raqqos|караоке|тамада|алкогол|шампан|кальян/iu },
-      query: 'Найди актуальные объявления свадебных услуг в Таджикистане, сначала на somon.tj: тӯйхона и банкетные залы, свадебные платья и костюмы (продажа и прокат), свадебные торты, оформление и декор, свадебный кортеж, фото и видеосъёмка — что за услуга, цена или «договорная», город, контакт. Музыкантов, певцов, DJ, танцоров, тамаду и шоу-программы не показывай.' },
+      query: 'Найди актуальные объявления свадебных услуг в Таджикистане, сначала на somon.tj: тӯйхона и банкетные залы, мужские свадебные костюмы (продажа и прокат), свадебные торты, оформление и декор, свадебный кортеж, фото и видеосъёмка — что за услуга, цена или «договорная», город, контакт. Музыкантов, певцов, DJ, танцоров, тамаду и шоу-программы, платья, украшения и косметику не показывай.' },
     // «3. Товары» → «Товары из Китая»: посредники и агенты, которые заказывают с Taobao, 1688, Pinduoduo, AliExpress, Poizon и привозят
     // в Таджикистан (как связаться, откуда, сроки — как написано). Продажа готовых товаров «из Китая» в магазине — не то; кредиты — нет
     { re: /^(?:аз\s+чин|бозори\s+онлайни\s+чин|товары\s+из\s+китая|маркетплейсы\s+китая|xitoydan|xitoy\s+marketpleyslari)$/, kind: 'masters', portal: GOODS_PORTAL, mode: 'ads',
@@ -607,8 +607,8 @@ const PORTAL_RULES = [
       somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], boards: [{ host: 'rg.tj', path: 'furniture' }, { host: 'savdo.tj', q: 'мебель' }, { host: 'paydo.tj', path: 'mebel-i-interer' }, { host: 'ola.tj', path: 'mebel' }],  notWords: /компьютер(?!н)|ноутбук|монитор|системн\w*\s+блок|процессор|видеокарт|принтер|моноблок|(?<![\p{L}])пк(?![\p{L}])|копилк/iu, facts: 'furniture', fixed: 'furniture' },
       query: 'Найди актуальные объявления о продаже мебели в Таджикистане, сначала на somon.tj: что за мебель, размер, материал, состояние, цена, город, контакт продавца.' },
     { re: /^(?:либос|одежда|kiyim)$/, mode: 'ads',
-      somon: { sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], boards: [{ host: 'rg.tj', path: 'wear' }, { host: 'savdo.tj', path: 'odezhda_i_lichnye_veshchi' }, { host: 'paydo.tj', path: 'odezhda' }, { host: 'ola.tj', path: 'muzhskaya-odezhda' }, { host: 'ola.tj', path: 'zhenskaya-odezhda' }, { host: 'ola.tj', path: 'obuv' }],  facts: 'clothes', fixed: 'clothes' },
-      query: 'Найди актуальные объявления о продаже одежды и обуви в Таджикистане, сначала на somon.tj: что за вещь, размер, состояние, цена, город, контакт продавца.' },
+      somon: { sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], boards: [{ host: 'rg.tj', path: 'wear' }, { host: 'savdo.tj', path: 'odezhda_i_lichnye_veshchi' }, { host: 'paydo.tj', path: 'odezhda' }, { host: 'ola.tj', path: 'muzhskaya-odezhda' }, { host: 'ola.tj', path: 'obuv' }],  facts: 'clothes', fixed: 'clothes' },
+      query: 'Найди актуальные объявления о продаже одежды и обуви в Таджикистане, сначала на somon.tj: что за вещь, размер, состояние, цена, город, контакт продавца. Женскую одежду и обувь (кроме хиджаба, абаи, чодара), украшения, косметику и духи не показывай.' },
     { re: /^(?:техника|texnika)$/, mode: 'ads',
       somon: { sources: [{ path: 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/' }, { path: 'kompyuteryi-i-orgtehnika/noutbuki/' }, { path: 'elektronika-i-tehnika/tv-dvd-video/televizoryi/' }, { path: 'kompyuteryi-i-orgtehnika/personalnyie-kompyuteryi/' }], boards: [{ host: 'rg.tj', path: 'kitchen-household-appliances' }, { host: 'savdo.tj', path: 'elektronika_i_bytovaya_tehnika' }, { host: 'paydo.tj', path: 'tekhnika-dlya-doma' }, { host: 'paydo.tj', path: 'noutbuki' }, { host: 'paydo.tj', path: 'audio-i-video' }, { host: 'ola.tj', path: 'tekhnika-dlya-doma-i-kukhni' }, { host: 'ola.tj', path: 'noutbuki' }, { host: 'ola.tj', path: 'tv-dvd-i-video' }],  facts: 'tech', fixed: 'tech' },
       query: 'Найди актуальные объявления о продаже бытовой техники, ноутбуков, компьютеров и телевизоров в Таджикистане, сначала на somon.tj: что за техника, характеристики, состояние, цена, город, контакт продавца.' },
@@ -1425,12 +1425,30 @@ const ITEM_RIBA = jobRe([`ломбард${CYR}`, `микрофинанс${CYR}`,
     `страхов(?:ая|ой|ую)\\s+компани${CYR}`, 'осаго', 'каско', 'форекс', 'forex', `бинарн${CYR}\\s+опцион${CYR}`]);
 
 // true — пункт не показываем. a: { title, who, cats, description, full, points, condition, seller_name }; kind — вид списка
+// Женская одежда (платья всех видов, юбки, бельё), украшения и бижутерия, косметика, макияж и духи — не показываем
+// (2026-11-19, просьба владельца). Скромная одежда по шариату (хиджаб, абая, чодар, никоб, «мусульманская», «закрытая») — можно.
+const ITEM_WOMEN = jobRe([
+    `плать${CYR}`, `платьиц${CYR}`, `сарафан${CYR}`, `юбк${CYR}`, `блузк${CYR}`, `блузон${CYR}`, `лифчик${CYR}`, `бюстгальтер${CYR}`, `нижн${CYR}\\s+бель${CYR}`, `колготк${CYR}`, `чулк${CYR}`, `купальник${CYR}`, `пеньюар${CYR}`, `корсет${CYR}`,
+    `женск${CYR}\\s+(?:одежд|обув|туфл|сапог|сумк|кофт|костюм|куртк|пальто|брюк|джинс|кроссов|босонож|халат)${CYR}`, `(?:туфли|сапоги|босоножки|сумк[аи])\\s+женск${CYR}`, `для\\s+(?:женщин|девушек)`,
+    `бижутер${CYR}`, `ювелир${CYR}`, `серьг${CYR}`, `серёжк${CYR}`, `сережк${CYR}`, `колье`, `ожерель${CYR}`, `кулон${CYR}`, `подвеск${CYR}\\s+(?:золот|серебр)`, `браслет${CYR}(?!\\s+(?:для|на)\\s+час)`,
+    `(?:золот|серебр)${CYR}\\s+(?:кольц|цепоч|серьг|браслет|кулон|комплект)${CYR}`, `обручальн${CYR}`,
+    `косметик${CYR}`, `макияж${CYR}`, `помад${CYR}`, `тушь\\s+для\\s+ресниц`, `тональн${CYR}\\s+крем`, `пудр[аы]`, `румян${CYR}`, `тени\\s+для\\s+век`, `лак${CYR}\\s+для\\s+ногт${CYR}`, `духи`, `духов(?![а-яё])`, `парфюм${CYR}`, `туалетн${CYR}\\s+вод${CYR}`,
+    `либос${CYR}\\s+(?:и\\s+)?занона`, `куртаи\\s+занона`, `пойафзол${CYR}\\s+занона`, `зевар${CYR}`, `гӯшвор${CYR}`, `гушвор${CYR}`, `ангуштарин${CYR}`, `пардоз${CYR}`, `(?<![а-яё])атр(?:ҳо|и)?(?![а-яёӣӯқғҳҷ])`,
+    "ayollar\\s+kiyim", "ko'?ylak", "ko‘ylak", "zargarlik", "taqinchoq", "kosmetika", "atir(?![a-z])", "pardoz",
+    'zhenskaya-odezhda', 'zhenskaya-obuv', 'jenskay-odejda', 'jenskaya-odejda', 'ukrasheniya', 'bizhuteriya', 'yuvelir', 'kosmetika', 'parfyumeriya'
+]);
+const ITEM_MODEST = /хиджаб|ҳиҷоб|хиҷоб|абай|чодар|чадр|паранд|паранҷ|никаб|никоб|мусульман|исломӣ|закрыт\p{L}*\s+(?:плать|одежд)|hijob|hijab|abaya/iu;
+function womenItem(head, kind) {
+    if (kind === 'jobs') return false;
+    return ITEM_WOMEN.test(head) && !ITEM_MODEST.test(head);
+}
 function itemForbidden(a, kind) {
     const x = a || {};
     const head = unNegate(`${x.title || ''} ${x.who || ''} ${x.seller_name || ''} ${x.cats || ''}`);
     const text = unNegate(`${x.description || ''} ${x.full || ''} ${Array.isArray(x.points) ? x.points.join(' ') : ''} ${x.condition || ''}`);
     if (HARAM_LINE.test(head) || ITEM_VICE.test(head) || ITEM_RIBA.test(head)) return true;
     if (ITEM_VICE.test(text)) return true;
+    if (womenItem(head, kind)) return true;
     if (kind === 'jobs') return jobForbidden({ ...x, description: `${x.description || ''} ${Array.isArray(x.points) ? x.points.join(' ') : ''}` });
     // услуги, мастера и места: ещё салоны красоты, ночная жизнь (сауны, караоке), гадалки — по названию и кто оказывает
     if (kind === 'services' || kind === 'masters' || kind === 'places') {
