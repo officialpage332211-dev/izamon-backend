@@ -49,6 +49,7 @@ app.use(cors({ ...(allowedOrigins.length ? { origin: allowedOrigins } : {}), met
 app.use('/api/stt', express.raw({ type: () => true, limit: '6mb' }));
 // фото объявления: сайт сам сжимает до JPEG ~1280px, сюда приходит готовый файл (до 1 МБ)
 app.use('/api/upload', express.raw({ type: () => true, limit: '1mb' }));
+app.use('/api/avatar', express.raw({ type: t => !/json/i.test(String(t.headers && t.headers['content-type'] || '')), limit: '1mb' }));
 app.use(express.json({ limit: '20kb' }));
 
 const geminiKey = process.env.GEMINI_API_KEY || process.env.API_KEY;
@@ -7198,7 +7199,9 @@ async function getUser(req) {
             headers: { apikey: SB_KEY(), Authorization: `Bearer ${token}` }
         }), 6000);
         const u = r.ok ? await r.json() : null;
-        const user = u && u.id ? { id: String(u.id), email: u.email || null, name: (u.user_metadata && (u.user_metadata.full_name || u.user_metadata.name)) || null } : null;
+        const md = (u && u.user_metadata) || {};
+        const ava = [md.iz_avatar, md.avatar_url, md.picture].find(x => typeof x === 'string' && /^https:\/\/[^\s"'<>]{8,500}$/.test(x)) || null;
+        const user = u && u.id ? { id: String(u.id), email: u.email || null, name: md.full_name || md.name || null, avatar: md.iz_avatar === '' ? null : ava } : null;
         userCache.set(token, user, 5 * MIN);
         return user;
     } catch (err) {
@@ -7387,6 +7390,38 @@ async function handleUpload(req, res) {
     }
 }
 app.post('/api/upload', handleUpload);
+
+// Фото профиля: POST /api/avatar (тело — JPEG/WebP до 1 МБ, любой вошедший). Хранится там же, где фото объявлений
+// (ad-photos/avatars/…), адрес — в профиле Supabase (user_metadata.iz_avatar). POST /api/avatar с JSON { remove: true } — убрать фото.
+async function handleAvatar(req, res) {
+    if (uploadLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    if (!adsOn()) return res.status(503).json({ ok: false, error: 'store_off' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    try {
+        let url = '';
+        if (!(req.body && req.body.remove === true)) {
+            const type = photoType(req.body);
+            if (!type) return res.status(400).json({ ok: false, error: 'bad_image' });
+            if (req.body.length < 1000) return res.status(400).json({ ok: false, error: 'too_small' });
+            await ensurePhotoBucket();
+            const name = `avatars/${String(user.id).replace(/[^a-z0-9-]/gi, '').slice(0, 40)}/${Date.now().toString(36)}-${crypto.randomBytes(5).toString('hex')}.${type === 'image/webp' ? 'webp' : 'jpg'}`;
+            const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/object/${PHOTO_BUCKET}/${name}`, {
+                method: 'POST', headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, 'Content-Type': type, 'Cache-Control': 'max-age=31536000', 'x-upsert': 'false' }, body: req.body
+            }), 15000);
+            if (!r.ok) throw new Error(`upload ${r.status}`);
+            url = `${SB_URL()}/storage/v1/object/public/${PHOTO_BUCKET}/${name}`;
+        }
+        const u = await authAdmin(user.id);
+        await authAdmin(user.id, 'PUT', { user_metadata: { ...((u && u.user_metadata) || {}), iz_avatar: url } });
+        for (const [k, e] of userCache.map) if (e.value && e.value.id === user.id) userCache.map.delete(k);
+        return res.json({ ok: true, avatar: url || null });
+    } catch (err) {
+        console.warn(`[avatar Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+app.post('/api/avatar', handleAvatar);
 
 // Видео объявления: до 60 секунд и до 40 МБ (mp4 / mov / webm). Файл большой — сайт грузит его прямо в хранилище
 // по одноразовой ссылке (POST /api/upload/video → { upload, url }), а не через наш сервер.
@@ -9104,7 +9139,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
+    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
