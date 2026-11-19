@@ -8228,7 +8228,7 @@ async function handleDiag(req, res) {
         const vals = CITIES.flatMap(c => [lit(c.names.ru, 'ru'), lit(c.names.tg, 'tg')]).join(' ');
         const q = `SELECT ?name ?coord ?d WHERE { VALUES ?name { ${vals} } ?item rdfs:label ?name; wdt:P17 wd:Q863; wdt:P625 ?coord. OPTIONAL { ?item schema:description ?d FILTER(lang(?d) = "ru") } }`;
         try {
-            const r = await fetch('https://query.wikidata.org/sparql?format=json&query=' + encodeURIComponent(q), { headers: { 'User-Agent': WEATHER_UA, Accept: 'application/sparql-results+json' }, signal: AbortSignal.timeout(20000) });
+            const r = await fetch('https://query.wikidata.org/sparql', { method: 'POST', headers: { 'User-Agent': WEATHER_UA, Accept: 'application/sparql-results+json', 'Content-Type': 'application/x-www-form-urlencoded' }, body: 'format=json&query=' + encodeURIComponent(q), signal: AbortSignal.timeout(20000) });
             const j = r.ok ? await r.json() : null;
             const rows = ((j && j.results && j.results.bindings) || []).map(b => {
                 const m = String(b.coord && b.coord.value || '').match(/Point\(([-\d.]+) ([-\d.]+)\)/);
