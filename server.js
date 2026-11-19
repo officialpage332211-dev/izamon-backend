@@ -62,6 +62,9 @@ const openrouter = openrouterKey ? new OpenAI({
 
 const GEMINI_MODEL = process.env.GEMINI_MODEL || 'gemini-3.8-flash';
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+// Таджикский и узбекский (перевод карточек и разговор): модель сильнее — меньше смеси языков. Тариф OpenAI оплачен (2026-11);
+// модель недоступна — дальше обычная OPENAI_MODEL
+const OPENAI_TG_MODEL = process.env.OPENAI_TG_MODEL || 'gpt-4o';
 const OPENROUTER_MODEL = process.env.OPENROUTER_MODEL || 'openai/gpt-4o-mini';
 const OPENAI_SEARCH_MODEL = process.env.OPENAI_SEARCH_MODEL || 'gpt-4o-mini';
 const SB_URL = () => (process.env.SUPABASE_URL || '').replace(/\/+$/, '');
@@ -5087,10 +5090,12 @@ ${CARD_GLOSSARY[lang] || ''}
     const payload = JSON.stringify({ items: items.map(it => ({ title: it.title, price: it.price, place: it.place, date: it.date, who: it.who, points: it.points })) });
     const runs = [];
     const viaOpenAI = () => ['openai', () => askChat(openai, OPENAI_MODEL, system, payload, 2500)];
+    const viaOpenAIStrong = () => ['openai', () => askChat(openai, OPENAI_TG_MODEL, system, payload, 2500)];
     const viaGemini = () => ['gemini', () => askGemini(system, payload, false, 14000)];
     const viaRouter = () => ['openrouter', () => askChat(openrouter, OPENROUTER_MODEL, system, payload, 2500)];
     // Таджикский и узбекский Gemini пишет грамотнее; пока у него лимит, идём через OpenAI.
     if (lang !== 'ru' && geminiUp()) runs.push(viaGemini());
+    if (openai && lang !== 'ru' && OPENAI_TG_MODEL !== OPENAI_MODEL) runs.push(viaOpenAIStrong());
     if (openai) runs.push(viaOpenAI());
     if (lang === 'ru' && geminiUp()) runs.push(viaGemini());
     if (openrouter) runs.push(viaRouter());
@@ -5584,7 +5589,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
         const shape = text => finalize(shapeLines(dropHaramLines(cleanModelText(text), mode !== 'general' && mode !== 'heart'), mode), [], lang);
         for (const name of order) {
             let call = null;
-            if (name === 'openai' && openai) call = sys => askChat(openai, OPENAI_MODEL, sys, fullMessage);
+            if (name === 'openai' && openai) call = sys => askChat(openai, lang === 'ru' ? OPENAI_MODEL : OPENAI_TG_MODEL, sys, fullMessage).catch(e => lang !== 'ru' && OPENAI_TG_MODEL !== OPENAI_MODEL ? askChat(openai, OPENAI_MODEL, sys, fullMessage) : Promise.reject(e));
             if (name === 'gemini' && geminiUp()) call = sys => askGemini(sys, fullMessage, false);
             if (name === 'openrouter' && openrouter) call = sys => askChat(openrouter, OPENROUTER_MODEL, sys, fullMessage);
             if (!call) continue;
