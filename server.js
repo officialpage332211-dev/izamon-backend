@@ -8162,6 +8162,23 @@ async function handleDiag(req, res) {
     if (req.query?.channel === '1') return res.json({ date: todayTJ().iso, version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), channel_test: await diagChannel() });
     // Как устроены страницы других сайтов объявлений (для прямого подключения): /diag?peek=https://arzon.tj/…&find=текст&from=0&len=2000
     // Только чтение, только сайты объявлений: somon.tj, arzon.tj, ola.tj, paydo.tj, savdo.tj, kifoya.tj, 5shanbe.tj, rg.tj (и его города), lepsh.net; каталог заведений sufra.tj.
+    // координаты городов для погоды в шапке: /diag?geo=1&from=0&n=20 — OpenStreetMap Nominatim (по 1 запросу в секунду, по правилам сервиса).
+    // Нужна один раз: найденные координаты сверяются по полному названию места и вписываются в CITY_COORDS
+    if (req.query?.geo === '1') {
+        const from = Math.max(0, Math.floor(Number(req.query.from) || 0)), n = Math.min(25, Math.max(1, Math.floor(Number(req.query.n) || 20)));
+        const out = [];
+        for (const c of CITIES.slice(from, from + n)) {
+            const q = String(req.query.alt === '1' ? `${c.names.tg}, Тоҷикистон` : `${c.names.ru}, Таджикистан`);
+            try {
+                const r = await fetch(`https://nominatim.openstreetmap.org/search?format=json&limit=1&countrycodes=tj&accept-language=ru&q=${encodeURIComponent(q)}`, { headers: { 'User-Agent': WEATHER_UA, Accept: 'application/json' }, signal: AbortSignal.timeout(8000) });
+                const j = r.ok ? await r.json() : null;
+                const f = Array.isArray(j) && j[0];
+                out.push(f ? { id: c.id, lat: Number(f.lat).toFixed(4), lon: Number(f.lon).toFixed(4), type: `${f.class}/${f.type}`, name: String(f.display_name || '').slice(0, 90) } : { id: c.id, miss: r.status });
+            } catch (err) { out.push({ id: c.id, error: String(err && err.message || err).slice(0, 60) }); }
+            await new Promise(r => setTimeout(r, 1100));
+        }
+        return res.json({ total: CITIES.length, from, geo: out });
+    }
     // проверка погоды: /diag?wx=1 — что ответил MET Norway (или почему нет)
     if (req.query?.wx === '1') {
         weatherMemo = { at: 0, data: null };
