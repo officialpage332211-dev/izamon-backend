@@ -4755,7 +4755,10 @@ function sameStart(point, full) {
 }
 async function finishItems(top, kind, lang, debug, fixed = '', check = null) {
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
-    const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug, fixed === 'hotel')]);
+    const t0 = Date.now();
+    const [localized, photos] = await Promise.all([
+        localizeItems(top, lang, debug).finally(() => { if (debug) debug.msLocalize = Date.now() - t0; }),
+        resolvePhotos(top, debug, fixed === 'hotel').finally(() => { if (debug) debug.msPhotos = Date.now() - t0; })]);
     if (debug && photos.specs) debug.kwAll = photos.specs.slice(0, 10).map(x => x && x.kw ? x.kw.replace(/, sell, buy, ads on Somon\.tj$/i, '').slice(0, 180) : null);
     // Контакты из полного текста объявления на странице (в списке текст бывает пустым): только то, что продавец написал сам
     top.forEach((t, i) => {
@@ -4972,8 +4975,10 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
     // Сначала готовый список somon.tj: точные ссылки и фото. Мало найдено или сайт не ответил — ищем через модель, как раньше.
     if (somon) {
         let direct = [];
+        const ts = Date.now();
         try { direct = await somonListings(somon, kind, debug, lang); }
         catch (err) { if (debug) debug.somonError = scrub(err && err.message || err); }
+        if (debug) debug.msSomon = Date.now() - ts;
         const widened = await widenCity(somon, direct, kind, lang);
         if (widened) { direct = widened.items; if (debug) debug.wide = { city: widened.wide.city.id, n: widened.wide.n }; }
         if (direct.length >= 3) {
@@ -5580,7 +5585,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             if (openai && KIND_TASK[kind]) {
                 try {
                     const tl0 = Date.now();
-                    let items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed, opts });
+                    let items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed, opts, debug: trace && trace.times ? trace.times : undefined });
                     // поиск иногда возвращает пусто (сбой разбора, все страницы не открылись) — если время есть, ещё одна попытка: карточки лучше текста
                     if (!items.length && Date.now() - tl0 < 15000) items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed, opts });
                     if (items.length) {
@@ -5939,7 +5944,9 @@ async function handleChat(req, res) {
         const pic = await Promise.race([picP, new Promise(z => setTimeout(() => z(null), 3000))]);
         return pic ? { ...b, answer: withPictureHtml(b.answer, pic, lang), picture: pic.page } : b;
     };
-    const run = () => compute({ plain: cleaned, heartTopic: heart ? heartTopicOf(body.heartTopic) : '', mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null });
+    // только проверка с /diag?ask=…: сколько заняли этапы (somon.tj, перевод, фото, другие сайты)
+    const diagTrace = req.__times && /^diag-/.test(String(req.ip || '')) ? Object.assign([], { times: req.__times }) : undefined;
+    const run = () => compute({ trace: diagTrace, plain: cleaned, heartTopic: heart ? heartTopicOf(body.heartTopic) : '', mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null });
     if (cacheable) {
         const hit = answerCache.get(key);
         if (hit) return res.json(await withPic({ ...hit, cached: true }));
@@ -8853,7 +8860,8 @@ async function handleDiag(req, res) {
         const askLang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'ru';
         const t0 = Date.now();
         let out = null;
-        await handleChat({ body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang, city: req.query.city, pmin: req.query.pmin, pmax: req.query.pmax, room: req.query.room, heartTopic: req.query.heartTopic }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
+        const times = {};
+        await handleChat({ __times: times, body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang, city: req.query.city, pmin: req.query.pmin, pmax: req.query.pmax, room: req.query.room, heartTopic: req.query.heartTopic }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
         const html = String(out && out.answer || '');
         const urls = [...html.matchAll(/<a class="iz-lc-a" href="([^"]+)"/g)].map(m => m[1]);
         const titles = [...html.matchAll(/<div class="iz-lc-t">([^<]*)<\/div>/g)].map(m => m[1]);
@@ -8861,7 +8869,7 @@ async function handleDiag(req, res) {
         const places = [...html.matchAll(/<div class="iz-lc-m">📍 ([^<·]*)/g)].map(m => m[1].trim());
         // full=1: текст первых карточек целиком (что видит человек), для проверки цен и контактов
         const full = req.query.full === '1' ? html.split('class="iz-lc"').slice(1, 4).map(c => c.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400)) : undefined;
-        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, wiki: WIKI_LAST, pic: /iz-wpic/.test(html), view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, imgs: (html.match(/<div class="iz-lc-img"[^>]*><img /g) || []).length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, times, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, wiki: WIKI_LAST, pic: /iz-wpic/.test(html), view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, imgs: (html.match(/<div class="iz-lc-img"[^>]*><img /g) || []).length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
     }
     // /diag?orders=1: проверка таблиц заявок на настоящей базе. Пишет одну пробную строку (заявка с номером 0 и продавцом «diag») и сразу её удаляет.
     if (req.query?.orders === '1') {
