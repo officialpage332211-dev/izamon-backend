@@ -4700,6 +4700,12 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
 // Перевод, фото и сверка со страницами — общий хвост для обоих источников.
 // одно и то же без регистра, пробелов и знаков («Худжанд | Согд» и «Худжанд, Согд»)
 const sameLoose = (a, b) => { const n = x => String(x || '').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ''); return !!n(a) && n(a) === n(b); };
+// строка — начало (или кусок) описания: сравниваем буквы и цифры, без «…» в конце; короткие строки (характеристики) не трогаем
+function sameStart(point, full) {
+    const n = x => String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[…]+|\.{3}\s*$/g, '').replace(/[^\p{L}\p{N}]+/gu, '');
+    const a = n(point), b = n(full);
+    return a.length >= 25 && b.includes(a.slice(0, Math.min(a.length, 60)));
+}
 async function finishItems(top, kind, lang, debug, fixed = '', check = null) {
     // Перевод и поиск фото идут одновременно: фото не ждёт перевод и не удлиняет ответ.
     const [localized, photos] = await Promise.all([localizeItems(top, lang, debug), resolvePhotos(top, debug, fixed === 'hotel')]);
@@ -4740,6 +4746,8 @@ async function finishItems(top, kind, lang, debug, fixed = '', check = null) {
             // описание, которое на деле просто адрес («Душанбе | Исмоили Сомони»), за описание не считаем
             full: kind === 'tickets' || kind === 'tours' ? '' : fullText(...[photos.descs && photos.descs[i], t.listDesc].map(d => sameLoose(d, it.place || t.place) ? '' : d)),
             photoCount: count, galleryDirect: gal.length > 1 ? gal : [], gallery: gal.length > 1 ? gal.map(proxyImageUrl) : [] };
+        // описание два раза не показываем: строка-кусок описания («Перевожу документы…») убирается, остаётся полное описание с «Подробнее»
+        if (base.full && Array.isArray(base.points) && base.points.length) base.points = base.points.filter(p => !sameStart(p, base.full));
         return fixed ? { ...base, ...fixedSlots(base, lang, fixed, { specs: photos.specs && photos.specs[i], desc: t.trusted ? photos.descs && photos.descs[i] : '', title0: t.title }) } : base;
     }).filter(Boolean);
 }
@@ -8664,7 +8672,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
