@@ -8848,6 +8848,12 @@ async function handleDiag(req, res) {
     // /diag?sweep=start&lang=tg — запустить в фоне (по 3 раздела одновременно); /diag?sweep=report — итог. Заодно прогревает кэш.
     if (req.query?.sweep) {
         const v = String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7);
+        if (req.query.blackbox === '1') {
+            try {
+                const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/object/${PHOTO_BUCKET}/${BLACKBOX_PATH}`, { headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` } }), 8000);
+                return res.json({ version: v, ok: r.ok, saved: r.ok ? await r.json() : null, now: memNow() });
+            } catch (err) { return res.json({ version: v, ok: false, error: String(err.message || err).slice(0, 100), now: memNow() }); }
+        }
         if (req.query.sweep === 'report') {
             const r = SWEEP;
             const rows = r.rows || [];
@@ -8857,7 +8863,7 @@ async function handleDiag(req, res) {
         }
         if (req.query.sweep === 'start' && !SWEEP.running) {
             const lang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
-            SWEEP = { running: true, lang, at: new Date().toISOString(), rows: [], total: 0 };
+            SWEEP = { running: true, lang, at: new Date().toISOString(), rows: [], total: 0, cur: new Set() };
             (async () => {
                 try {
                     const r = await withTimeout(fetch('https://izamon.vercel.app/app.js?sweep=' + Date.now(), { headers: { 'User-Agent': WEATHER_UA } }), 10000);
@@ -8868,10 +8874,11 @@ async function handleDiag(req, res) {
                     const list = [];
                     for (const m of block.matchAll(/\{ id: \d+, name: "([^"]+)"[^\n]*?items: \[([^\n]*)\]/g)) for (const it of m[2].matchAll(/\{n:"((?:[^"\\]|\\.)*)"/g)) { const n = it[1].replace(/\\'/g, "'"); if (!/^(?:ахбор|новости|yangiliklar|ҳисоби закот|калькулятор закята|zakot kalkulyatori)$/i.test(n)) list.push(`${m[1]} - ${n}`); }
                     SWEEP.total = list.length;
-                    let i = 0;
+                    let i = Math.max(0, Math.min(list.length, Number(req.query.from) || 0));
                     const worker = async () => {
                         while (i < list.length) {
                             const item = list[i++], t0 = Date.now();
+                            SWEEP.cur.add(item);
                             let out = null;
                             try { await handleChat({ body: { prompt: `[Lang: ${lang}] ${item}`, lang }, ip: 'diag-sweep-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } }); } catch (err) { out = { error: String(err.message || err) }; }
                             const html = String(out && out.answer || ''), text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -8881,6 +8888,7 @@ async function handleDiag(req, res) {
                             else if (out.provider === 'none' && !cards && !/iz-tips|iz-rates/.test(html)) flags.push('пусто/нет данных');
                             if (text && mixedLanguage(text.replace(/https?:\/\/\S+/g, ''), lang)) flags.push('смесь языков');
                             if (/undefined|NaN|\[object/.test(text)) flags.push('мусор в тексте');
+                            SWEEP.cur.delete(item);
                             SWEEP.rows.push({ item: item.replace(/^\d+\.\s*/, ''), ms: Date.now() - t0, cards, provider: out && out.provider, view: out && out.view || null, flags });
                         }
                     };
@@ -9167,6 +9175,29 @@ async function handleDiag(req, res) {
 app.get('/diag', handleDiag);
 
 // Проверка состояния и «будильник» для бесплатного хостинга. Ключи не показываются.
+// «Чёрный ящик» памяти: если занятая память растёт к пределу, каждые 5 с сохраняем снимок (сколько памяти, что сейчас считается)
+// в хранилище Supabase. Сервер упал — после перезапуска /diag?blackbox=1 покажет, что было перед падением. Без текстов пользователей.
+const BLACKBOX_PATH = 'diag/blackbox.json';
+const BLACKBOX_MB = Number(process.env.BLACKBOX_MB) || 120;
+function memNow() {
+    const m = process.memoryUsage(), mb = x => Math.round(x / 1048576);
+    return { rss: mb(m.rss), heap: mb(m.heapUsed), ext: mb(m.external), ab: mb(m.arrayBuffers || 0), limit: mb(require('v8').getHeapStatistics().heap_size_limit) };
+}
+const blackbox = { last: 0, peak: 0, saving: false };
+if (process.env.NODE_ENV !== 'test' && !process.env.BLACKBOX_OFF) {
+    setInterval(() => {
+        const mem = memNow();
+        if (mem.heap > blackbox.peak) blackbox.peak = mem.heap;
+        if (mem.heap < BLACKBOX_MB || blackbox.saving || Date.now() - blackbox.last < 5000 || !SB_URL() || !SB_KEY()) return;
+        blackbox.saving = true; blackbox.last = Date.now();
+        const snap = { at: new Date().toISOString(), version: String(process.env.RENDER_GIT_COMMIT || '').slice(0, 7), mem, peak: blackbox.peak, upMin: Math.round(process.uptime() / 60),
+            busy: computeGate.running, queued: computeGate.queue.length, active, sweep: SWEEP.running ? [...(SWEEP.cur || [])] : [] };
+        ensurePhotoBucket().then(() => withTimeout(fetch(`${SB_URL()}/storage/v1/object/${PHOTO_BUCKET}/${BLACKBOX_PATH}`, {
+            method: 'POST', headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, 'Content-Type': 'application/json', 'x-upsert': 'true' }, body: JSON.stringify(snap)
+        }), 8000)).catch(() => {}).finally(() => { blackbox.saving = false; });
+    }, 1000).unref();
+}
+
 app.get('/health', (req, res) => {
     res.json({
         ok: true,
@@ -9174,7 +9205,7 @@ app.get('/health', (req, res) => {
         geminiModel: GEMINI_MODEL,
         active,
         // память сервера (МБ): rss — всего, heap — занято JS; помогает видеть, не близко ли к пределу
-        mem: (m => ({ rss: Math.round(m.rss / 1048576), heap: Math.round(m.heapUsed / 1048576), limit: Math.round(require('v8').getHeapStatistics().heap_size_limit / 1048576) }))(process.memoryUsage()),
+        mem: Object.assign(memNow(), { peak: blackbox.peak }),
         busy: computeGate.running, queued: computeGate.queue.length
     });
 });
