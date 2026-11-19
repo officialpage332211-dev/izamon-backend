@@ -7400,7 +7400,7 @@ const NEWS_FEEDS = {
         world: [['Ховар', 'https://khovar.tj/category/jahon/feed/']] },
     ru: { tj: [['Ховар', 'https://khovar.tj/rus/feed/'], ['Asia-Plus', 'https://asiaplus.news/feed/'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml', 'tj'], ['Авеста', 'https://avesta.tj/feed/']],
         world: [['BBC News Русская служба', 'https://feeds.bbci.co.uk/russian/rss.xml']] },
-    uz: { tj: [['Kun.uz', 'https://kun.uz/news/rss']], world: [['Kun.uz', 'https://kun.uz/news/rss'], ['BBC Oʻzbek', 'https://feeds.bbci.co.uk/uzbek/rss.xml']] }
+    uz: { tj: [['Kun.uz', 'https://kun.uz/news/rss', 'tj']], world: [['Kun.uz', 'https://kun.uz/news/rss'], ['BBC Oʻzbek', 'https://feeds.bbci.co.uk/uzbek/rss.xml']] }
 };
 const NEWS_SKIP = /(?:концерт|шоу-бизнес|шоубизнес|певиц|певец|клип|эстрад|казино|ставк[аи] на спорт|букмекер|лотере|алкогол|пиво|вино(?:дел)?|водк|коньяк|ночн(?:ой|ые) клуб|эротик|гей|ЛГБТ|сериал|kontsert|qo'shiqchi|klip|kazino|alkogol|консерт|сароянда|клип|майзада|шароб|қиморбоз|казино)/i;
 const newsCache = new TTLCache(50);
