@@ -401,8 +401,8 @@ const PORTAL_RULES = [
     // «5. Финансы» → «Рассрочка без процентов» (одобрено владельцем: только без процентов). Объявления продавцов, где в названии или описании
     // прямо написано «рассрочка без процентов / без переплаты / 0% / бе фоиз». Кредиты, займы, микрофинансы, банки и рассрочка с наценкой — нет.
     { re: /^(?:насия\s+бе\s+фоиз|рассрочка\s+без\s+процентов|foizsiz\s+bo.?lib\s+to.?lash)$/, portal: /молия|финанс|moliya/, mode: 'ads',
-      somon: { sources: [{ q: 'рассрочка без процентов' }, { q: 'рассрочка без переплаты' }, { q: 'рассрочка 0%' }, { q: 'насия' }, { q: 'в рассрочку' }],
-        words: /(?:рассрочк\p{L}*|насия|бо\s+қисмҳо|bo'lib\s+to'lash|muddatli\s+to'lov)[\s\S]{0,120}(?:без\s+(?:процент|переплат|наценк)|0\s?%|бе\s+фоиз|foizsiz|ustamasiz)|(?:без\s+(?:процент|переплат|наценк)|0\s?%|бе\s+фоиз|foizsiz|ustamasiz)[\s\S]{0,120}(?:рассрочк\p{L}*|насия|bo'lib\s+to'lash|muddatli\s+to'lov)/iu,
+      somon: { uniq: true, sources: [{ q: 'рассрочка без процентов' }, { q: 'рассрочка без переплаты' }, { q: 'беспроцентная рассрочка' }, { q: 'рассрочка 0%' }, { q: 'насия бе фоиз' }, { q: 'насия' }, { q: 'рассрочка' }, { q: 'в рассрочку' }],
+        words: /беспроцентн\p{L}*\s+рассрочк|(?:рассрочк\p{L}*|насия|бо\s+қисмҳо|bo'lib\s+to'lash|muddatli\s+to'lov)[\s\S]{0,120}(?:без\s*(?:процент|переплат|наценк|%)|0\s?%|бе\s*фоиз|бе\s*%|foizsiz|ustamasiz)|(?:без\s*(?:процент|переплат|наценк|%)|0\s?%|бе\s*фоиз|бе\s*%|foizsiz|ustamasiz)[\s\S]{0,120}(?:рассрочк\p{L}*|насия|bo'lib\s+to'lash|muddatli\s+to'lov)/iu,
         notWords: /кредит|займ|заём|микрокредит|микрофинанс|ломбард|ипотек/i,
         get webWords() { return this.words; },
         notText: /(?:под|с)\s+\d+\s?%|процентн\p{L}*\s+ставк|переплат\p{L}*\s+\d|наценк\p{L}*\s+\d|кредит\p{L}*\s+(?:банк|под)|микрокредит|микрофинанс|ломбард/iu } },
@@ -4651,7 +4651,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
         kwLoose = strict < 3;
         stat.keyword = { stems: spec.stems, strict, loose: kwLoose };
     }
-    const flat = [];
+    const flat = []; let seenAd = null;
     for (const [li, list] of lists.entries()) {
         stat.parsed += list.length;
         const j = jobs[li];
@@ -4675,6 +4675,8 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             // notText — то же, но и по описанию (свадьба: «оформление, арка, музыканты» — такое объявление не показываем)
             // запретное (а у вакансий — и работу, которой на iZamoN нет места) тихо пропускаем
             if (itemForbidden(a, kind)) { stat.forbidden = (stat.forbidden || 0) + 1; continue; }
+            // spec.uniq: одно и то же объявление, выложенное дважды (то же название и цена), показываем один раз
+            if (spec.uniq) { const k = `${norm(a.title)}|${a.price || ''}`; seenAd = seenAd || new Set(); if (seenAd.has(k)) continue; seenAd.add(k); }
             const p = parsePublished(a.published);
             flat.push({ a, host: j.host, li, age: p ? p.ageMin : Infinity, n: flat.length });
         }
