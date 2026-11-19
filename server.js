@@ -7774,13 +7774,28 @@ async function processWatchCommand(text, chat_id, say) {
 }
 
 // Один поиск: что появилось нового с прошлой проверки → одно сообщение (до 5 объявлений)
+function watchKeys(it) {
+    const out = [];
+    const u = String(it && it.url || '');
+    if (u) {
+        out.push(u);
+        const id = u.match(/somon\.tj\/(?:[a-z]{2}\/)?adv\/(\d+)/i);
+        out.push(id ? 'somon:' + id[1] : u.replace(/[?#].*$/, '').replace(/^https?:\/\/(?:www\.)?/i, '').replace(/\/(?:tg|ru|uz|en)(?=\/)/i, '').replace(/\/+$/, '').toLowerCase());
+    }
+    const t = String(it && it.title || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, '');
+    if (t.length >= 6) out.push('fp:' + t.slice(0, 60) + '|' + String(it && it.price || '').replace(/\D/g, ''));
+    return [...new Set(out)];
+}
 async function watchCheck(row) {
     const spec = await watchSpec(row);
     if (!spec) { await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { active: false }, prefer: 'return=minimal' }); return 'not_listing'; }
     const items = await somonListings(spec.somon, spec.kind, null, row.lang || 'ru');
+    // одно и то же объявление не присылаем дважды: сверяем по номеру объявления (ссылка без «?», «/tg/» и т.п.)
+    // и по «отпечатку» (название + цена) — продавцы часто выставляют то же объявление заново с новым номером
     const seen = new Set(row.seen || []);
-    const fresh = row.checked_at ? items.filter(it => it.url && !seen.has(it.url)) : [];
-    const nextSeen = [...new Set([...items.map(it => it.url).filter(Boolean), ...(row.seen || [])])].slice(0, 120);
+    const keys = it => watchKeys(it);
+    const fresh = row.checked_at ? items.filter(it => it.url && !keys(it).some(k => seen.has(k))) : [];
+    const nextSeen = [...new Set([...items.flatMap(keys), ...(row.seen || [])])].slice(0, 300);
     let sent = 0;
     if (fresh.length) {
         const tx = watchTx(row.lang);
@@ -8672,7 +8687,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
