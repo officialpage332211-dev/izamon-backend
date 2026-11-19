@@ -8961,6 +8961,19 @@ async function handleDiag(req, res) {
         videoColAt = 0; out.videoColumn = await videoCol();
         return res.json(out);
     }
+    // погода в шапке: что сейчас в памяти сервера и что отвечает met.no (время прогноза, первые часы)
+    if (/^[a-z]{2,20}$/.test(String(req.query?.wxnow || ''))) {
+        const id = String(req.query.wxnow), hit = nowWeatherMemo.get(id);
+        const out = { version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), now: new Date().toISOString(), memo: hit ? { ageMin: Math.round((Date.now() - hit.at) / 60000), data: hit.data } : null };
+        try {
+            const [lat, lon] = CITY_COORDS[id] || [38.5598, 68.787];
+            const r = await withTimeout(fetch(metUrl(lat, lon, id), { headers: { 'User-Agent': WEATHER_UA, Accept: 'application/json' } }), 8000);
+            const j = await r.json();
+            out.met = { status: r.status, expires: r.headers.get('expires'), lastModified: r.headers.get('last-modified'), updated: j && j.properties && j.properties.meta && j.properties.meta.updated_at,
+                first: ((j && j.properties && j.properties.timeseries) || []).slice(0, 5).map(t => [t.time, t.data && t.data.instant && t.data.instant.details && t.data.instant.details.air_temperature]) };
+        } catch (err) { out.err = String(err.message || err).slice(0, 100); }
+        return res.json(out);
+    }
     if (req.query?.wx === '1') {
         weatherMemo = { at: 0, data: null };
         return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), day: todayTJ().iso, wx: await timed(async () => ({ lines: weatherLines(await weatherToday(), 'ru') })) });
