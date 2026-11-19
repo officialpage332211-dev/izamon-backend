@@ -614,9 +614,42 @@ const PORTAL_RULES = [
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане: площадь, цена, место, контакт владельца.' }
 ];
 
+// Подразделы на таджикском — в единственном числе («Дорухона», «Мошин»; 2026-11-19). Правила ниже написаны для прежних
+// названий («дорухонаҳо», «мошинҳо») — новое название переводим в прежнее, чтобы ничего не сломать.
+const TG_ITEM_ALIAS = {
+    'мошин': 'мошинҳо',
+    'чипта': 'чиптаҳо',
+    'сафар': 'сафарҳо',
+    'қисми эҳтиётӣ': 'қисмҳои эҳтиётӣ',
+    'телефон': 'телефонҳо',
+    'тӯҳфа ва гул': 'тӯҳфаҳо ва гулҳо',
+    'китоб': 'китобҳо',
+    'дорухона': 'дорухонаҳо',
+    'ошхона': 'ошхонаҳо',
+    'хизматрасонии давлатӣ': 'хизматрасониҳои давлатӣ',
+    'духтур ва клиника': 'духтурон ва клиникаҳо',
+    'бозор ва мағоза': 'бозорҳо ва мағозаҳо',
+    'рақами фаврӣ': 'рақамҳои фаврӣ',
+    'бонк ва банкомат': 'бонкҳо ва банкоматҳо',
+    'забон': 'забонҳо',
+    'курси it': 'курсҳои it',
+    'мактаби ронандагӣ': 'мактабҳои ронандагӣ',
+    'омӯзгори хусусӣ': 'омӯзгорони хусусӣ',
+    'кӯдакистон': 'кӯдакистонҳо',
+    'курси касбӣ': 'курсҳои касбӣ',
+    'байтор': 'байторон',
+    'усто ба хона': 'устоҳо ба хона',
+    'сартарошхонаи мардона': 'сартарошхонаҳои мардона',
+    'ҳуқуқшинос ва нотариус': 'ҳуқуқшиносон ва нотариусҳо',
+    'тарҷумон': 'тарҷумонҳо',
+    'хизмати тӯй': 'хизматҳои тӯй',
+    'ҳуҷҷат ва патент': 'ҳуҷҷатҳо ва патент',
+    'ёрӣ ва телефон': 'ёрӣ ва телефонҳо'
+};
 function resolvePortal(topic) {
     const parts = String(topic).split(' - ');
-    const item = parts.pop().trim().toLowerCase();
+    const item0 = parts.pop().trim().toLowerCase();
+    const item = TG_ITEM_ALIAS[item0] || item0;
     const portal = parts.join(' - ').toLowerCase();
     const rule = PORTAL_RULES.find(r => r.re.test(item) && (!r.portal || r.portal.test(portal))) || null;
     return rule && rule.make ? rule.make(item) : rule;
@@ -8580,7 +8613,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, nameOnPage, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
