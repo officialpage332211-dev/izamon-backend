@@ -1914,12 +1914,12 @@ function spaceTipLines(text) {
 // координаты не точнее 4 знаков, не чаще, чем нужно (ответ держим 30 минут). Open-Meteo не подошёл: с общего адреса Render — «429».
 // Не ответил — запасной путь: поиск с источниками (правило «Погода» в PORTAL_RULES).
 const WEATHER_CITIES = [
-    { tg: 'Душанбе', ru: 'Душанбе', uz: 'Dushanbe', lat: 38.5598, lon: 68.787 },
-    { tg: 'Хуҷанд', ru: 'Худжанд', uz: "Xo'jand", lat: 40.2826, lon: 69.622 },
-    { tg: 'Бохтар', ru: 'Бохтар', uz: 'Bohtar', lat: 37.8364, lon: 68.7803 },
-    { tg: 'Кӯлоб', ru: 'Куляб', uz: "Ko'lob", lat: 37.9146, lon: 69.7845 },
-    { tg: 'Хоруғ', ru: 'Хорог', uz: 'Xorug', lat: 37.4897, lon: 71.553 },
-    { tg: 'Истаравшан', ru: 'Истаравшан', uz: 'Istaravshan', lat: 39.9108, lon: 69.0064 }
+    { tg: 'Душанбе', ru: 'Душанбе', uz: 'Dushanbe', lat: 38.5598, lon: 68.787, id: 'dushanbe' },
+    { tg: 'Хуҷанд', ru: 'Худжанд', uz: "Xo'jand", lat: 40.2826, lon: 69.622, id: 'khujand' },
+    { tg: 'Бохтар', ru: 'Бохтар', uz: 'Bohtar', lat: 37.8364, lon: 68.7803, id: 'bokhtar' },
+    { tg: 'Кӯлоб', ru: 'Куляб', uz: "Ko'lob", lat: 37.9146, lon: 69.7845, id: 'kulob' },
+    { tg: 'Хоруғ', ru: 'Хорог', uz: 'Xorug', lat: 37.4897, lon: 71.553, id: 'khorog' },
+    { tg: 'Истаравшан', ru: 'Истаравшан', uz: 'Istaravshan', lat: 39.9108, lon: 69.0064, id: 'istaravshan' }
 ];
 const WEATHER_WORDS = {
     day: { tg: 'рӯзона', ru: 'днём', uz: 'kunduzi' }, night: { tg: 'шабона', ru: 'ночью', uz: 'kechasi' },
@@ -1940,7 +1940,7 @@ const WEATHER_SRC = [{ title: 'api.met.no', uri: 'https://api.met.no/' }, { titl
 const WEATHER_UA = 'iZamoN/1.0 https://izamon.vercel.app';
 let weatherMemo = { at: 0, data: null };
 async function cityWeather(c) {
-    const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${c.lat.toFixed(4)}&lon=${c.lon.toFixed(4)}`;
+    const url = metUrl(c.lat, c.lon, c.id);
     const r = await withTimeout(fetch(url, { headers: { 'User-Agent': WEATHER_UA, Accept: 'application/json' } }), 6000);
     if (!r.ok) throw new Error('met.no ' + r.status);
     const j = await r.json();
@@ -2014,6 +2014,11 @@ const CITY_COORDS = {
     vanj: [38.3731, 71.4553]
 };
 const WEATHER_REGION_CITY = { sughd: 'khujand', khatlon: 'bokhtar', gbao: 'khorog' };
+// Высота города (м) для api.met.no: без неё берётся высота из грубой модели рельефа, и в горах температура уходит на 3–6°.
+// Только надёжные значения (Wikidata P2044, сверены со справками о городах); для остальных met.no считает сам.
+const CITY_ALT = { dushanbe: 800, vahdat: 870, hisor: 802, varzob: 1108, khujand: 300, istaravshan: 992, panjakent: 996, isfara: 863, konibodom: 410,
+    guliston: 349, istiqlol: 1050, bokhtar: 428, kulob: 580, nurek: 885, danghara: 649, vakhsh: 426, khorog: 2123, murghob: 3650, vanj: 1722 };
+const metUrl = (lat, lon, id) => `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${Number(lat).toFixed(4)}&lon=${Number(lon).toFixed(4)}${CITY_ALT[id] ? `&altitude=${CITY_ALT[id]}` : ''}`;
 const nowWeatherMemo = new Map(), nowWeatherBusy = new Map();
 async function nowWeather(id) {
     const key = CITY_COORDS[id] ? id : (WEATHER_REGION_CITY[(CITIES.find(c => c.id === id) || {}).region] || 'dushanbe');
@@ -2022,7 +2027,7 @@ async function nowWeather(id) {
     if (nowWeatherBusy.has(key)) return nowWeatherBusy.get(key);
     const job = (async () => {
         const [lat, lon] = CITY_COORDS[key] || [38.5598, 68.787];
-        const url = `https://api.met.no/weatherapi/locationforecast/2.0/compact?lat=${Number(lat).toFixed(4)}&lon=${Number(lon).toFixed(4)}`;
+        const url = metUrl(lat, lon, key);
         const r = await withTimeout(fetch(url, { headers: { 'User-Agent': WEATHER_UA, Accept: 'application/json' } }), 6000);
         if (!r.ok) throw new Error('met.no ' + r.status);
         const j = await r.json();
