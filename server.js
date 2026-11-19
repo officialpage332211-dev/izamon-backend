@@ -8757,7 +8757,7 @@ async function handleDiag(req, res) {
     if (req.query?.news === '1') {
         const lang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
         const r = await getNews(lang, req.query.topic === 'world' ? 'world' : 'tj', true);
-        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang, n: r.items.length, report: r.report, top: r.items.slice(0, 4).map(x => `${x.source}: ${x.title.slice(0, 70)}`) });
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang, n: r.items.length, imgs: r.items.filter(x => x.image).length, report: r.report, top: r.items.slice(0, 4).map(x => `${x.source}: ${x.title.slice(0, 70)}`) });
     }
     // корзина для фото объявлений: есть ли / создалась ли (без загрузки файлов)
     if (req.query?.bucket === '1') {
