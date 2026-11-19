@@ -2547,7 +2547,8 @@ function cleanItem(x) {
     const inTitle = typeof o.title === 'string' ? [...o.title.matchAll(MD_LINK)][0] : null;
     return {
         title: clip(stripLinks(o.title), 120),
-        price: keepValue(stripLinks(o.price), 60),
+        // «0 ₽», «0 сомонӣ» — это не цена (модель так пишет «не указано»): не показываем
+        price: /^\D*0+(?:[.,]0+)?\D*$/.test(String(o.price || '').trim()) ? '' : keepValue(stripLinks(o.price), 60),
         place: keepValue(stripLinks(o.place), 80),
         date: keepValue(stripLinks(o.date), 40),
         contact: clipContact(stripLinks(o.contact)),
