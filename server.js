@@ -2466,9 +2466,9 @@ async function askChat(client, model, system, userText, maxTokens = 300, extra =
 // ---------------------------------------------------------------------------
 // Чат: кэш, один запрос на одинаковые вопросы, лимит одновременных обращений к ИИ
 // ---------------------------------------------------------------------------
-const answerCache = new TTLCache(500);
+const answerCache = new TTLCache(400);
 let SWEEP = { running: false, rows: [] }; // /diag?sweep — полная проверка подразделов
-const staleCache = new TTLCache(800);
+const staleCache = new TTLCache(300);
 const STALE_MS = (Number(process.env.STALE_MIN) || 180) * 60000;
 const inflight = new Map();
 let active = 0;
@@ -5829,11 +5829,24 @@ function withPictureHtml(answer, p, lang) {
     return at >= 0 ? `${a.slice(0, at)}\n${pictureHtml(p, lang)}${a.slice(at + 2)}` : `${a}\n${pictureHtml(p, lang)}`;
 }
 
+// Тяжёлых сборок (поиск по сайтам + перевод + фото) одновременно не больше COMPUTE_MAX: остальные ждут в очереди.
+// Иначе при наплыве памяти не хватает и сервер падает («Exited with status 134») — люди ждут, как на бесплатном тарифе.
+const COMPUTE_MAX = Number(process.env.COMPUTE_MAX) || 3;
+const computeGate = { running: 0, queue: [] };
+function gated(fn) {
+    return new Promise((resolve, reject) => {
+        const go = () => {
+            computeGate.running++;
+            Promise.resolve().then(fn).then(resolve, reject).finally(() => { computeGate.running--; const next = computeGate.queue.shift(); if (next) next(); });
+        };
+        if (computeGate.running < COMPUTE_MAX) go(); else computeGate.queue.push(go);
+    });
+}
 async function runShared(key, cacheable, fn) {
-    if (!cacheable) return fn();
+    if (!cacheable) return fn(); // разговор («Ҳамроз», вопросы) — лёгкий, без очереди
     if (inflight.has(key)) return inflight.get(key);
     const p = (async () => {
-        const r = await fn();
+        const r = await gated(fn);
         if (r.ttl) {
             answerCache.set(key, r.body, r.ttl);
             // запасная копия на 3 часа (только хорошие ответы): пока собирается свежий, человек видит её сразу
@@ -9159,7 +9172,10 @@ app.get('/health', (req, res) => {
         ok: true,
         providers: { openai: !!openai, gemini: !!gemini, openrouter: !!openrouter },
         geminiModel: GEMINI_MODEL,
-        active
+        active,
+        // память сервера (МБ): rss — всего, heap — занято JS; помогает видеть, не близко ли к пределу
+        mem: (m => ({ rss: Math.round(m.rss / 1048576), heap: Math.round(m.heapUsed / 1048576), limit: Math.round(require('v8').getHeapStatistics().heap_size_limit / 1048576) }))(process.memoryUsage()),
+        busy: computeGate.running, queued: computeGate.queue.length
     });
 });
 
@@ -9187,7 +9203,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
+    districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
