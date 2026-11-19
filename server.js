@@ -5398,7 +5398,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return fallback || text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null, few = null, opts = null }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null, few = null, opts = null, plain = '' }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -5554,8 +5554,13 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             const sents = cleanModelText(kept.r.text).split(/(?<=[.!?…])\s+|\n+/).filter(x => x.trim());
             const clean = sents.filter(x => !mixedLanguage(x, lang) && !foreignWord(x, lang, fullMessage));
             if (clean.length && clean.length >= sents.length * 0.6) return { body: { answer: shape(clean.join(' ')), provider: kept.name, grounded: false, sources: [] }, ttl: 0 };
+            // понятие («фотосинтез», «что такое …»): статья Википедии на языке человека — чистый язык и источник
+            const wk = mode === 'general' && !kind ? await wikiAnswer(plain, lang).catch(() => null) : null;
+            if (wk) return { body: wk, ttl: 6 * 3600e3 };
             return { body: { answer: MIXED_FALLBACK[lang] || MIXED_FALLBACK.ru, provider: 'none', grounded: false, sources: [] }, ttl: 0 };
         }
+        const wk = mode === 'general' && !kind ? await wikiAnswer(plain, lang).catch(() => null) : null;
+        if (wk) return { body: wk, ttl: 6 * 3600e3 };
         return { body: { answer: ERR_FALLBACK[lang], provider: 'none', grounded: false, sources: [] }, ttl: 0 };
     } finally {
         active--;
@@ -5624,6 +5629,33 @@ async function conceptPicture(text, lang) {
     WIKI_CACHE.set(key, { at: Date.now(), v });
     if (WIKI_CACHE.size > 500) WIKI_CACHE.delete(WIKI_CACHE.keys().next().value);
     return v;
+}
+// Ответ-справка из Википедии на языке человека (tg/uz/ru) — когда ИИ не дал чистого ответа. Понятие: вопрос «что такое …»
+// или просто 1–3 слова без цифр («фотосинтез»). Только статья о том же слове, без смеси языков; 2–3 первых предложения.
+const WIKI_SRC = { tg: 'Википедия', ru: 'Википедия', uz: 'Vikipediya' };
+function bareTerm(text) {
+    const t = String(text || '').trim().replace(/[?？!.]+$/u, '').trim();
+    return /^[\p{L}][\p{L}'’\- ]{2,39}$/u.test(t) && t.split(/\s+/).length <= 3 && !PIC_SKIP.test(t) ? t : null;
+}
+async function wikiAnswer(text, lang) {
+    const term = conceptTerm(text) || bareTerm(text);
+    if (!term) return null;
+    const wl = lang === 'tg' || lang === 'uz' ? lang : 'ru';
+    const title = (term.charAt(0).toUpperCase() + term.slice(1)).replace(/\s+/g, '_');
+    const r = await withTimeout(fetch(`https://${wl}.wikipedia.org/api/rest_v1/page/summary/${encodeURIComponent(title)}`, { headers: { 'User-Agent': WIKI_UA, Accept: 'application/json' } }), 3500);
+    if (!r || !r.ok) return null;
+    const d = await r.json();
+    if (!d || d.type !== 'standard' || !d.extract) return null;
+    const norm = x => String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N} ]/gu, '').trim();
+    const a = norm(d.title), b = norm(term);
+    if (!a.startsWith(b.slice(0, Math.max(4, Math.min(b.length - 1, 6))))) return null;
+    const sents = String(d.extract).replace(/\s*\([^)]{0,120}\)/g, '').split(/(?<=[.!?])\s+/).filter(x => x.trim());
+    let out = '';
+    for (const x of sents) { if ((out + ' ' + x).length > 520) break; out = (out + ' ' + x).trim(); if (out.split(/(?<=[.!?])\s+/).length >= 3) break; }
+    if (out.length < 40 || mixedLanguage(out, lang)) return null;
+    const page = (d.content_urls && d.content_urls.desktop && d.content_urls.desktop.page) || `https://${wl}.wikipedia.org/wiki/${encodeURIComponent(title)}`;
+    const src = [{ title: WIKI_SRC[lang] || 'Wikipedia', uri: page }];
+    return { answer: finalize(`📖 ${d.title}: ${out}`, src, lang), provider: 'wikipedia', grounded: true, sources: src };
 }
 function pictureHtml(p, lang) {
     return `<figure class="iz-wpic"><img src="${escapeAttr(p.img)}" alt="${escapeAttr(p.title)}" loading="lazy" referrerpolicy="no-referrer"><figcaption>🖼️ ${WIKI_LABEL[lang] || WIKI_LABEL.ru}: <a href="${escapeAttr(p.page)}" target="_blank" rel="noopener noreferrer">${escapeHtml(p.title)}</a></figcaption></figure>`;
@@ -5771,7 +5803,7 @@ async function handleChat(req, res) {
     }
 
     try {
-        const r = await runShared(key, cacheable, () => compute({ mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null }));
+        const r = await runShared(key, cacheable, () => compute({ plain: cleaned, mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null }));
         return res.json(await withPic(r.body));
     } catch (err) {
         console.error('chat failed:', err);
@@ -8548,7 +8580,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, nameOnPage, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, nameOnPage, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
