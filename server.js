@@ -2467,6 +2467,7 @@ async function askChat(client, model, system, userText, maxTokens = 300, extra =
 // Чат: кэш, один запрос на одинаковые вопросы, лимит одновременных обращений к ИИ
 // ---------------------------------------------------------------------------
 const answerCache = new TTLCache(500);
+let SWEEP = { running: false, rows: [] }; // /diag?sweep — полная проверка подразделов
 const staleCache = new TTLCache(800);
 const STALE_MS = (Number(process.env.STALE_MIN) || 180) * 60000;
 const inflight = new Map();
@@ -8830,6 +8831,52 @@ async function handleDiag(req, res) {
         } catch (err) { return res.json({ error: String(err && err.message || err).slice(0, 80) }); }
     }
     // проверка погоды: /diag?wx=1 — что ответил MET Norway (или почему нет)
+    // Полная проверка: все подразделы сайта (берём из app.js на сайте) на одном языке — время, карточки, смесь языков, пустые ответы.
+    // /diag?sweep=start&lang=tg — запустить в фоне (по 3 раздела одновременно); /diag?sweep=report — итог. Заодно прогревает кэш.
+    if (req.query?.sweep) {
+        const v = String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7);
+        if (req.query.sweep === 'report') {
+            const r = SWEEP;
+            const rows = r.rows || [];
+            const bad = rows.filter(x => x.flags.length);
+            return res.json({ version: v, lang: r.lang, running: !!r.running, done: rows.length, total: r.total || 0, startedAt: r.at, msAvg: rows.length ? Math.round(rows.reduce((a, x) => a + x.ms, 0) / rows.length) : 0,
+                slow: rows.filter(x => x.ms > 15000).map(x => `${x.item} ${Math.round(x.ms / 1000)}с`), bad: bad.map(x => `${x.item}: ${x.flags.join(', ')}`), ok: rows.length - bad.length });
+        }
+        if (req.query.sweep === 'start' && !SWEEP.running) {
+            const lang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
+            SWEEP = { running: true, lang, at: new Date().toISOString(), rows: [], total: 0 };
+            (async () => {
+                try {
+                    const r = await withTimeout(fetch('https://izamon.vercel.app/app.js?sweep=' + Date.now(), { headers: { 'User-Agent': WEATHER_UA } }), 10000);
+                    const src = await r.text();
+                    const blocks = src.split(/\n\s*(?=tg:\s*\{|ru:\s*\{|uz:\s*\{)/);
+                    const block = blocks.find(b => b.trim().startsWith(lang + ':')) || '';
+                    const list = [];
+                    for (const m of block.matchAll(/\{ id: \d+, name: "([^"]+)"[^\n]*?items: \[([^\n]*)\]/g)) for (const it of m[2].matchAll(/\{n:"((?:[^"\\]|\\.)*)"/g)) { const n = it[1].replace(/\\'/g, "'"); if (!/^(?:ахбор|новости|yangiliklar|ҳисоби закот|калькулятор закята|zakot kalkulyatori)$/i.test(n)) list.push(`${m[1]} - ${n}`); }
+                    SWEEP.total = list.length;
+                    let i = 0;
+                    const worker = async () => {
+                        while (i < list.length) {
+                            const item = list[i++], t0 = Date.now();
+                            let out = null;
+                            try { await handleChat({ body: { prompt: `[Lang: ${lang}] ${item}`, lang }, ip: 'diag-sweep-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } }); } catch (err) { out = { error: String(err.message || err) }; }
+                            const html = String(out && out.answer || ''), text = html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+                            const cards = (html.match(/class="iz-lc"/g) || []).length;
+                            const flags = [];
+                            if (!out || out.error) flags.push('ошибка');
+                            else if (out.provider === 'none' && !cards && !/iz-tips|iz-rates/.test(html)) flags.push('пусто/нет данных');
+                            if (text && mixedLanguage(text.replace(/https?:\/\/\S+/g, ''), lang)) flags.push('смесь языков');
+                            if (/undefined|NaN|\[object/.test(text)) flags.push('мусор в тексте');
+                            SWEEP.rows.push({ item: item.replace(/^\d+\.\s*/, ''), ms: Date.now() - t0, cards, provider: out && out.provider, view: out && out.view || null, flags });
+                        }
+                    };
+                    await Promise.all([worker(), worker(), worker()]);
+                } catch (err) { SWEEP.error = String(err.message || err).slice(0, 100); }
+                SWEEP.running = false;
+            })();
+        }
+        return res.json({ version: v, started: !!SWEEP.running, lang: SWEEP.lang, total: SWEEP.total });
+    }
     // сравнение погоды: met.no и Open-Meteo по 6 городам (днём макс / ночью мин на сутки) — проверка, кто ближе к сводке Гидромета
     if (req.query?.wxcmp === '1') {
         const out = [];
