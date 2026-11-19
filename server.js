@@ -2048,7 +2048,7 @@ const nowWeatherMemo = new Map(), nowWeatherBusy = new Map();
 async function nowWeather(id) {
     const key = CITY_COORDS[id] ? id : (WEATHER_REGION_CITY[(CITIES.find(c => c.id === id) || {}).region] || 'dushanbe');
     const hit = nowWeatherMemo.get(key);
-    if (hit && Date.now() - hit.at < 30 * MIN) return hit.data;
+    if (hit && Date.now() - hit.at < 15 * MIN) return hit.data; // температура в шапке — не старше 15 минут
     if (nowWeatherBusy.has(key)) return nowWeatherBusy.get(key);
     const job = (async () => {
         const [lat, lon] = CITY_COORDS[key] || [38.5598, 68.787];
@@ -2075,7 +2075,7 @@ async function handleWeatherNow(req, res) {
     const id = /^[a-z]{2,20}$/.test(String(req.query?.city || '')) ? String(req.query.city) : 'dushanbe';
     try {
         const d = await nowWeather(id);
-        if (typeof res.set === 'function') res.set('Cache-Control', 'public, max-age=600');
+        if (typeof res.set === 'function') res.set('Cache-Control', 'public, max-age=300');
         res.json({ ok: true, ...d, src: 'api.met.no' });
     } catch (err) {
         console.warn(`[погода в шапке Сбой]: ${scrub(err && err.message || err)}`);
@@ -5483,8 +5483,8 @@ async function searchRates({ lang, date, debug }) {
 const RATE_CODES = ['USD', 'EUR', 'RUB', 'CNY', 'KZT', 'UZS', 'KGS', 'TRY', 'AED', 'GBP'];
 const RATE_BANK_CODES = ['USD', 'EUR', 'RUB'];
 const RATE_BANKS = [
-    { re: /алиф|alif/i, names: { tg: 'Алиф', ru: 'Алиф', uz: 'Alif' } },
-    { re: /душанбе\s*сити|dushanbe\s*city|(?<![a-zа-яё])dc(?![a-zа-яё])/i, names: { tg: 'Душанбе Сити', ru: 'Душанбе Сити', uz: 'Dushanbe City' } }
+    { re: /алиф|alif/i, names: { tg: 'Alif Mobi', ru: 'Alif Mobi', uz: 'Alif Mobi' } }, // названия банков — как у них самих, латиницей на всех языках
+    { re: /душанбе\s*сити|dushanbe\s*city|(?<![a-zа-яё])dc(?![a-zа-яё])/i, names: { tg: 'Dushanbe City', ru: 'Dushanbe City', uz: 'Dushanbe City' } }
 ];
 function ratesAnswer(r, lang) {
     const h = RATE_HEAD[lang];
@@ -5879,7 +5879,8 @@ async function runShared(key, cacheable, fn) {
         if (r.ttl) {
             answerCache.set(key, r.body, r.ttl);
             // запасная копия на 3 часа (только хорошие ответы): пока собирается свежий, человек видит её сразу
-            if (r.body && r.body.provider !== 'none' && !/rate-limit|busy/.test(r.body.provider || '')) staleCache.set(key, { body: r.body, day: todayTJ().iso }, STALE_MS);
+            // погоду не держим запасной копией: трёхчасовой давности температура — это «зависшая» температура
+            if (r.body && r.body.provider !== 'none' && r.body.provider !== 'met.no' && !/rate-limit|busy/.test(r.body.provider || '')) staleCache.set(key, { body: r.body, day: todayTJ().iso }, STALE_MS);
         }
         return r;
     })().finally(() => inflight.delete(key));
