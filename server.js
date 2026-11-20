@@ -3500,8 +3500,8 @@ function somonPoints(a, kind, lang = 'ru', facts = null) {
         let m;
         if (fam === 'estate') {
             if ((m = t.match(/(\d{1,2})\s*-\s*х?\s*-?\s*комн/i))) pts.push(`${L.rooms}: ${m[1]}`);
-            if ((m = t.match(/(\d{1,2}\s*\/\s*\d{1,2})\s*этаж(?!н)/i))) pts.push(`${L.floor}: ${m[1].replace(/\s+/g, '')}`);
-            else if ((m = t.match(/(\d{1,2})\s*этаж(?!н)/i))) pts.push(`${L.floor}: ${m[1]}`);
+            if ((m = t.match(/(?<!\d)(\d{1,2}\s*\/\s*\d{1,2})\s*этаж(?!н)/i))) pts.push(`${L.floor}: ${m[1].replace(/\s+/g, '')}`);
+            else if ((m = t.match(/(?<![\d/])(\d{1,2})\s*этаж(?!н)/i))) pts.push(`${L.floor}: ${m[1]}`);
             if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*(?:м²|м2|кв\.?\s*м)/i))) pts.push(`${L.area}: ${m[1]} ${L.m2}`);
             if ((m = t.match(/(\d{1,4}(?:[.,]\d+)?)\s*сот/i))) pts.push(`${L.plot}: ${m[1]} ${L.sot}`);
         } else {
@@ -3549,8 +3549,8 @@ function estateSlots(it, lang, mode) {
     if (!plot && (m = title.match(/(\d{1,4}(?:[.,]\d+)?)\s*(?:сот|сотих|sotix)/i))) plot = { v: `${m[1]} ${L.sot}`, p: null };
     if (!rooms && (m = title.match(/(\d{1,2})\s*-\s*х?\s*-?\s*комн/i))) rooms = { v: m[1], p: null };
     if (!floor) {
-        if ((m = title.match(/(\d{1,2}\s*\/\s*\d{1,2})\s*этаж(?!н)/i))) floor = { v: m[1].replace(/\s+/g, ''), p: null };
-        else if ((m = title.match(/(\d{1,2})\s*этаж(?!н)/i))) floor = { v: m[1], p: null };
+        if ((m = title.match(/(?<!\d)(\d{1,2}\s*\/\s*\d{1,2})\s*этаж(?!н)/i))) floor = { v: m[1].replace(/\s+/g, ''), p: null };
+        else if ((m = title.match(/(?<![\d/])(\d{1,2})\s*этаж(?!н)/i))) floor = { v: m[1], p: null };
     }
     const first = area || plot;
     const firstLabel = area ? L.area : L.plot;
