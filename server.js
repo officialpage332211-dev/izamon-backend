@@ -7553,7 +7553,9 @@ function rssItems(xml, source) {
             .map(re => (b.match(re) || [])[1]).find(Boolean)
             || ((decodeEntities(rawDesc + ' ' + tag(b, 'content:encoded')).match(/<img\b[^>]*src=["']([^"']+)["']/i) || [])[1]) || '';
         const image = /^https:\/\/[^\s"'<>]+$/i.test(pic) && !/\.(?:gif|svg)(?:[?#]|$)|pixel|counter|1x1/i.test(pic) ? pic.slice(0, 500) : '';
-        out.push({ title: title.slice(0, 220), link: link.slice(0, 500), source, date: Number.isFinite(when) ? new Date(when).toISOString() : '', text: desc.slice(0, 300), image });
+        // рубрики ленты («Ҷаҳон», «В мире», «Тоҷикистон»…): по ним новости делятся на «Тоҷикистон» и «Ҷаҳон»
+        const cats = (b.match(/<category\b[^>]*>[\s\S]*?<\/category>/gi) || []).map(c => text(c.replace(/^<category\b[^>]*>|<\/category>$/gi, '').replace(/^\s*<!\[CDATA\[|\]\]>\s*$/g, ''))).filter(Boolean).slice(0, 6);
+        out.push({ title: title.slice(0, 220), link: link.slice(0, 500), source, date: Number.isFinite(when) ? new Date(when).toISOString() : '', text: desc.slice(0, 300), image, cats });
     }
     return out;
 }
@@ -8950,7 +8952,7 @@ async function handleDiag(req, res) {
     if (req.query?.news === '1') {
         const lang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
         const r = await getNews(lang, req.query.topic === 'world' ? 'world' : 'tj', true);
-        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang, n: r.items.length, imgs: r.items.filter(x => x.image).length, report: r.report, top: r.items.slice(0, 4).map(x => `${x.source}: ${x.title.slice(0, 70)}`) });
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang, n: r.items.length, imgs: r.items.filter(x => x.image).length, report: r.report, cats: req.query.cats ? r.items.slice(0, 30).map(x => `${x.source} [${(x.cats || []).join('|')}] ${x.title.slice(0, 60)}`) : undefined, top: r.items.slice(0, 4).map(x => `${x.source}: ${x.title.slice(0, 70)}`) });
     }
     // корзина для фото объявлений: есть ли / создалась ли (без загрузки файлов)
     if (req.query?.bucket === '1') {
