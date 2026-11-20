@@ -7525,8 +7525,9 @@ app.post('/api/upload/video', handleUploadVideo);
 // Запретное (алкоголь, азартные игры, концерты и шоу-бизнес и т.п.) не показываем.
 // ---------------------------------------------------------------------------
 const NEWS_FEEDS = {
-    tg: { tj: [['Ховар', 'https://khovar.tj/feed/'], ['Asia-Plus', 'https://asiaplus.news/tj/feed/']],
-        world: [['Asia-Plus', 'https://asiaplus.news/tj/feed/', 'world'], ['Ховар', 'https://khovar.tj/feed/', 'world']] },
+    // таджикский «Ҷаҳон»: у Ховар и Asia-Plus на таджикском мировых новостей почти нет — мировые берём из Sputnik Тоҷикистон (на таджикском)
+    tg: { tj: [['Ховар', 'https://khovar.tj/feed/'], ['Asia-Plus', 'https://asiaplus.news/tj/feed/', 'tj'], ['Sputnik Тоҷикистон', 'https://sputnik.tj/export/rss2/archive/index.xml', 'tj']],
+        world: [['Sputnik Тоҷикистон', 'https://sputnik.tj/export/rss2/archive/index.xml', 'world'], ['Asia-Plus', 'https://asiaplus.news/tj/feed/', 'world']] },
     ru: { tj: [['Ховар', 'https://khovar.tj/rus/feed/'], ['Asia-Plus', 'https://asiaplus.news/feed/'], ['Sputnik Таджикистан', 'https://tj.sputniknews.ru/export/rss2/archive/index.xml', 'tj'], ['Авеста', 'https://avesta.tj/feed/']],
         world: [['BBC News Русская служба', 'https://feeds.bbci.co.uk/russian/rss.xml'], ['Asia-Plus', 'https://asiaplus.news/feed/', 'world']] },
     uz: { tj: [['Kun.uz', 'https://kun.uz/news/rss', 'tj']], world: [['Kun.uz', 'https://kun.uz/news/rss'], ['BBC Oʻzbek', 'https://feeds.bbci.co.uk/uzbek/rss.xml']] }
@@ -7562,8 +7563,10 @@ function rssItems(xml, source) {
 async function newsFeed(name, url, need) {
     const page = await fetchPage(url, { cap: 2000000, timeoutMs: 9000, xml: true });
     const items = rssItems(page.html, name).map(x => /kun\.uz/.test(url) ? { ...x, title: kunLatin(x.title), text: kunLatin(x.text) } : x);
-    if (need === 'tj') return items.filter(x => NEWS_TJ.test(`${x.title} ${x.text}`));
-    if (need === 'world') return items.filter(x => !NEWS_TJ.test(`${x.title} ${x.text}`));
+    // про Таджикистан: есть слово из списка или рубрика ленты «Тоҷикистон / Таджикистан»
+    const aboutTj = x => NEWS_TJ.test(`${x.title} ${x.text}`) || (x.cats || []).some(c => /тоҷикистон|таджикистан|tojikiston/i.test(c));
+    if (need === 'tj') return items.filter(aboutTj);
+    if (need === 'world') return items.filter(x => !aboutTj(x));
     return items;
 }
 // Kun.uz в RSS пишет «ö ğ ş ç» вместо узбекских «oʻ gʻ sh ch» — приводим к обычной узбекской латинице
@@ -7585,7 +7588,8 @@ async function getNews(lang, topic, debug) {
         .filter(x => !NEWS_SKIP.test(`${x.title} ${x.text}`) && !HARAM_LINE.test(x.title))
         .filter(x => !x.date || Date.parse(x.date) > weekAgo)
         .filter(x => { const k = norm(x.title).slice(0, 60); if (seen.has(k)) return false; seen.add(k); return true; })
-        .filter(x => !mixedLanguage(x.title, lang))
+        // русские фамилии в таджикском заголовке («Зеленский», «Полянский») — не чужой язык: таджикский заголовок узнаём по буквам ӣ ӯ қ ғ ҳ ҷ
+        .filter(x => (lang === 'tg' && /[ӣӯқғҳҷ]/i.test(x.title)) || !mixedLanguage(x.title, lang))
         .sort((a, b) => (Date.parse(b.date) || 0) - (Date.parse(a.date) || 0))
         .slice(0, 30);
     const out = { items, sources: [...new Set(items.map(x => x.source))] };
