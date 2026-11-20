@@ -2909,7 +2909,7 @@ function cardHtml(it, kind, lang) {
         (Number.isFinite(it.age) && it.age >= 0 ? ` data-age="${Math.round(it.age)}"` : '');
     const fullAttr = it.full ? ` data-full="${escapeAttr(it.full)}"` : '';
     // Номер объявления iZamoN: по нему сайт показывает кнопку заявки (только у объявлений, которые лежат у нас)
-    const adAttr = it.adId && /^\d{1,15}$/.test(it.adId) ? ` data-ad="${it.adId}"` : '';
+    const adAttr = it.adId && /^\d{1,15}$/.test(it.adId) ? ` data-ad="${it.adId}"${/^[0-9a-f]{12}$/.test(it.sellerKey || '') ? ` data-sk="${it.sellerKey}"` : ''}` : '';
     return `<div class="iz-lc"${sortAttrs}${fullAttr}${adAttr}>${parts.join('')}</div>`;
 }
 
@@ -2946,6 +2946,7 @@ function ownItems(rows, lang) {
             sellerSince: a.seller_since && Number.isFinite(Date.parse(a.seller_since)) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dushanbe' }).format(new Date(a.seller_since)).split('-').reverse().join('.') : '',
             sellerCount: Number(a.seller_count) || 0,
             sellerBadge: a.seller_badge === 'gold' || a.seller_badge === 'silver' ? a.seller_badge : '',
+            sellerKey: /^[0-9a-f]{12}$/.test(String(a.seller_key || '')) ? a.seller_key : '',
             points: adPoints(a.description),
             full: fullText(String(a.description || '').split(/\n/).filter(l => !/^\s*[•·\-*]\s*[^:\n]{2,25}:\s*\S/.test(l)).join('\n')),
             adId: /^\d{1,15}$/.test(String(a.id == null ? '' : a.id)) ? String(a.id) : '',
@@ -7054,6 +7055,7 @@ async function withSellerStats(rows) {
         if (!ids.length) return rows;
         const own = await sb(`ads?select=id,owner&id=in.(${ids.join(',')})`);
         const ownerOf = new Map((own || []).filter(x => x && x.owner).map(x => [String(x.id), String(x.owner)]));
+        rows = rows.map(r => { const o = ownerOf.get(String(r.id)); return o ? { ...r, seller_key: sellerKey(o) } : r; }); // для «скрыть продавца» на сайте
         const owners = [...new Set(ownerOf.values())].filter(o => /^[\w-]{8,64}$/.test(o)).slice(0, 20);
         if (!owners.length) return rows;
         const all = await sb(`ads?select=owner,created_at,status&owner=in.(${owners.join(',')})&order=created_at.asc&limit=1000`);
@@ -7943,6 +7945,25 @@ async function handleAdEdit(req, res) {
 // Нужен явный ответ { confirm: 'delete' }. Если какой-то таблицы ещё нет в базе — удалять там нечего, идём дальше.
 // Сбой на любом шаге — вход не удаляем и отвечаем ошибкой: человек сможет повторить.
 const accountLimited = makeLimiter(3);
+// Файлы человека в хранилище (фото объявлений, аватар, видео) лежат в папках с его id — при удалении аккаунта убираем и их.
+// Не получилось — аккаунт всё равно удаляется (файлы без аккаунта нигде не показываются), в журнал — предупреждение.
+async function purgeUserFiles(uid) {
+    const dir = String(uid).replace(/[^a-z0-9-]/gi, '').slice(0, 40);
+    if (!dir) return 0;
+    const h = { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, 'Content-Type': 'application/json' };
+    let n = 0;
+    for (const [bucket, prefix] of [[PHOTO_BUCKET, dir], [PHOTO_BUCKET, `avatars/${dir}`], [VIDEO_BUCKET, dir]]) {
+        try {
+            const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/object/list/${bucket}`, { method: 'POST', headers: h, body: JSON.stringify({ prefix, limit: 1000 }) }), 8000);
+            const list = r.ok ? await r.json().catch(() => []) : [];
+            const names = (Array.isArray(list) ? list : []).map(o => o && o.name).filter(x => typeof x === 'string' && x && !x.includes('/')).map(x => `${prefix}/${x}`);
+            if (!names.length) continue;
+            const d = await withTimeout(fetch(`${SB_URL()}/storage/v1/object/${bucket}`, { method: 'DELETE', headers: h, body: JSON.stringify({ prefixes: names }) }), 8000);
+            if (d.ok) n += names.length;
+        } catch (err) { console.warn(`[account files ${bucket}]: ${err.message}`); }
+    }
+    return n;
+}
 
 async function handleAccountDelete(req, res) {
     if (accountLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
@@ -7961,7 +7982,8 @@ async function handleAccountDelete(req, res) {
         }), 8000);
         if (!r.ok && r.status !== 404) { const e = new Error(`auth ${r.status}`); e.status = r.status; throw e; }
         for (const [k, e] of userCache.map) if (e.value && e.value.id === user.id) userCache.map.delete(k);
-        console.log('[account] удалён по просьбе владельца');
+        const files = await purgeUserFiles(user.id).catch(() => 0);
+        console.log(`[account] удалён по просьбе владельца; файлов убрано: ${files}`);
         return res.json({ ok: true });
     } catch (err) {
         console.warn(`[account delete Сбой]: ${err.message}`);
@@ -8843,6 +8865,131 @@ async function handleFeedback(req, res) {
 
 app.post('/api/feedback', handleFeedback);
 
+// ---------------------------------------------------------------------------
+// Жалобы на объявления (требование Google Play для пользовательского контента): «🚩 Шикоят» на карточке объявления iZamoN.
+// Жалобы лежат в закрытом хранилище iz-diag (reports.json), без новых таблиц. От одного человека (аккаунт или IP) — одна жалоба
+// на объявление. После REPORT_HIDE разных жалоб объявление скрывается из поиска (status hidden) до решения админа.
+// Админ (ADMIN_EMAILS) видит список в «Ҳисоби ман» и решает: вернуть, удалить, отклонить жалобы. Ему же — сообщение в Telegram (если привязан).
+// Ключ продавца (seller_key) — короткий HMAC от id владельца: по нему сайт скрывает объявления заблокированного продавца,
+// сам id не раскрывается.
+// ---------------------------------------------------------------------------
+const REPORT_HIDE = Number(process.env.REPORT_HIDE) || 3;
+const REPORT_REASONS = ['fraud', 'haram', 'wrong', 'spam', 'other'];
+const REPORTS_PATH = 'reports.json';
+const reportLimited = makeLimiter(10);
+const sellerKey = owner => crypto.createHmac('sha256', String(process.env.IMG_SECRET || SB_KEY() || 'iz')).update('seller:' + String(owner)).digest('hex').slice(0, 12);
+const reporterKey = (user, ip) => user ? 'u:' + crypto.createHash('sha256').update(String(user.id)).digest('hex').slice(0, 16)
+    : 'i:' + crypto.createHash('sha256').update('ip:' + String(ip || '') + String(process.env.IMG_SECRET || '')).digest('hex').slice(0, 16);
+let reportsMem = null, reportsChain = Promise.resolve();
+async function reportsLoad() {
+    if (reportsMem) return reportsMem;
+    try {
+        const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/object/${DIAG_BUCKET}/${REPORTS_PATH}`, { headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` } }), 8000);
+        const d = r.ok ? await r.json().catch(() => null) : null;
+        reportsMem = d && typeof d === 'object' && d.ads && typeof d.ads === 'object' ? d : { ads: {} };
+        if (!r.ok && r.status !== 400 && r.status !== 404) reportsMem = null; // хранилище недоступно — не затираем старые жалобы
+        return reportsMem || { ads: {} };
+    } catch (err) { return { ads: {} }; }
+}
+async function reportsSave() {
+    await ensureDiagBucket();
+    const r = await withTimeout(fetch(`${SB_URL()}/storage/v1/object/${DIAG_BUCKET}/${REPORTS_PATH}`, {
+        method: 'POST', headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}`, 'Content-Type': 'application/json', 'x-upsert': 'true' }, body: JSON.stringify(reportsMem)
+    }), 8000);
+    if (!r.ok) throw new Error(`reports save ${r.status}`);
+}
+// изменения — по одному, чтобы две жалобы одновременно не затёрли друг друга
+function reportsTx(fn) {
+    const run = reportsChain.catch(() => {}).then(async () => { await reportsLoad(); if (!reportsMem) throw new Error('reports_unavailable'); const out = await fn(reportsMem); await reportsSave(); return out; });
+    reportsChain = run.catch(() => {});
+    return run;
+}
+async function setAdStatus(id, status) {
+    try { await sb(`ads?id=eq.${id}`, { method: 'PATCH', body: { status }, prefer: 'return=minimal' }); return status; }
+    catch (err) {
+        if (status === 'hidden' && err.status === 400) { await sb(`ads?id=eq.${id}`, { method: 'PATCH', body: { status: 'deleted' }, prefer: 'return=minimal' }); return 'deleted'; }
+        throw err;
+    }
+}
+let adminIdsAt = 0, adminIdsList = [];
+async function adminIds() {
+    const want = (process.env.ADMIN_EMAILS || '').toLowerCase().split(',').map(x => x.trim()).filter(Boolean);
+    if (!want.length) return [];
+    if (Date.now() - adminIdsAt < 60 * MIN) return adminIdsList;
+    adminIdsAt = Date.now();
+    try {
+        const r = await withTimeout(fetch(`${SB_URL()}/auth/v1/admin/users?per_page=1000`, { headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` } }), 8000);
+        const d = r.ok ? await r.json() : null;
+        adminIdsList = ((d && d.users) || []).filter(u => u && u.email && want.includes(String(u.email).toLowerCase())).map(u => String(u.id));
+    } catch (err) { adminIdsList = []; }
+    return adminIdsList;
+}
+async function handleAdReport(req, res) {
+    if (reportLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const id = String(req.params?.id || '');
+    if (!/^\d{1,15}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad_id' });
+    const reason = REPORT_REASONS.includes(req.body?.reason) ? req.body.reason : 'other';
+    if (!adsOn()) return res.status(503).json({ ok: false, error: 'store_off' });
+    let ad;
+    try { const rows = await sb(`ads?select=id,title,owner,status&id=eq.${id}&limit=1`); ad = rows && rows[0]; }
+    catch (err) { return res.status(503).json({ ok: false, error: 'store_failed' }); }
+    if (!ad) return res.status(404).json({ ok: false, error: 'not_found' });
+    const user = await getUser(req);
+    if (user && String(user.id) === String(ad.owner)) return res.status(400).json({ ok: false, error: 'own_ad' });
+    const who = reporterKey(user, req.ip);
+    try {
+        const out = await reportsTx(async db => {
+            const e = db.ads[id] || (db.ads[id] = { title: clip(ad.title, 120), by: [], reasons: {}, first: new Date().toISOString(), hidden: false });
+            if (e.by.includes(who)) return { already: true, count: e.by.length, hidden: e.hidden };
+            e.by.push(who); e.reasons[reason] = (e.reasons[reason] || 0) + 1; e.last = new Date().toISOString(); e.dismissed = false;
+            let hiddenNow = false;
+            if (!e.hidden && e.by.length >= REPORT_HIDE && ad.status === 'active') { e.hidden = await setAdStatus(id, 'hidden') === 'hidden' ? true : 'deleted'; hiddenNow = true; }
+            return { already: false, count: e.by.length, hidden: !!e.hidden, hiddenNow };
+        });
+        if (!out.already) {
+            const ids = await adminIds();
+            const text = `🚩 Шикоят ба эълон #${id}: «${clip(ad.title, 80)}» — ${reason} (ҳамагӣ ${out.count})${out.hiddenNow ? '\n🙈 Эълон аз ҷустуҷӯ пинҳон шуд. Қарор: «Ҳисоби ман» → «Шикоятҳо».' : ''}`;
+            for (const a of ids) notifySeller(a, text).catch(() => {});
+        }
+        return res.json({ ok: true, already: out.already });
+    } catch (err) {
+        console.warn(`[шикоят Сбой]: ${scrub(err.message)}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+async function handleAdminReports(req, res) {
+    const user = await getUser(req);
+    if (!isAdmin(user)) return res.status(403).json({ ok: false, error: 'admin_only' });
+    const db = await reportsLoad();
+    const items = Object.entries(db.ads || {}).filter(([, e]) => !e.dismissed && !e.done)
+        .map(([id, e]) => ({ id, title: e.title, count: (e.by || []).length, reasons: e.reasons || {}, hidden: !!e.hidden, last: e.last || e.first }))
+        .sort((a, b) => String(b.last).localeCompare(String(a.last))).slice(0, 100);
+    return res.json({ ok: true, items, hideAt: REPORT_HIDE });
+}
+async function handleAdminReportAct(req, res) {
+    const user = await getUser(req);
+    if (!isAdmin(user)) return res.status(403).json({ ok: false, error: 'admin_only' });
+    const id = String(req.params?.id || '');
+    const action = String(req.body?.action || '');
+    if (!/^\d{1,15}$/.test(id) || !['restore', 'remove', 'dismiss'].includes(action)) return res.status(400).json({ ok: false, error: 'bad_request' });
+    try {
+        await reportsTx(async db => {
+            const e = db.ads[id] || (db.ads[id] = { title: '', by: [], reasons: {}, first: new Date().toISOString() });
+            if (action === 'remove') { await setAdStatus(id, 'deleted'); e.done = 'removed'; }
+            else if (action === 'restore') { if (e.hidden) await setAdStatus(id, 'active'); e.hidden = false; e.dismissed = true; }
+            else { e.dismissed = true; }
+            e.decided = new Date().toISOString();
+        });
+        return res.json({ ok: true });
+    } catch (err) {
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+app.post('/api/ads/:id/report', handleAdReport);
+app.get('/api/admin/reports', handleAdminReports);
+app.post('/api/admin/reports/:id', handleAdminReportAct);
+
+
 app.post('/api/ads', handleAdsCreate);
 app.get('/api/ads', handleAdsSearch);
 app.get('/api/ads/mine', handleAdsMine);
@@ -9167,7 +9314,7 @@ async function handleDiag(req, res) {
         const places = [...html.matchAll(/<div class="iz-lc-m">📍 ([^<·]*)/g)].map(m => m[1].trim());
         // full=1: текст первых карточек целиком (что видит человек), для проверки цен и контактов
         const full = req.query.full === '1' ? html.split('class="iz-lc"').slice(1, 4).map(c => c.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 400)) : undefined;
-        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, times, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, mix: mixedWhy(html.replace(/<[^>]*>/g, ' '), askLang) || undefined, wiki: WIKI_LAST, pic: /iz-wpic/.test(html), view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, imgs: (html.match(/<div class="iz-lc-img"[^>]*><img /g) || []).length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), ask: String(req.query.ask).slice(0, 200), lang: askLang, ms: Date.now() - t0, times, aiToday: aiUsed, aiLimit: AI_DAY_LIMIT, warn: (html.match(/iz-lc-warn/g) || []).length, mix: mixedWhy(html.replace(/<[^>]*>/g, ' '), askLang) || undefined, wiki: WIKI_LAST, pic: /iz-wpic/.test(html), view: out && out.view || null, provider: out && out.provider || null, cards: urls.length, imgs: (html.match(/<div class="iz-lc-img"[^>]*><img /g) || []).length, hosts: urls.map(u => hostOf(u)), titles: titles.slice(0, 12), places: places.slice(0, 12), prices: prices.slice(0, 12), full, hrefs: req.query.full === '1' ? [...html.matchAll(/href="([^"]+)"/g)].map(m => m[1]).slice(-8) : undefined, tail: req.query.full === '1' ? html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(-400) : undefined, html: req.query.html === '1' ? html.slice(0, 60000) : undefined, text: urls.length ? undefined : html.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').slice(0, 300) });
     }
     // /diag?orders=1: проверка таблиц заявок на настоящей базе. Пишет одну пробную строку (заявка с номером 0 и продавцом «diag») и сразу её удаляет.
     if (req.query?.orders === '1') {
@@ -9434,5 +9581,5 @@ module.exports = {
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
