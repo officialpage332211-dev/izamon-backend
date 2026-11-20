@@ -2666,6 +2666,10 @@ const CALL_LABEL = { tg: 'Занг задан', ru: 'Позвонить', uz: "Q
 // Метка — только сравнение с другими карточками этой же выдачи, не «цена рынка». Показываем её, когда в выдаче есть минимум
 // CHEAP_MIN цен в одной валюте; цену дешевле 5% от середины считаем заглушкой или опечаткой (на somon.tj «договорная» часто «1 сом.»).
 // «Продавец на iZamoN»: с какого дня выкладывает объявления и сколько их сейчас. Текст на tg/uz — наш перевод, не модель.
+const SELLER_BADGE = {
+    gold: { tg: '🥇 Тангаи тиллоӣ', ru: '🥇 Золотая монета', uz: '🥇 Oltin tanga' },
+    silver: { tg: '🥈 Тангаи нуқрагӣ', ru: '🥈 Серебряная монета', uz: '🥈 Kumush tanga' }
+};
 const SELLER_LINE = {
     ru: (d, n) => `Продавец на iZamoN с ${d} · объявлений: ${n}`,
     tg: (d, n) => `Фурӯшанда дар iZamoN аз ${d} · эълонҳо: ${n}`,
@@ -2894,7 +2898,7 @@ function cardHtml(it, kind, lang) {
         it.price ? `<div class="iz-lc-p">${escapeHtml(unifyPrice(it.price, lang, ratesNow()))}</div>` : '',
         it.suspect && SUSPECT_LABEL[lang] ? `<div class="iz-lc-pl iz-lc-warn">${escapeHtml(SUSPECT_LABEL[lang])}</div>`
             : it.cheap && CHEAP_LABEL[lang] ? `<div class="iz-lc-pl">↓ ${escapeHtml(CHEAP_LABEL[lang])}</div>` : '',
-        it.sellerSince && it.sellerCount > 0 && SELLER_LINE[lang] ? `<div class="iz-lc-sl">${escapeHtml(SELLER_LINE[lang](it.sellerSince, it.sellerCount))}</div>` : '',
+        (it.sellerSince && it.sellerCount > 0 && SELLER_LINE[lang]) || it.sellerBadge ? `<div class="iz-lc-sl">${escapeHtml([it.sellerSince && it.sellerCount > 0 && SELLER_LINE[lang] ? SELLER_LINE[lang](it.sellerSince, it.sellerCount) : '', it.sellerBadge ? SELLER_BADGE[it.sellerBadge][lang] || SELLER_BADGE[it.sellerBadge].ru : ''].filter(Boolean).join(' · '))}</div>` : '',
         it.place || it.who ? `<div class="iz-lc-m">${it.place ? '📍 ' + escapeHtml(it.place) : ''}${it.place && it.who ? ' · ' : ''}${it.who ? '👤 ' + escapeHtml(it.who) : ''}</div>` : '',
         tiles ? `<div class="iz-tiles">${tiles}</div>` : '',
         it.contact ? `<div class="iz-lc-m iz-lc-ct">📞 ${contactHtml(it.contact)}</div>` : '',
@@ -2941,6 +2945,7 @@ function ownItems(rows, lang) {
             age,
             sellerSince: a.seller_since && Number.isFinite(Date.parse(a.seller_since)) ? new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dushanbe' }).format(new Date(a.seller_since)).split('-').reverse().join('.') : '',
             sellerCount: Number(a.seller_count) || 0,
+            sellerBadge: a.seller_badge === 'gold' || a.seller_badge === 'silver' ? a.seller_badge : '',
             points: adPoints(a.description),
             full: fullText(String(a.description || '').split(/\n/).filter(l => !/^\s*[•·\-*]\s*[^:\n]{2,25}:\s*\S/.test(l)).join('\n')),
             adId: /^\d{1,15}$/.test(String(a.id == null ? '' : a.id)) ? String(a.id) : '',
@@ -7041,6 +7046,7 @@ async function createAd(ad) {
 
 // Продавец на iZamoN: с какого дня он выкладывает объявления и сколько их сейчас активно. Только настоящие данные из базы.
 // Код владельца дальше этой функции не уходит. Нет данных или сбой — карточка остаётся без этой строки.
+const badgeCache = new TTLCache(500);
 async function withSellerStats(rows) {
     if (!rows || !rows.length || !adsOn()) return rows || [];
     try {
@@ -7061,9 +7067,17 @@ async function withSellerStats(rows) {
             if (t < st.first) st.first = t;
             if (a.status === 'active' && t >= since) st.active++;
         }
+        // значок «золотая/серебряная монета» продавца (за приглашённых друзей) — виден всем в его объявлениях
+        const badges = {};
+        await Promise.all(owners.map(async o => {
+            const hit = badgeCache.get(o);
+            if (hit !== undefined) { badges[o] = hit; return; }
+            try { badges[o] = refBadge(await authAdmin(o)); } catch { badges[o] = ''; }
+            badgeCache.set(o, badges[o], 10 * MIN);
+        }));
         return rows.map(r => {
-            const st = stat[ownerOf.get(String(r.id))];
-            return st && st.active > 0 ? { ...r, seller_since: new Date(st.first).toISOString(), seller_count: st.active } : r;
+            const o = ownerOf.get(String(r.id)), st = stat[o], b = badges[o] ? { seller_badge: badges[o] } : {};
+            return st && st.active > 0 ? { ...r, ...b, seller_since: new Date(st.first).toISOString(), seller_count: st.active } : { ...r, ...b };
         });
     } catch (err) {
         console.warn(`[seller stats]: ${err.message}`);
@@ -7719,7 +7733,7 @@ function withCoinLock(uid, fn) {
 }
 function coinMeta(u) {
     const m = (u && u.app_metadata && typeof u.app_metadata === 'object') ? u.app_metadata : {};
-    return { coins: Math.max(0, Math.floor(Number(m.iz_coins) || 0)), claims: Array.isArray(m.iz_claims) ? m.iz_claims.filter(x => typeof x === 'string').slice(-60) : [] };
+    return { coins: Math.max(0, Math.round((Number(m.iz_coins) || 0) * 10) / 10), claims: Array.isArray(m.iz_claims) ? m.iz_claims.filter(x => typeof x === 'string').slice(-60) : [] };
 }
 async function getCoins(uid) { return coinMeta(await authAdmin(uid)).coins; }
 async function spendCoins(uid, n) {
@@ -7738,7 +7752,7 @@ function checkSolution(b, date) {
     if (game === 'scan') {
         const P = GAMES.SCAN.build(date);
         const ok = Object.keys(P.grid).every(k => fill[k] === P.grid[k].ch);
-        return ok ? { key: `scan:${date}`, prize: Math.max(3, 10 - hints) } : null;
+        return ok ? { key: `scan:${date}`, prize: Math.max(3, 15 - hints) } : null; // сканворд дня — 15 монет (минус подсказки)
     }
     if (game === 'sudoku') {
         const lv = Number(b.level);
@@ -7759,10 +7773,13 @@ async function handleCoinsClaim(req, res) {
         const out = await withCoinLock(user.id, async () => {
             const u = await authAdmin(user.id), m = coinMeta(u);
             if (m.claims.includes(sol.key)) return { ok: true, already: true, coins: m.coins, prize: 0 };
-            const coins = m.coins + sol.prize;
+            const coins = r1(m.coins + sol.prize);
             await authAdmin(user.id, 'PUT', { app_metadata: { ...(u.app_metadata || {}), iz_coins: coins, iz_claims: m.claims.concat(sol.key).slice(-60) } });
-            return { ok: true, coins, prize: sol.prize };
+            return { ok: true, coins, prize: sol.prize, refBy: refByOf(u) };
         });
+        // 10% сверху тому, кто пригласил (только за игры, монеты у самого человека не отнимаются)
+        if (out && out.prize > 0 && out.refBy) refShare(out.refBy, out.prize).catch(err => console.warn(`[ref 10%]: ${err.message}`));
+        delete out.refBy;
         return res.json(out);
     } catch (err) {
         console.warn(`[coins Сбой]: ${err.message}`);
@@ -7775,6 +7792,94 @@ async function handleCoinsGet(req, res) {
     try { return res.json({ ok: true, coins: await getCoins(user.id), bumpCost: BUMP_COINS }); }
     catch (err) { return res.status(503).json({ ok: false, error: 'store_failed' }); }
 }
+// ---------------------------------------------------------------------------
+// «Пригласи друга» (даъват). Ссылка: https://izamon.vercel.app/?ref=<код> — код = id пригласившего (без дефисов).
+//  * друг вошёл в первый раз по ссылке → ему +10 монет, пригласившему +10;
+//  * 10 друзей за 30 дней (отсчёт с первого приглашения в этом периоде) → ещё +85 и значок «серебряная монета» на эти 30 дней;
+//    30 друзей → ещё +120 и «золотая монета»;
+//  * друг решает игры → пригласившему 10% от его выигрыша сверху (от сайта, у друга не отнимается), только один уровень.
+// Всё хранится в app_metadata (его меняет только сервер). Пригласить себя нельзя; один аккаунт засчитывается один раз;
+// засчитывается только новая регистрация (аккаунту не больше 3 дней).
+// ---------------------------------------------------------------------------
+const REF = { FRIEND: 10, WELCOME: 10, B10: 85, B30: 120, WINDOW: 30 * 24 * 60 * MIN, NEW_MS: 3 * 24 * 60 * MIN, SHARE: 0.1 };
+const r1 = n => Math.round(n * 10) / 10;
+const refLimited = makeLimiter(10);
+const refCode = uid => String(uid || '').replace(/-/g, '').toLowerCase();
+const refUid = code => /^[0-9a-f]{32}$/.test(String(code || '')) ? String(code).replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5') : '';
+function refByOf(u) { const m = (u && u.app_metadata) || {}; return typeof m.iz_ref_by === 'string' && m.iz_ref_by ? m.iz_ref_by : ''; }
+function refWin(m, now = Date.now()) {
+    const w = m && m.iz_ref_win && typeof m.iz_ref_win === 'object' ? m.iz_ref_win : null;
+    return w && Number.isFinite(w.s) && now - w.s <= REF.WINDOW ? { s: w.s, n: Number(w.n) || 0, sil: !!w.sil, gold: !!w.gold } : null;
+}
+// значок, видимый всем: золотая / серебряная монета — пока идут 30 дней, в которые он заработан
+function refBadge(u, now = Date.now()) { const w = refWin((u && u.app_metadata) || {}, now); return w && w.gold ? 'gold' : w && w.sil ? 'silver' : ''; }
+const firstName = u => { const md = (u && u.user_metadata) || {}; return String(md.full_name || md.name || '').trim().split(/\s+/)[0].slice(0, 30) || '—'; };
+async function refShare(inviter, prize) {
+    const add = r1(prize * REF.SHARE);
+    if (!(add > 0)) return;
+    await withCoinLock(inviter, async () => {
+        const u = await authAdmin(inviter), m = coinMeta(u), md = u.app_metadata || {};
+        await authAdmin(inviter, 'PUT', { app_metadata: { ...md, iz_coins: r1(m.coins + add), iz_ref_coins: r1((Number(md.iz_ref_coins) || 0) + add), iz_ref_games: r1((Number(md.iz_ref_games) || 0) + add) } });
+    });
+}
+async function handleRefClaim(req, res) {
+    if (refLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    const inviter = refUid(req.body && req.body.ref);
+    if (!inviter) return res.status(400).json({ ok: false, error: 'bad_ref' });
+    if (inviter === user.id) return res.status(400).json({ ok: false, error: 'self' });
+    try {
+        const fu = await authAdmin(user.id);
+        if (refByOf(fu)) return res.json({ ok: true, already: true });
+        const made = Date.parse(fu.created_at || '');
+        if (!Number.isFinite(made) || Date.now() - made > REF.NEW_MS) return res.status(409).json({ ok: false, error: 'not_new' });
+        let iu;
+        try { iu = await authAdmin(inviter); } catch (err) { return res.status(404).json({ ok: false, error: 'no_inviter' }); }
+        if (refByOf(iu) === user.id) return res.status(400).json({ ok: false, error: 'loop' }); // друг друга — нельзя
+        // друг: помечаем, кто пригласил, и дарим монеты
+        const friend = await withCoinLock(user.id, async () => {
+            const u = await authAdmin(user.id), m = coinMeta(u);
+            if (refByOf(u)) return null;
+            const coins = r1(m.coins + REF.WELCOME);
+            await authAdmin(user.id, 'PUT', { app_metadata: { ...(u.app_metadata || {}), iz_ref_by: inviter, iz_coins: coins } });
+            return coins;
+        });
+        if (friend === null) return res.json({ ok: true, already: true });
+        // пригласивший: +10, окно 30 дней, бонусы и значки
+        const inv = await withCoinLock(inviter, async () => {
+            const u = await authAdmin(inviter), m = coinMeta(u), md = u.app_metadata || {}, now = Date.now();
+            const w = refWin(md, now) || { s: now, n: 0, sil: false, gold: false };
+            w.n += 1;
+            let bonus = 0;
+            if (w.n >= 10 && !w.sil) { w.sil = true; bonus += REF.B10; }
+            if (w.n >= 30 && !w.gold) { w.gold = true; bonus += REF.B30; }
+            const gain = REF.FRIEND + bonus;
+            const list = (Array.isArray(md.iz_refs) ? md.iz_refs : []).concat({ n: firstName(fu), at: new Date(now).toISOString() }).slice(-200);
+            await authAdmin(inviter, 'PUT', { app_metadata: { ...md, iz_coins: r1(m.coins + gain), iz_ref_total: (Number(md.iz_ref_total) || 0) + 1, iz_refs: list,
+                iz_ref_coins: r1((Number(md.iz_ref_coins) || 0) + gain), iz_ref_win: w } });
+            return { gain, bonus, n: w.n };
+        });
+        return res.json({ ok: true, coins: friend, welcome: REF.WELCOME, inviter: { gain: inv.gain, bonus: inv.bonus } });
+    } catch (err) {
+        console.warn(`[ref Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+async function handleRefGet(req, res) {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    try {
+        const u = await authAdmin(user.id), md = u.app_metadata || {}, m = coinMeta(u), now = Date.now(), w = refWin(md, now);
+        const list = (Array.isArray(md.iz_refs) ? md.iz_refs : []).slice(-50).reverse().map(x => ({ n: String(x && x.n || '—').slice(0, 30), at: String(x && x.at || '').slice(0, 10) }));
+        return res.json({ ok: true, code: refCode(user.id), total: Number(md.iz_ref_total) || 0, refCoins: r1(Number(md.iz_ref_coins) || 0), fromGames: r1(Number(md.iz_ref_games) || 0),
+            coins: m.coins, list, win: w ? { n: w.n, start: new Date(w.s).toISOString(), end: new Date(w.s + REF.WINDOW).toISOString() } : null, badge: refBadge(u, now),
+            rules: { friend: REF.FRIEND, welcome: REF.WELCOME, b10: REF.B10, b30: REF.B30, share: REF.SHARE } });
+    } catch (err) { return res.status(503).json({ ok: false, error: 'store_failed' }); }
+}
+app.post('/api/ref/claim', handleRefClaim);
+app.get('/api/ref', handleRefGet);
+
 app.post('/api/coins/claim', handleCoinsClaim);
 app.get('/api/coins', handleCoinsGet);
 
@@ -9308,7 +9413,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    detach, TTLCache, mixedWhy, OPENAI_CHAT, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
+    detach, TTLCache, mixedWhy, OPENAI_CHAT, handleRefClaim, handleRefGet, refCode, refUid, refBadge, REF, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
