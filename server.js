@@ -9066,6 +9066,21 @@ async function handleDiag(req, res) {
             return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), url: page.url, n: items.length, items: items.slice(0, 12).map(x => `${x.date.slice(0, 10)} [${(x.cats || []).join('|')}] ${x.title.slice(0, 70)}`) });
         } catch (err) { return res.json({ error: String(err.message || err).slice(0, 120) }); }
     }
+    // вход: какие способы включены в Supabase (Google, почта) — без ключей и личных данных
+    if (req.query?.auth === '1') {
+        try {
+            const r = await withTimeout(fetch(`${SB_URL()}/auth/v1/settings`, { headers: { apikey: process.env.SUPABASE_ANON_KEY || SB_KEY() } }), 8000);
+            const j = await r.json().catch(() => ({}));
+            const ext = j.external || {};
+            let google = null;
+            try {
+                const g = await withTimeout(fetch(`${SB_URL()}/auth/v1/authorize?provider=google&redirect_to=${encodeURIComponent('https://izamon.vercel.app/')}`, { redirect: 'manual', headers: { apikey: process.env.SUPABASE_ANON_KEY || SB_KEY() } }), 8000);
+                const loc = g.headers.get('location') || '';
+                google = { status: g.status, to: loc.replace(/[?#].*$/, '').slice(0, 80), redirectUri: (loc.match(/redirect_uri=([^&]+)/) || [])[1] ? decodeURIComponent(loc.match(/redirect_uri=([^&]+)/)[1]).slice(0, 120) : null, body: g.status >= 400 ? (await g.text()).slice(0, 200) : undefined };
+            } catch (err) { google = { error: String(err.message || err).slice(0, 80) }; }
+            return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), status: r.status, google: ext.google, email: ext.email, phone: ext.phone, disableSignup: j.disable_signup, autoconfirm: j.mailer_autoconfirm, authorize: google });
+        } catch (err) { return res.json({ error: String(err.message || err).slice(0, 120) }); }
+    }
     if (req.query?.news === '1') {
         const lang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
         const r = await getNews(lang, req.query.topic === 'world' ? 'world' : 'tj', true);
