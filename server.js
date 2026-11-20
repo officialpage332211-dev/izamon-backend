@@ -7738,6 +7738,14 @@ function coinMeta(u) {
     return { coins: Math.max(0, Math.round((Number(m.iz_coins) || 0) * 10) / 10), claims: Array.isArray(m.iz_claims) ? m.iz_claims.filter(x => typeof x === 'string').slice(-60) : [] };
 }
 async function getCoins(uid) { return coinMeta(await authAdmin(uid)).coins; }
+// Откуда монеты (для «Ҳисоби ман»): за друзей — сколько начислено за приглашения (+10 за вход по ссылке друга);
+// за игры — сумма выигрышей (iz_game_coins, ведётся с 20.11.2026; у тех, кто играл раньше, — баланс минус монеты за друзей).
+function coinSplit(u) {
+    const md = (u && u.app_metadata && typeof u.app_metadata === 'object') ? u.app_metadata : {};
+    const friends = r1((Number(md.iz_ref_coins) || 0) + (md.iz_ref_by ? REF.WELCOME : 0));
+    const games = md.iz_game_coins != null && Number.isFinite(Number(md.iz_game_coins)) ? r1(Number(md.iz_game_coins)) : r1(Math.max(0, coinMeta(u).coins - friends));
+    return { fromGames: games, fromFriends: friends };
+}
 async function spendCoins(uid, n) {
     return withCoinLock(uid, async () => {
         const u = await authAdmin(uid), m = coinMeta(u);
@@ -7776,7 +7784,7 @@ async function handleCoinsClaim(req, res) {
             const u = await authAdmin(user.id), m = coinMeta(u);
             if (m.claims.includes(sol.key)) return { ok: true, already: true, coins: m.coins, prize: 0 };
             const coins = r1(m.coins + sol.prize);
-            await authAdmin(user.id, 'PUT', { app_metadata: { ...(u.app_metadata || {}), iz_coins: coins, iz_claims: m.claims.concat(sol.key).slice(-60) } });
+            await authAdmin(user.id, 'PUT', { app_metadata: { ...(u.app_metadata || {}), iz_coins: coins, iz_claims: m.claims.concat(sol.key).slice(-60), iz_game_coins: r1(coinSplit(u).fromGames + sol.prize) } });
             return { ok: true, coins, prize: sol.prize, refBy: refByOf(u) };
         });
         // 10% сверху тому, кто пригласил (только за игры, монеты у самого человека не отнимаются)
@@ -7791,7 +7799,7 @@ async function handleCoinsClaim(req, res) {
 async function handleCoinsGet(req, res) {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
-    try { return res.json({ ok: true, coins: await getCoins(user.id), bumpCost: BUMP_COINS }); }
+    try { const u = await authAdmin(user.id); return res.json({ ok: true, coins: coinMeta(u).coins, ...coinSplit(u), bumpCost: BUMP_COINS }); }
     catch (err) { return res.status(503).json({ ok: false, error: 'store_failed' }); }
 }
 // ---------------------------------------------------------------------------
@@ -9612,7 +9620,7 @@ module.exports = {
     parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
-    detach, TTLCache, mixedWhy, OPENAI_CHAT, handleRefClaim, handleRefGet, refCode, refUid, refBadge, REF, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, checkSolution,
+    detach, TTLCache, mixedWhy, OPENAI_CHAT, handleRefClaim, handleRefGet, refCode, refUid, refBadge, REF, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, coinSplit, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
     jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
