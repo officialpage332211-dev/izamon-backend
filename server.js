@@ -8964,7 +8964,8 @@ async function handleAdminReports(req, res) {
     const items = Object.entries(db.ads || {}).filter(([, e]) => !e.dismissed && !e.done)
         .map(([id, e]) => ({ id, title: e.title, count: (e.by || []).length, reasons: e.reasons || {}, hidden: !!e.hidden, last: e.last || e.first }))
         .sort((a, b) => String(b.last).localeCompare(String(a.last))).slice(0, 100);
-    return res.json({ ok: true, items, hideAt: REPORT_HIDE });
+    const deletions = (db.del || []).filter(d => !d.done).map(d => ({ id: d.id, email: d.email, at: d.at })).slice(-50).reverse();
+    return res.json({ ok: true, items, deletions, hideAt: REPORT_HIDE });
 }
 async function handleAdminReportAct(req, res) {
     const user = await getUser(req);
@@ -8985,6 +8986,42 @@ async function handleAdminReportAct(req, res) {
         return res.status(503).json({ ok: false, error: 'store_failed' });
     }
 }
+// Просьба удалить аккаунт без входа (страница delete-account.html, требование Google Play): почта аккаунта →
+// в reports.json (раздел del) и сообщение админу в Telegram. Удаляет админ вручную; на странице обещаем срок 7 дней.
+const delReqLimited = makeLimiter(3, 10 * MIN);
+const EMAIL_RE = /^[^\s@<>"']{1,64}@[^\s@<>"']{1,190}\.[a-z]{2,24}$/i;
+async function handleDeleteRequest(req, res) {
+    if (delReqLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const email = String(req.body?.email || '').trim().toLowerCase();
+    if (!EMAIL_RE.test(email)) return res.status(400).json({ ok: false, error: 'bad_email' });
+    const lang = ['tg', 'ru', 'uz'].includes(req.body?.lang) ? req.body.lang : 'tg';
+    try {
+        const fresh = await reportsTx(async db => {
+            db.del = Array.isArray(db.del) ? db.del : [];
+            if (db.del.some(d => d.email === email && !d.done)) return false;
+            db.del.push({ id: Date.now().toString(36) + crypto.randomBytes(3).toString('hex'), email, lang, at: new Date().toISOString() });
+            db.del = db.del.slice(-500);
+            return true;
+        });
+        if (fresh) for (const a of await adminIds()) notifySeller(a, `🗑️ Дархости нест кардани ҳисоб: ${email}\nМӯҳлат — 7 рӯз. «Ҳисоби ман» → «Шикоятҳо».`).catch(() => {});
+        return res.json({ ok: true });
+    } catch (err) {
+        console.warn(`[delete request Сбой]: ${scrub(err.message)}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+async function handleAdminDeletionDone(req, res) {
+    const user = await getUser(req);
+    if (!isAdmin(user)) return res.status(403).json({ ok: false, error: 'admin_only' });
+    const id = String(req.params?.id || '');
+    if (!/^[a-z0-9]{6,24}$/.test(id)) return res.status(400).json({ ok: false, error: 'bad_id' });
+    try {
+        await reportsTx(async db => { const d = (db.del || []).find(x => x.id === id); if (d) d.done = new Date().toISOString(); });
+        return res.json({ ok: true });
+    } catch (err) { return res.status(503).json({ ok: false, error: 'store_failed' }); }
+}
+app.post('/api/account/delete-request', handleDeleteRequest);
+app.post('/api/admin/deletions/:id', handleAdminDeletionDone);
 app.post('/api/ads/:id/report', handleAdReport);
 app.get('/api/admin/reports', handleAdminReports);
 app.post('/api/admin/reports/:id', handleAdminReportAct);
@@ -9581,5 +9618,5 @@ module.exports = {
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, handleDeleteRequest, handleAdminDeletionDone, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
