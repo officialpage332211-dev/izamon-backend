@@ -8949,6 +8949,14 @@ async function handleDiag(req, res) {
         return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), out });
     }
     // ленты новостей: сколько пришло из каждой (проверка источников)
+    // пробная лента новостей (только известные новостные сайты): /diag?rss=https://asiaplus.news/tj/category/.../feed/
+    if (/^https:\/\/(?:www\.)?(?:asiaplus\.news|khovar\.tj|ozodi\.org|sputnik-tj\.com|tj\.sputniknews\.ru|avesta\.tj|bbc\.com|feeds\.bbci\.co\.uk|kun\.uz|ozodlik\.org)\/[\w\-./%?=&]{0,200}$/.test(String(req.query?.rss || ''))) {
+        try {
+            const page = await fetchPage(String(req.query.rss), { cap: 2000000, timeoutMs: 9000, xml: true });
+            const items = rssItems(page.html, 'probe');
+            return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), url: page.url, n: items.length, items: items.slice(0, 12).map(x => `${x.date.slice(0, 10)} [${(x.cats || []).join('|')}] ${x.title.slice(0, 70)}`) });
+        } catch (err) { return res.json({ error: String(err.message || err).slice(0, 120) }); }
+    }
     if (req.query?.news === '1') {
         const lang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'tg';
         const r = await getNews(lang, req.query.topic === 'world' ? 'world' : 'tj', true);
