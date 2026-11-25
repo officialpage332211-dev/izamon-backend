@@ -5352,7 +5352,7 @@ function listingsAnswer(items, kind, lang, own, wide = null) {
     const ownHtml = ownList.map((it, i) => cardHtml(mark(it, i), 'ads', lang)).join('');
     // места (клиники, аптеки…): пометка для сайта — над карточками подсказка «выберите свой город», без фильтра цены
     const rt = ratesNow();
-    const rAttr = rt ? `${rt.RUB > 0 ? ` data-rub="${rt.RUB}"` : ''}${rt.UZS > 0 ? ` data-uzs="${rt.UZS}"` : ''}` : '';
+    const rAttr = rt ? `${rt.RUB > 0 ? ` data-rub="${rt.RUB}"` : ''}${rt.UZS > 0 ? ` data-uzs="${rt.UZS}"` : ''}${rt.USD > 0 ? ` data-usd="${rt.USD}"` : ''}` : ''; // курс: сколько сомони за 1 (для фильтра цены в рублях, сумах, долларах)
     return `<div class="iz-lcs"${kind === 'places' || kind === 'tickets' ? ` data-kind="${kind}"` : ''}${rAttr}>${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
 }
 
