@@ -2048,7 +2048,7 @@ const nowWeatherMemo = new Map(), nowWeatherBusy = new Map();
 async function nowWeather(id) {
     const key = CITY_COORDS[id] ? id : (WEATHER_REGION_CITY[(CITIES.find(c => c.id === id) || {}).region] || 'dushanbe');
     const hit = nowWeatherMemo.get(key);
-    if (hit && Date.now() - hit.at < 15 * MIN) return hit.data; // температура в шапке — не старше 15 минут
+    if (hit && Date.now() - hit.at < 10 * MIN) return hit.data; // температура в шапке — не старше 10 минут
     if (nowWeatherBusy.has(key)) return nowWeatherBusy.get(key);
     const job = (async () => {
         const [lat, lon] = CITY_COORDS[key] || [38.5598, 68.787];
@@ -2061,9 +2061,12 @@ async function nowWeather(id) {
         const cur = all.filter(t => Date.parse(t.time) >= now - 3600e3)[0];
         const temp = t => Number(t && t.data && t.data.instant && t.data.instant.details && t.data.instant.details.air_temperature);
         if (!cur || !Number.isFinite(temp(cur))) throw new Error('met.no: нет текущей погоды');
+        // температура «сейчас» — между ближайшими часами прогноза по минутам (а не значение начала часа): в шапке она меняется плавно и не «стоит» целый час
+        const ci = all.indexOf(cur), nx = all[ci + 1], t0 = Date.parse(cur.time), t1 = nx ? Date.parse(nx.time) : NaN;
+        const tNow = nx && Number.isFinite(temp(nx)) && t1 > t0 && now >= t0 && now <= t1 ? temp(cur) + (temp(nx) - temp(cur)) * (now - t0) / (t1 - t0) : temp(cur);
         const day = all.filter(t => { const at = Date.parse(t.time); return at >= now - 3600e3 && at <= now + 24 * 3600e3; }).map(temp).filter(Number.isFinite);
         const sum = k => cur.data && cur.data[k] && cur.data[k].summary && cur.data[k].summary.symbol_code;
-        const data = { id: key, t: Math.round(temp(cur)), sym: String(sum('next_1_hours') || sum('next_6_hours') || ''), hi: day.length ? Math.round(Math.max(...day)) : null, lo: day.length ? Math.round(Math.min(...day)) : null };
+        const data = { id: key, t: Math.round(tNow), sym: String(sum('next_1_hours') || sum('next_6_hours') || ''), hi: day.length ? Math.round(Math.max(...day)) : null, lo: day.length ? Math.round(Math.min(...day)) : null };
         nowWeatherMemo.set(key, { at: Date.now(), data });
         return data;
     })();
@@ -2075,7 +2078,7 @@ async function handleWeatherNow(req, res) {
     const id = /^[a-z]{2,20}$/.test(String(req.query?.city || '')) ? String(req.query.city) : 'dushanbe';
     try {
         const d = await nowWeather(id);
-        if (typeof res.set === 'function') res.set('Cache-Control', 'public, max-age=300');
+        if (typeof res.set === 'function') res.set('Cache-Control', 'no-store'); // свежесть держит сам сервер (10 минут); браузер не должен отдавать старое
         res.json({ ok: true, ...d, src: 'api.met.no' });
     } catch (err) {
         console.warn(`[погода в шапке Сбой]: ${scrub(err && err.message || err)}`);
