@@ -7714,7 +7714,7 @@ async function ownAd(user, id) {
 
 // ---------------------------------------------------------------------------
 // Монеты из игр («Бозӣ»): хранятся в аккаунте (Supabase auth, app_metadata — его меняет только сервер).
-// Получить: POST /api/coins/claim { game: 'scan' | 'sudoku', level, fill, hints } — сервер сам строит головоломку дня
+// Получить: POST /api/coins/claim { game: 'scan' | 'sudoku' | 'kalima', level, fill | words, hints } — сервер сам строит головоломку дня
 // (games-core.js, тот же код, что на сайте) и проверяет решение; за одну головоломку — один раз в день.
 // Потратить: «поднять» объявление раньше суток — BUMP_COINS монет. Баланс: GET /api/coins.
 // ---------------------------------------------------------------------------
@@ -7760,12 +7760,19 @@ async function spendCoins(uid, n) {
 // решение головоломки дня: { ok, key, prize } или null
 function checkSolution(b, date) {
     const game = b && b.game, fill = b && b.fill && typeof b.fill === 'object' ? b.fill : null;
-    if (!fill) return null;
+    if (!fill && game !== 'kalima') return null;
     const hints = Math.max(0, Math.min(99, Math.floor(Number(b.hints) || 0)));
     if (game === 'scan') {
         const P = GAMES.SCAN.build(date);
         const ok = Object.keys(P.grid).every(k => fill[k] === P.grid[k].ch);
         return ok ? { key: `scan:${date}`, prize: Math.max(3, 15 - hints) } : null; // сканворд дня — 15 монет (минус подсказки)
+    }
+    if (game === 'kalima') {
+        // слова, найденные за день: все должны быть из букв дня и из словаря; среди них — само слово дня
+        const P = GAMES.KALIMA.build(date), ok = new Set(P.words);
+        const words = Array.isArray(b.words) ? [...new Set(b.words.filter(w => typeof w === 'string').map(w => w.trim().toUpperCase()))].slice(0, 80) : [];
+        if (!words.includes(P.main) || words.some(w => w !== P.main && !ok.has(w))) return null;
+        return { key: `kalima:${date}`, prize: GAMES.KALIMA.prize(words.filter(w => w !== P.main), hints, P.main) };
     }
     if (game === 'sudoku') {
         const lv = Number(b.level);
