@@ -8273,7 +8273,9 @@ async function watchBotName() {
     return watchBotUser;
 }
 const WATCH_MAX_PER_CHAT = 10;
-const WATCH_EVERY_MS = 30 * MIN;     // каждый поиск проверяем не чаще раза в 30 минут
+const WATCH_EVERY_MS = 2 * 60 * MIN; // каждый поиск — не чаще раза в 2 часа (чаще — надоедает: «одно и то же каждый день»)
+const WATCH_QUIET = [23, 7];         // ночью (23:00–07:00 по Душанбе) не пишем; что появилось ночью — придёт утром одним сообщением
+const WATCH_SEEN_MAX = 2000;         // сколько уже присланного помним на поиск (раньше 300 — старое «выпадало» и приходило снова)
 const WATCH_TICK_GAP_MS = 10 * MIN;  // общий обход — не чаще раза в 10 минут
 const watchLimited = makeLimiter(10);
 const WATCH_TX = {
@@ -8287,7 +8289,7 @@ function watchLabel(row) {
     const { text, topic } = normalizePrompt(String(row.prompt || ''));
     let q = String(topic || text).replace(/^\d+\.\s*/, '').replace(/\s+-\s+/, ' → ').slice(0, 80);
     const city = cityById(row.city);
-    if (city) q += ` · ${city.id.charAt(0).toUpperCase()}${city.id.slice(1)}`;
+    if (city) q += ` · ${(city.names && (city.names[row.lang] || city.names.ru)) || city.id}`;
     if (row.pmin || row.pmax) q += ` · ${row.pmin || 0}–${row.pmax || '∞'} TJS`;
     return q;
 }
@@ -8394,14 +8396,19 @@ function watchKeys(it) {
     const out = [];
     const u = String(it && it.url || '');
     if (u) {
-        out.push(u);
         const id = u.match(/somon\.tj\/(?:[a-z]{2}\/)?adv\/(\d+)/i);
         out.push(id ? 'somon:' + id[1] : u.replace(/[?#].*$/, '').replace(/^https?:\/\/(?:www\.)?/i, '').replace(/\/(?:tg|ru|uz|en)(?=\/)/i, '').replace(/\/+$/, '').toLowerCase());
     }
     const t = String(it && it.title || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N}]+/gu, '');
     if (t.length >= 6) out.push('fp:' + t.slice(0, 60) + '|' + String(it && it.price || '').replace(/\D/g, ''));
+    // серия с номером модели («Офисное кресло 9013», «… 9976») — одна на все дни: следующие из той же серии не присылаем
+    const sr = /\d{3,}/.test(String(it && it.title || '')) ? watchSeries(it) : ''; // номер модели — от 3 цифр («Холодильник 4» — не серия)
+    if (sr.length >= 6) out.push('sr:' + sr);
     return [...new Set(out)];
 }
+// «одно и то же»: «Офисное кресло 9013», «Офисное кресло 9976» — одна серия одного продавца; в сообщении — одно из серии
+function watchSeries(it) { return String(it && it.title || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}]+/gu, '').slice(0, 40); }
+function watchQuiet(now = Date.now()) { const h = new Date(now + 5 * 3600e3).getUTCHours(); return h >= WATCH_QUIET[0] || h < WATCH_QUIET[1]; }
 async function watchCheck(row) {
     const spec = await watchSpec(row);
     if (!spec) { await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { active: false }, prefer: 'return=minimal' }); return 'not_listing'; }
@@ -8410,8 +8417,16 @@ async function watchCheck(row) {
     // и по «отпечатку» (название + цена) — продавцы часто выставляют то же объявление заново с новым номером
     const seen = new Set(row.seen || []);
     const keys = it => watchKeys(it);
-    const fresh = row.checked_at ? items.filter(it => it.url && !keys(it).some(k => seen.has(k))) : [];
-    const nextSeen = [...new Set([...items.flatMap(keys), ...(row.seen || [])])].slice(0, 300);
+    // новое = не присылали раньше И (если сайт сообщает возраст объявления) появилось после прошлой проверки, а не «поднято» старое
+    const since = row.checked_at ? (Date.now() - Date.parse(row.checked_at)) / 60000 : 0;
+    const newish = it => !Number.isFinite(it.age) || (it.age <= since + 90 && it.age <= 48 * 60);
+    const series = new Set();
+    const fresh = row.checked_at ? items.filter(it => {
+        if (!it.url || keys(it).some(k => seen.has(k)) || !newish(it)) return false;
+        const sr = /\d{3,}/.test(String(it.title || '')) ? watchSeries(it) : ''; if (sr && series.has(sr)) return false; if (sr) series.add(sr);
+        return true;
+    }) : [];
+    const nextSeen = [...new Set([...items.flatMap(keys), ...(row.seen || [])])].slice(0, WATCH_SEEN_MAX);
     let sent = 0;
     if (fresh.length) {
         const tx = watchTx(row.lang);
@@ -8434,6 +8449,7 @@ let watchTickAt = 0, watchTickBusy = false;
 async function watchTick(force) {
     if (watchTickBusy) return { ok: true, busy: true };
     if (!force && Date.now() - watchTickAt < WATCH_TICK_GAP_MS) return { ok: true, skipped: true };
+    if (!force && watchQuiet()) return { ok: true, quiet: true };
     if (!watchTgOn() || !(await tableReady('watches'))) return { ok: false, off: true };
     watchTickBusy = true; watchTickAt = Date.now();
     const out = { ok: true, checked: 0, sent: 0, errors: 0 };
@@ -9645,7 +9661,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     detach, TTLCache, mixedWhy, OPENAI_CHAT, handleRefClaim, handleRefGet, refCode, refUid, refBadge, REF, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, coinSplit, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, watchSeries, watchQuiet, watchCheck, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
