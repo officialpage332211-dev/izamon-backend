@@ -9755,6 +9755,8 @@ async function handleDiag(req, res) {
                 accounts = await Promise.all(us.map(async u => {
                     const ig = u.app_metadata.iz_ig;
                     const row = { username: ig.username || '', tag: ig.tag || '', mode: ig.mode || 'ig', since: ig.since || '', idOk: /^\d{5,30}$/.test(ig.id || '') };
+                    // объявления этого продавца на iZamoN (последние 5): статус и время — чтобы проверить «Эълонҳои ман»
+                    try { row.myAds = ((await sb(`ads?select=id,title,status,created_at&owner=eq.${encodeURIComponent(u.id)}&order=created_at.desc&limit=5`)) || []).map(a => ({ id: a.id, title: clip(a.title, 50), status: a.status, at: String(a.created_at || '').slice(0, 16) })); } catch (e) { row.myAds = 'н/д: ' + String(e.message || e).slice(0, 60); }
                     try { IG_MEDIA.delete(u.id); const l = await withTimeout(igMediaList(u.id), 15000); row.ads = l.length; row.sample = l.slice(0, 3).map(a => ({ title: a.title, price: a.price, place: a.location, when: a.published, photos: a.imgCount, url: a.url })); }
                     catch (e) { row.error = String(e.message || e).replace(/access_token=[^&\s]+/g, '…').slice(0, 200); }
                     return row;
