@@ -7778,7 +7778,7 @@ async function spendCoins(uid, n) {
 // решение головоломки дня: { ok, key, prize } или null
 function checkSolution(b, date) {
     const game = b && b.game, fill = b && b.fill && typeof b.fill === 'object' ? b.fill : null;
-    if (!fill && game !== 'kalima') return null;
+    if (!fill && game !== 'kalima' && game !== 'mantiq') return null;
     const hints = Math.max(0, Math.min(99, Math.floor(Number(b.hints) || 0)));
     if (game === 'scan') {
         // три уровня, у каждого свой сканворд дня: 0 «Осон» (до 8 монет), 1 «Миёна» (до 16), 2 «Душвор» (до 30); подсказка −2/−4/−6
@@ -7787,6 +7787,13 @@ function checkSolution(b, date) {
         const P = GAMES.SCAN.build(date, lv);
         const ok = Object.keys(P.grid).every(k => fill[k] === P.grid[k].ch);
         return ok ? { key: lv ? `scan${lv}:${date}` : `scan:${date}`, prize: GAMES.SCAN.prizeOf(lv, hints) } : null;
+    }
+    if (game === 'mantiq') {
+        // «Мантиқи рӯз»: 5 ответов (текст выбранного варианта); монеты — по 1 за верный, за все 5 без ошибок +1
+        const ans = Array.isArray(b.answers) ? b.answers.slice(0, 5).map(x => typeof x === 'string' ? x.slice(0, 80) : '') : null;
+        if (!ans || ans.length !== 5 || ans.some(x => !x)) return null;
+        const c = GAMES.MANTIQ.score(date, ans);
+        return { key: `mantiq:${date}`, prize: GAMES.MANTIQ.prize(c), correct: c };
     }
     if (game === 'kalima') {
         // слова, найденные за день: все должны быть из букв дня и из словаря; среди них — само слово дня
