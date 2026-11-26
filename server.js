@@ -4666,7 +4666,7 @@ function tgPublished(iso) {
     const d = new Date(ms + 5 * 3600 * 1000); // время Душанбе
     return `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`;
 }
-const tgLines = h => decodeEntities(String(h || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '')).replace(/[ \t ]+/g, ' ').split('\n').map(x => x.trim()).filter(Boolean);
+const tgLines = h => decodeEntities(String(h || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '').replace(/&#(\d{1,6});/g, (m, n) => { try { return String.fromCodePoint(+n); } catch { return m; } }).replace(/&#x([0-9a-f]{1,6});/gi, (m, n) => { try { return String.fromCodePoint(parseInt(n, 16)); } catch { return m; } })).replace(/[ \t ]+/g, ' ').split('\n').map(x => x.trim()).filter(Boolean);
 // Разбор страницы t.me/s/<канал>: посты — блоки data-post="канал/номер"; текст, фото (background-image), время (<time datetime>)
 function parseTgPreview(html, max = 40) {
     const h = String(html || '');
