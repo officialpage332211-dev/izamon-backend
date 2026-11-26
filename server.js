@@ -8295,7 +8295,13 @@ function igMediaList(uid) {
             ? `${IG_GRAPH}/${encodeURIComponent(ig.id)}/media?fields=${IG_FIELDS}&limit=30&access_token=${encodeURIComponent(tok)}`
             : `https://graph.instagram.com/me/media?fields=${IG_FIELDS}&limit=30&access_token=${encodeURIComponent(tok)}`);
         const list = detach(igItems(d.data, ig.username));
-        if (!list.length) throw new Error('в Instagram нет подходящих постов');
+        if (!list.length) {
+            const all = Array.isArray(d.data) ? d.data : [];
+            const old = all.filter(m => Date.now() - Date.parse(m.timestamp || '') > IG_MAX_AGE_DAYS * 86400000).length;
+            const noText = all.filter(m => !String(m.caption || '').replace(/[^\p{L}]/gu, '').length).length;
+            const newest = all.map(m => m.timestamp).filter(Boolean).sort().pop() || '';
+            throw new Error(`в Instagram нет подходящих постов (получено ${all.length}, старше ${IG_MAX_AGE_DAYS} дн.: ${old}, без текста: ${noText}, самый новый: ${newest.slice(0, 10) || '—'})`);
+        }
         return list;
     })();
     if (IG_MEDIA.size >= 200) IG_MEDIA.delete(IG_MEDIA.keys().next().value);
