@@ -8273,15 +8273,16 @@ async function watchBotName() {
     return watchBotUser;
 }
 const WATCH_MAX_PER_CHAT = 10;
-const WATCH_EVERY_MS = 2 * 60 * MIN; // каждый поиск — не чаще раза в 2 часа (чаще — надоедает: «одно и то же каждый день»)
+const WATCH_EVERY_MS = 24 * 60 * MIN; // одна сводка в день на поиск (утром), а не поток сообщений — с согласия человека
+const WATCH_KEEP_DAYS = 14;          // согласие на 14 дней: потом бот спрашивает «продолжать?» и без ответа замолкает
 const WATCH_QUIET = [23, 7];         // ночью (23:00–07:00 по Душанбе) не пишем; что появилось ночью — придёт утром одним сообщением
 const WATCH_SEEN_MAX = 2000;         // сколько уже присланного помним на поиск (раньше 300 — старое «выпадало» и приходило снова)
 const WATCH_TICK_GAP_MS = 10 * MIN;  // общий обход — не чаще раза в 10 минут
 const watchLimited = makeLimiter(10);
 const WATCH_TX = {
-    tg: { linked: q => `🔔 Ҷустуҷӯ нигоҳ дошта шуд: «${q}».\nЭълонҳои нав ба ин ҷо меоянд.`, limit: `Дар як чат то ${WATCH_MAX_PER_CHAT} ҷустуҷӯ. Яке аз онҳоро бо /unwatch_… хомӯш кунед.`, bad: 'Истинод кӯҳна шудааст. Дар iZamoN тугмаи «🔔 Telegram»-ро дубора пахш кунед.', fresh: q => `🔔 Эълонҳои нав: «${q}»`, off: 'Хомӯш кардан', removed: 'Тайёр: ин ҷустуҷӯ хомӯш шуд.', none: 'Чунин ҷустуҷӯ нест.' },
-    ru: { linked: q => `🔔 Поиск сохранён: «${q}».\nНовые объявления будут приходить сюда.`, limit: `В одном чате — до ${WATCH_MAX_PER_CHAT} поисков. Отключите один из них командой /unwatch_…`, bad: 'Ссылка устарела. На iZamoN нажмите «🔔 Telegram» ещё раз.', fresh: q => `🔔 Новые объявления: «${q}»`, off: 'Отключить', removed: 'Готово: этот поиск отключён.', none: 'Такого поиска нет.' },
-    uz: { linked: q => `🔔 Qidiruv saqlandi: «${q}».\nYangi e'lonlar shu yerga keladi.`, limit: `Bitta chatda ${WATCH_MAX_PER_CHAT} tagacha qidiruv. Birini /unwatch_… bilan o'chiring.`, bad: "Havola eskirgan. iZamoN'da «🔔 Telegram» tugmasini qayta bosing.", fresh: q => `🔔 Yangi e'lonlar: «${q}»`, off: "O'chirish", removed: "Tayyor: bu qidiruv o'chirildi.", none: "Bunday qidiruv yo'q." }
+    tg: { linked: q => `🔔 Ҷустуҷӯ нигоҳ дошта шуд: «${q}».\nЭълонҳои нав рӯзе як маротиба (саҳар) ба ин ҷо меоянд, то ${WATCH_KEEP_DAYS} рӯз; пас мепурсем, ки давом диҳем ё не.`, limit: `Дар як чат то ${WATCH_MAX_PER_CHAT} ҷустуҷӯ. Яке аз онҳоро бо /unwatch_… хомӯш кунед.`, bad: 'Истинод кӯҳна шудааст. Дар iZamoN тугмаи «🔔 Telegram»-ро дубора пахш кунед.', fresh: q => `🔔 Эълонҳои нав: «${q}»`, off: 'Хомӯш кардан', removed: 'Тайёр: ин ҷустуҷӯ хомӯш шуд.', none: 'Чунин ҷустуҷӯ нест.', keep: 'Давом додан', kept: d => `Тайёр: эълонҳои нав то ${d} меоянд (рӯзе як маротиба).`, ask: q => `🔔 «${q}»: эълонҳои навро боз фиристем? Агар ҳа — /keep_`, stopped: q => `🔕 «${q}»: огоҳӣ қатъ шуд, чунки тасдиқ накардед. Барои давом — /keep_` },
+    ru: { linked: q => `🔔 Поиск сохранён: «${q}».\nНовые объявления будут приходить сюда раз в день (утром), ${WATCH_KEEP_DAYS} дней; потом спросим, продолжать ли.`, limit: `В одном чате — до ${WATCH_MAX_PER_CHAT} поисков. Отключите один из них командой /unwatch_…`, bad: 'Ссылка устарела. На iZamoN нажмите «🔔 Telegram» ещё раз.', fresh: q => `🔔 Новые объявления: «${q}»`, off: 'Отключить', removed: 'Готово: этот поиск отключён.', none: 'Такого поиска нет.', keep: 'Продолжить', kept: d => `Готово: новые объявления будут приходить до ${d} (раз в день).`, ask: q => `🔔 «${q}»: продолжать присылать новые объявления? Если да — /keep_`, stopped: q => `🔕 «${q}»: уведомления остановлены, потому что Вы не подтвердили. Чтобы продолжить — /keep_` },
+    uz: { linked: q => `🔔 Qidiruv saqlandi: «${q}».\nYangi e'lonlar shu yerga kuniga bir marta (ertalab) keladi, ${WATCH_KEEP_DAYS} kun; keyin davom ettirishni so'raymiz.`, limit: `Bitta chatda ${WATCH_MAX_PER_CHAT} tagacha qidiruv. Birini /unwatch_… bilan o'chiring.`, bad: "Havola eskirgan. iZamoN'da «🔔 Telegram» tugmasini qayta bosing.", fresh: q => `🔔 Yangi e'lonlar: «${q}»`, off: "O'chirish", removed: "Tayyor: bu qidiruv o'chirildi.", none: "Bunday qidiruv yo'q.", keep: 'Davom ettirish', kept: d => `Tayyor: yangi e'lonlar ${d} gacha keladi (kuniga bir marta).`, ask: q => `🔔 «${q}»: yangi e'lonlarni yuborishda davom etaylikmi? Ha bo'lsa — /keep_`, stopped: q => `🔕 «${q}»: tasdiqlamaganingiz uchun xabarlar to'xtatildi. Davom ettirish — /keep_` }
 };
 const watchTx = lang => WATCH_TX[lang] || WATCH_TX.ru;
 // Что искали — коротко, для сообщений в Telegram
@@ -8352,14 +8353,24 @@ async function handleWatchCreate(req, res) {
 // Бот: «/start w…» — подключить поиск к чату; «/unwatch_12» — отключить поиск; «/stop» — отключить все поиски чата
 async function processWatchCommand(text, chat_id, say) {
     const un = text.match(/^\/unwatch_(\d{1,18})(?:@\w+)?$/i);
+    const keep = text.match(/^\/keep_(\d{1,18})(?:@\w+)?$/i);
     const start = text.match(/^\/start(?:@\w+)?\s+(w[\w-]{8,64})$/i);
-    if (!un && !start && !/^\/stop(?:@\w+)?$/i.test(text)) return null;
+    if (!un && !keep && !start && !/^\/stop(?:@\w+)?$/i.test(text)) return null;
     // коды продавцов (подключение заявок) тоже бывают на «w»: нет таблицы или такого поиска — отдаём дальше, заявкам
     if (!(await tableReady('watches'))) return un ? 'off' : null;
     try {
         if (/^\/stop/i.test(text)) {
             await sb(`watches?chat_id=eq.${chat_id}`, { method: 'PATCH', body: { active: false }, prefer: 'return=minimal' });
             return null; // дальше /stop отключает и заявки продавца; ответ — общий («уведомления больше не приходят»)
+        }
+        if (keep) {
+            // «продолжать»: согласие ещё на 14 дней, поиск снова включён
+            const rows = await sb(`watches?select=id,lang,seen&id=eq.${keep[1]}&chat_id=eq.${chat_id}&limit=1`);
+            if (!rows || !rows[0]) { await say(watchTx('ru').none); return 'none'; }
+            const seen = [watchKeepKey(), ...(rows[0].seen || []).filter(x => !/^(keep|asked):/.test(x))];
+            await sb(`watches?id=eq.${keep[1]}&chat_id=eq.${chat_id}`, { method: 'PATCH', body: { active: true, seen }, prefer: 'return=minimal' });
+            await say(watchTx(rows[0].lang).kept(watchKeepDate({ seen }, rows[0].lang)));
+            return 'kept';
         }
         if (un) {
             const rows = await sb(`watches?select=id,lang&id=eq.${un[1]}&chat_id=eq.${chat_id}&limit=1`);
@@ -8383,7 +8394,7 @@ async function processWatchCommand(text, chat_id, say) {
         await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { chat_id, code_at: null, active: true }, prefer: 'return=minimal' });
         await say(`${watchTx(row.lang).linked(watchLabel(row))}\n${watchTx(row.lang).off}: /unwatch_${row.id}`);
         // сразу запоминаем то, что уже есть: присылаем только то, что появится после
-        watchCheck({ ...row, chat_id, checked_at: null, seen: [] }).catch(() => {});
+        watchCheck({ ...row, chat_id, checked_at: null, seen: [watchKeepKey()] }).catch(() => {});
         return 'linked';
     } catch (err) {
         console.warn(`[watch bot Сбой]: ${scrub(err.message)}`);
@@ -8408,8 +8419,21 @@ function watchKeys(it) {
 }
 // «одно и то же»: «Офисное кресло 9013», «Офисное кресло 9976» — одна серия одного продавца; в сообщении — одно из серии
 function watchSeries(it) { return String(it && it.title || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}]+/gu, '').slice(0, 40); }
+function watchKeepOf(row) { const k = (row.seen || []).find(x => /^keep:\d{4}-\d{2}-\d{2}$/.test(x)); return k ? Date.parse(k.slice(5) + 'T23:59:59+05:00') : NaN; }
+function watchKeepKey(days = WATCH_KEEP_DAYS) { return 'keep:' + new Date(Date.now() + 5 * 3600e3 + days * 864e5).toISOString().slice(0, 10); }
+function watchKeepDate(row, lang) { const t = watchKeepOf(row); return Number.isFinite(t) ? new Date(t).toISOString().slice(0, 10).split('-').reverse().join('.') : ''; }
 function watchQuiet(now = Date.now()) { const h = new Date(now + 5 * 3600e3).getUTCHours(); return h >= WATCH_QUIET[0] || h < WATCH_QUIET[1]; }
 async function watchCheck(row) {
+    const tx0 = watchTx(row.lang);
+    let keepAt = watchKeepOf(row);
+    // старые поиски (до 26.11.2026) без срока — даём 14 дней с сегодняшнего
+    if (!Number.isFinite(keepAt)) { row = { ...row, seen: [watchKeepKey(), ...(row.seen || [])] }; keepAt = watchKeepOf(row); }
+    if (Date.now() > keepAt) {
+        // согласие истекло и человек не ответил — молча не продолжаем: одно сообщение и поиск выключен
+        try { await tgCall('sendMessage', { chat_id: row.chat_id, text: `${tx0.stopped(watchLabel(row))}${row.id}` }, watchBotToken()); } catch (e) {}
+        await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { active: false, seen: row.seen }, prefer: 'return=minimal' });
+        return 'expired';
+    }
     const spec = await watchSpec(row);
     if (!spec) { await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { active: false }, prefer: 'return=minimal' }); return 'not_listing'; }
     const items = await somonListings(spec.somon, spec.kind, null, row.lang || 'ru');
@@ -8426,13 +8450,17 @@ async function watchCheck(row) {
         const sr = /\d{3,}/.test(String(it.title || '')) ? watchSeries(it) : ''; if (sr && series.has(sr)) return false; if (sr) series.add(sr);
         return true;
     }) : [];
-    const nextSeen = [...new Set([...items.flatMap(keys), ...(row.seen || [])])].slice(0, WATCH_SEEN_MAX);
+    const keepKeys = (row.seen || []).filter(x => /^(keep|asked):/.test(x));
+    const nextSeen = [...new Set([...keepKeys, ...items.flatMap(keys), ...(row.seen || [])])].slice(0, WATCH_SEEN_MAX);
+    // за 2 дня до конца срока — один раз спрашиваем, продолжать ли
+    const askNow = keepAt - Date.now() < 2 * 864e5 && !keepKeys.some(x => x.startsWith('asked:'));
+    if (askNow) nextSeen.unshift('asked:1');
     let sent = 0;
     if (fresh.length) {
         const tx = watchTx(row.lang);
         const lines = fresh.slice(0, 5).map((it, i) => `${i + 1}. ${it.title}${it.price ? ` — ${it.price}` : ''}${it.place ? `, ${it.place}` : ''}\n${it.url}`);
         try {
-            await tgCall('sendMessage', { chat_id: row.chat_id, text: `${tx.fresh(watchLabel(row))}\n\n${lines.join('\n\n')}\n\n${tx.off}: /unwatch_${row.id}`.slice(0, 4000), disable_web_page_preview: true }, watchBotToken());
+            await tgCall('sendMessage', { chat_id: row.chat_id, text: `${tx.fresh(watchLabel(row))}\n\n${lines.join('\n\n')}\n\n${tx.off}: /unwatch_${row.id}${askNow ? `\n\n${tx.ask(watchLabel(row))}${row.id}` : ''}`.slice(0, 4000), disable_web_page_preview: true }, watchBotToken());
             sent = Math.min(5, fresh.length);
         } catch (err) {
             // бот заблокирован или чат удалён — поиск выключаем
@@ -8440,7 +8468,8 @@ async function watchCheck(row) {
             throw err;
         }
     }
-    await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { seen: nextSeen, checked_at: new Date().toISOString() }, prefer: 'return=minimal' });
+    if (askNow && !sent) { try { await tgCall('sendMessage', { chat_id: row.chat_id, text: `${tx0.ask(watchLabel(row))}${row.id}` }, watchBotToken()); } catch (e) {} }
+    await sb(`watches?id=eq.${row.id}`, { method: 'PATCH', body: { seen: [...new Set(nextSeen)].slice(0, WATCH_SEEN_MAX), checked_at: new Date().toISOString() }, prefer: 'return=minimal' });
     return sent ? `sent ${sent}` : 'nothing_new';
 }
 
@@ -8483,7 +8512,7 @@ async function handleWatchCmd(req, res) {
     const text = String(req.body && req.body.text || '').trim().slice(0, 200);
     if (!Number.isSafeInteger(chat_id) || !text) return res.status(400).json({ ok: false });
     // только команды уведомлений; всё остальное — не наше, бот отвечает сам
-    if (!/^\/(?:start(?:@\w+)?\s+[\w-]{8,64}|unwatch_\d{1,18}(?:@\w+)?|stop(?:@\w+)?)$/i.test(text)) return res.json({ ok: true, handled: false, result: null });
+    if (!/^\/(?:start(?:@\w+)?\s+[\w-]{8,64}|(?:unwatch|keep)_\d{1,18}(?:@\w+)?|stop(?:@\w+)?)$/i.test(text)) return res.json({ ok: true, handled: false, result: null });
     const lang = String(req.body && req.body.lang || '').slice(0, 2);
     // поиск, подключение заявок продавца, /stop — тем же ботом; «help» (не наша команда) — пусть бот ответит как обычно
     const r = await processTgUpdate({ message: { chat: { id: chat_id, type: 'private' }, from: { language_code: lang }, text } }, { token: watchBotToken(), fromUserBot: true });
@@ -9661,7 +9690,7 @@ module.exports = {
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     detach, TTLCache, mixedWhy, OPENAI_CHAT, handleRefClaim, handleRefGet, refCode, refUid, refBadge, REF, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, coinSplit, checkSolution,
     priceParts, cheapFlags, ownItems, adPoints, estateSlots, carSlots, partsSlots, tourSlots, goodsSlots, jobSlots, jobExp, pageSpecs, importPhotos, channelImages, postAdToChannel, withSellerStats, SELLER_LINE, ageFromDate, pubFromAge, pubFromDate,
-    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, watchSeries, watchQuiet, watchCheck, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
+    jobForbidden, JOB_SKIP_TEXT, itemForbidden, cleanItem, contactHtml, sameStart, watchKeys, watchSeries, watchQuiet, watchCheck, watchKeepOf, watchKeepKey, processWatchCommand, nameOnPage, TG_ITEM_ALIAS, wikiAnswer, bareTerm, unNegate, ITEM_VICE, HARAM_ASK, CITIES, cityMatch, otherCityAd, widenCity, localPlaceUrl, mergeListings, hotelPrices, guardChat, fakeContact, fewAnswer, NO_ADS_FOUND, MIXED_FALLBACK, foreignWord, KW_ASK, OPENAI_CHAT, dropRepeats, conceptTerm, conceptPicture, pictureHtml, withPictureHtml, WIKI_CACHE, stripCity, somonUrl, TG_CITY_NAMES,
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
