@@ -7763,9 +7763,12 @@ function checkSolution(b, date) {
     if (!fill && game !== 'kalima') return null;
     const hints = Math.max(0, Math.min(99, Math.floor(Number(b.hints) || 0)));
     if (game === 'scan') {
-        const P = GAMES.SCAN.build(date);
+        // три уровня, у каждого свой сканворд дня: 0 «Осон» (до 8 монет), 1 «Миёна» (до 16), 2 «Душвор» (до 30); подсказка −2/−4/−6
+        const lv = b.level == null ? 0 : Number(b.level);
+        if (![0, 1, 2].includes(lv)) return null;
+        const P = GAMES.SCAN.build(date, lv);
         const ok = Object.keys(P.grid).every(k => fill[k] === P.grid[k].ch);
-        return ok ? { key: `scan:${date}`, prize: Math.max(3, 20 - 4 * hints) } : null; // сканворд дня — 20 монет, подсказка −4 (не меньше 3)
+        return ok ? { key: lv ? `scan${lv}:${date}` : `scan:${date}`, prize: GAMES.SCAN.prizeOf(lv, hints) } : null;
     }
     if (game === 'kalima') {
         // слова, найденные за день: все должны быть из букв дня и из словаря; среди них — само слово дня
