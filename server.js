@@ -7719,7 +7719,23 @@ async function ownAd(user, id) {
 // Потратить: «поднять» объявление раньше суток — BUMP_COINS монет. Баланс: GET /api/coins.
 // ---------------------------------------------------------------------------
 const GAMES = require('./games-core.js');
-const BUMP_COINS = Number(process.env.BUMP_COINS) || 30;
+const BUMP_COINS = Number(process.env.BUMP_COINS) || 50;
+// баланс 26.11.2026: монеты зарабатываются трудно, тратятся легко — то же объявление в тот же день дороже: 50 → 75 → 100
+function bumpCost(md, adId, day) {
+    const b = md && md.iz_cbump && md.iz_cbump.day === day && md.iz_cbump.n && typeof md.iz_cbump.n === 'object' ? md.iz_cbump.n : {};
+    const n = Math.max(0, Math.floor(Number(b[String(adId)]) || 0));
+    return Math.min(BUMP_COINS * 2, BUMP_COINS + Math.round(BUMP_COINS / 2) * n);
+}
+async function spendBump(uid, adId) {
+    return withCoinLock(uid, async () => {
+        const u = await authAdmin(uid), md = u.app_metadata || {}, m = coinMeta(u), day = todayTJ().iso, cost = bumpCost(md, adId, day);
+        if (m.coins < cost) return { no: true, cost };
+        const prev = md.iz_cbump && md.iz_cbump.day === day && md.iz_cbump.n && typeof md.iz_cbump.n === 'object' ? md.iz_cbump.n : {};
+        const n = { ...prev, [String(adId)]: (Number(prev[String(adId)]) || 0) + 1 };
+        await authAdmin(uid, 'PUT', { app_metadata: { ...md, iz_coins: r1(m.coins - cost), iz_cbump: { day, n } } });
+        return { left: r1(m.coins - cost), cost, next: bumpCost({ iz_cbump: { day, n } }, adId, day) };
+    });
+}
 const coinsLimited = makeLimiter(20);
 async function authAdmin(uid, method = 'GET', body) {
     const r = await withTimeout(fetch(`${SB_URL()}/auth/v1/admin/users/${encodeURIComponent(uid)}`, {
@@ -7745,7 +7761,9 @@ async function getCoins(uid) { return coinMeta(await authAdmin(uid)).coins; }
 // за игры — сумма выигрышей (iz_game_coins, ведётся с 20.11.2026; у тех, кто играл раньше, — баланс минус монеты за друзей).
 function coinSplit(u) {
     const md = (u && u.app_metadata && typeof u.app_metadata === 'object') ? u.app_metadata : {};
-    const friends = r1((Number(md.iz_ref_coins) || 0) + (md.iz_ref_by ? REF.WELCOME : 0));
+    // подарок другу за вход по ссылке: сколько дали на самом деле (до 26.11.2026 — 10, теперь REF.WELCOME)
+    const welcome = md.iz_ref_by ? (md.iz_ref_welcome != null ? Number(md.iz_ref_welcome) || 0 : 10) : 0;
+    const friends = r1((Number(md.iz_ref_coins) || 0) + welcome);
     const games = md.iz_game_coins != null && Number.isFinite(Number(md.iz_game_coins)) ? r1(Number(md.iz_game_coins)) : r1(Math.max(0, coinMeta(u).coins - friends));
     return { fromGames: games, fromFriends: friends };
 }
@@ -7817,14 +7835,14 @@ async function handleCoinsGet(req, res) {
 }
 // ---------------------------------------------------------------------------
 // «Пригласи друга» (даъват). Ссылка: https://izamon.vercel.app/?ref=<код> — код = id пригласившего (без дефисов).
-//  * друг вошёл в первый раз по ссылке → ему +10 монет, пригласившему +10;
-//  * 10 друзей за 30 дней (отсчёт с первого приглашения в этом периоде) → ещё +85 и значок «серебряная монета» на эти 30 дней;
-//    30 друзей → ещё +120 и «золотая монета»;
+//  * друг вошёл в первый раз по ссылке → ему +5 монет, пригласившему +5 (до 26.11.2026 — по 10);
+//  * 10 друзей за 30 дней (отсчёт с первого приглашения в этом периоде) → ещё +40 и значок «серебряная монета» на эти 30 дней;
+//    30 друзей → ещё +60 и «золотая монета»;
 //  * друг решает игры → пригласившему 10% от его выигрыша сверху (от сайта, у друга не отнимается), только один уровень.
 // Всё хранится в app_metadata (его меняет только сервер). Пригласить себя нельзя; один аккаунт засчитывается один раз;
 // засчитывается только новая регистрация (аккаунту не больше 3 дней).
 // ---------------------------------------------------------------------------
-const REF = { FRIEND: 10, WELCOME: 10, B10: 85, B30: 120, WINDOW: 30 * 24 * 60 * MIN, NEW_MS: 3 * 24 * 60 * MIN, SHARE: 0.1 };
+const REF = { FRIEND: 5, WELCOME: 5, B10: 40, B30: 60, WINDOW: 30 * 24 * 60 * MIN, NEW_MS: 3 * 24 * 60 * MIN, SHARE: 0.1 };
 const r1 = n => Math.round(n * 10) / 10;
 const refLimited = makeLimiter(10);
 const refCode = uid => String(uid || '').replace(/-/g, '').toLowerCase();
@@ -7865,7 +7883,7 @@ async function handleRefClaim(req, res) {
             const u = await authAdmin(user.id), m = coinMeta(u);
             if (refByOf(u)) return null;
             const coins = r1(m.coins + REF.WELCOME);
-            await authAdmin(user.id, 'PUT', { app_metadata: { ...(u.app_metadata || {}), iz_ref_by: inviter, iz_coins: coins } });
+            await authAdmin(user.id, 'PUT', { app_metadata: { ...(u.app_metadata || {}), iz_ref_by: inviter, iz_ref_welcome: REF.WELCOME, iz_coins: coins } });
             return coins;
         });
         if (friend === null) return res.json({ ok: true, already: true });
@@ -7919,10 +7937,14 @@ async function handleAdBump(req, res) {
         let coinsLeft = null;
         if (next > Date.now()) {
             // раньше суток — только за монеты из игр, если человек сам попросил (coins: true)
-            if (!(req.body && req.body.coins === true)) return res.status(429).json({ ok: false, error: 'too_soon', next: new Date(next).toISOString(), cost: BUMP_COINS });
-            const spent = await spendCoins(user.id, BUMP_COINS);
-            if (spent === null) return res.status(402).json({ ok: false, error: 'no_coins', cost: BUMP_COINS });
-            coinsLeft = spent;
+            if (!(req.body && req.body.coins === true)) {
+                let cost = BUMP_COINS;
+                try { cost = bumpCost((await authAdmin(user.id)).app_metadata || {}, id, todayTJ().iso); } catch (e) {}
+                return res.status(429).json({ ok: false, error: 'too_soon', next: new Date(next).toISOString(), cost });
+            }
+            const spent = await spendBump(user.id, id);
+            if (spent.no) return res.status(402).json({ ok: false, error: 'no_coins', cost: spent.cost });
+            coinsLeft = spent.left;
         }
         const at = new Date().toISOString();
         await sb(`ads?id=eq.${id}&owner=eq.${encodeURIComponent(user.id)}`, { method: 'PATCH', body: { created_at: at }, prefer: 'return=minimal' });
@@ -9688,7 +9710,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
+    bumpCost, parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     detach, TTLCache, mixedWhy, OPENAI_CHAT, handleRefClaim, handleRefGet, refCode, refUid, refBadge, REF, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, coinSplit, checkSolution,

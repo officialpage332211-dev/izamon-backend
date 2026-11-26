@@ -157,8 +157,8 @@ const SCAN = (function () {
         ['АЛМОС', 'Сахттарин моддаи табиӣ']
     ];
     var POOL = [WORDS, MID, HARD];
-    // награда: [максимум, минус за подсказку, минимум]; в «Душвор» слов больше
-    var LV = { prize: [8, 16, 30], cost: [2, 4, 6], min: [2, 3, 5], target: [8, 8, 10], seed: ['izScan:', 'izScan1:', 'izScan2:'] };
+    // награда (баланс 26.11.2026 — монеты зарабатываются трудно): [максимум, минус за подсказку, минимум]; подсказки могут съесть всё
+    var LV = { prize: [2, 4, 7], cost: [1, 2, 3], min: [0, 0, 0], target: [8, 8, 10], seed: ['izScan:', 'izScan1:', 'izScan2:'] };
     function lvOf(x) { x = Number(x) || 0; return x === 1 || x === 2 ? x : 0; }
     function prizeOf(lv, hints) { lv = lvOf(lv); return Math.max(LV.min[lv], LV.prize[lv] - LV.cost[lv] * (Number(hints) || 0)); }
     function rng(seed) { return function () { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; }; }
@@ -310,11 +310,11 @@ const KALIMA = (function () {
         }
         return { date: date, main: main, letters: letters, words: words };
     }
-    // очки: слово из 3 букв — 1, из 4 — 2, из 5 — 3, из 6 и больше — 4; слово дня — 10; всего за день не больше 25; подсказка −4
+    // очки: слово из 3 букв — 1, из 4 — 2, из 5 — 3, из 6 и больше — 4; монеты (26.11.2026): слово дня — 4, за каждые 4 очка найденных слов +1 (не больше +2), подсказка −2, может дойти до 0
     function pts(w) { return Math.min(4, Math.max(1, w.length - 2)); }
     function prize(found, hints, main) {
         var s = 0; found.forEach(function (w) { if (w !== main) s += pts(w); });
-        return Math.max(3, 10 + Math.min(15, s) - 4 * hints);
+        return Math.max(0, 4 + Math.min(2, Math.floor(s / 4)) - 2 * hints);
     }
     return { build: build, pts: pts, prize: prize, words: WORDS, mains: MAINS };
 })();
