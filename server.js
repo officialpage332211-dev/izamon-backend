@@ -9735,6 +9735,12 @@ async function handleDiag(req, res) {
     // Контакты площадок для партнёрства (26.11.2026): опубликованные на их сайтах Telegram, WhatsApp, Instagram, телефоны, почта
     // Telegram-каналы (26.11.2026): открытая страница канала — название, подписчики, описание с контактом админа и как разбираются посты.
     // Это только проверка для владельца iZamoN; на сайте канал появляется лишь после согласия админа (TG_CHANNELS).
+    // Instagram (26.11.2026): включён ли и каким входом — без значений ключей
+    if (req.query?.igstat) {
+        let linked = null;
+        try { linked = igOn() ? (await withTimeout(boardUsers(), 8000)).filter(u => u.app_metadata && u.app_metadata.iz_ig).length : 0; } catch (e) { linked = 'н/д'; }
+        return res.json({ on: igOn(), unified: igUnified(), appId: !!process.env.IG_APP_ID, appIdDigits: /^\d{6,25}$/.test(String(process.env.IG_APP_ID || '')), secret: !!process.env.IG_APP_SECRET, configId: igUnified() ? String(process.env.IG_CONFIG_ID) : null, redirect: igRedirect(), linked });
+    }
     if (req.query?.tgprev) {
         const ch = String(req.query.tgprev).replace(/^@/, '');
         if (!TG_NAME.test(ch)) return res.status(400).json({ error: 'bad channel' });
