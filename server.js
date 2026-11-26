@@ -4646,13 +4646,13 @@ function tgBoards(spec) {
     return out;
 }
 // телефоны и @ники продавцов в тексте карточки не показываем: они есть в оригинальном посте
-const TG_HIDDEN = '[в посте]';
+const TG_HIDDEN = '•••';
 function tgMask(s) {
     return String(s || '')
         .replace(/(?<![\d+])\+?\d[\d\s().\-]{6,17}\d(?![\d])/g, m => (m.replace(/\D/g, '').length >= 7 ? TG_HIDDEN : m))
         .replace(/(?:https?:\/\/)?(?:t\.me|wa\.me|telegram\.me)\/[^\s]+/gi, TG_HIDDEN)
         .replace(/(?<![\w@])@[A-Za-z][A-Za-z0-9_]{3,31}/g, TG_HIDDEN)
-        .replace(/(?:\[в посте\][\s,;/]*){2,}/g, TG_HIDDEN + ' ');
+        .replace(/(?:•••[\s,;/]*){2,}/g, TG_HIDDEN + ' ');
 }
 const TG_PRICE = /(?:(?:нарх|цена|narx|price)\s*[:\-–—]?\s*)?(\$\s?\d[\d\s.,]{0,12}\d|\d[\d\s.,]{0,12}\d?\s*(?:сомон\p{L}*|сом\.?|смн|tjs|c\.(?=\s|$)|\$|долл\p{L}*|usd|у\.е\.|тысяч\p{L}*\s*(?:сомон\p{L}*|\$|долл\p{L}*)|хазор\s*(?:сомон\p{L}*|\$|доллар)))/iu;
 const TG_PROMO = /(?:^|[\s#])(?:реклама|подпис(?:ывайтесь|аться|ка)\s+на|обуна\s+шавед|розыгрыш|конкурс|правила\s+(?:группы|канала)|қоидаҳои\s+канал)/iu;
