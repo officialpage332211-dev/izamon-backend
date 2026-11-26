@@ -532,7 +532,7 @@ const PORTAL_RULES = [
       query: 'Найди актуальные авиабилеты из Душанбе по популярным направлениям: цена, дата, авиакомпания, ссылка.' },
     // Недвижимость: у каждого подраздела свой запрос, иначе поиск смешивает продажу, аренду и участки.
     { re: /^(?:фурӯши\s+хона|продажа\s+жилья|uy\s+sotish)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/prodazha-kvartir/' }, { path: 'nedvizhimost/prodazha-domov-havli-i-dach/' }], boards: [{ host: 'rg.tj', path: 'flats/sale' }, { host: 'rg.tj', path: 'houses/sale' }, { host: 'savdo.tj', path: 'nedvizhimost', words: /прода[её]т|продаю|продажа|фурӯш|sotiladi|sotuv/iu }, { host: 'paydo.tj', path: 'kvartiry-prodazha' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-prodazha' }, { host: 'ola.tj', path: 'prodazha-kvartir' }, { host: 'ola.tj', path: 'doma-khavli-i-dachi' }],  fixed: 'estate' },
+      somon: { tg: 'flat-sale', sources: [{ path: 'nedvizhimost/prodazha-kvartir/' }, { path: 'nedvizhimost/prodazha-domov-havli-i-dach/' }], boards: [{ host: 'rg.tj', path: 'flats/sale' }, { host: 'rg.tj', path: 'houses/sale' }, { host: 'savdo.tj', path: 'nedvizhimost', words: /прода[её]т|продаю|продажа|фурӯш|sotiladi|sotuv/iu }, { host: 'paydo.tj', path: 'kvartiry-prodazha' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-prodazha' }, { host: 'ola.tj', path: 'prodazha-kvartir' }, { host: 'ola.tj', path: 'doma-khavli-i-dachi' }],  fixed: 'estate' },
       query: 'Найди актуальные объявления о продаже квартир и домов в Таджикистане, сначала на somon.tj: что продаётся (квартира или дом, число комнат, площадь), цена, район или город, контакт продавца. Только жильё на продажу: аренду, участки и коммерческие помещения не показывай.' },
     // «Аренда» → вкладка «Посуточно»: на somon.tj у посуточной аренды свой раздел; с других сайтов — только где прямо написано «посуточно»
     { re: /^(?:иҷораи\s+шабонарӯзӣ|посуточно|посуточная\s+аренда|kunlik\s+ijara)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
@@ -543,14 +543,14 @@ const PORTAL_RULES = [
       somon: { sources: [{ q: 'новостройка' }, { q: 'квартира от застройщика' }, { q: 'сдача дома' }], cat: /\/nedvizhimost\/prodazha-kvartir\//, boards: [{ host: 'rg.tj', path: 'flats/sale', words: NEW_BUILD }, { host: 'paydo.tj', path: 'kvartiry-prodazha', words: NEW_BUILD }, { host: 'ola.tj', path: 'prodazha-kvartir', words: NEW_BUILD }], words: /квартир|комн|м2|м²|кв\.?\s*м|этаж|хона|xona|kvartira/iu, notWords: /аренд|сда[её]т|сдаю|сдам|иҷора|ижара|ijara|посуточ|ремонт\s+квартир|услуг|мебел|дизайн|кухн|двер|окн|натяжн|плитк|сантех|электр/iu, fixed: 'estate' },
       query: 'Найди актуальные объявления о продаже квартир в новостройках Таджикистана (от застройщика, в строящихся и только что сданных домах), сначала на somon.tj: жилой комплекс или адрес, число комнат, площадь, цена, срок сдачи (если написан), контакт. Только продажа квартир в новых домах: аренду, ремонт и мебель не показывай.' },
     { re: /^(?:иҷора|аренда|ijara)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }], boards: [{ host: 'rg.tj', path: 'flats/rent' }, { host: 'rg.tj', path: 'houses/rent' }, { host: 'savdo.tj', path: 'nedvizhimost', words: /аренд|сда[её]т|сдаю|сдам|иҷора|ижара|посуточ|ijara/iu }, { host: 'paydo.tj', path: 'kvartiry-arenda' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-arenda' }, { host: 'ola.tj', path: 'dolgosrochnaya-arenda-kvartir' }],  fixed: 'estate' },
+      somon: { tg: 'flat-rent', sources: [{ path: 'nedvizhimost/arenda-kvartir/' }, { path: 'nedvizhimost/arenda-domov-havli-i-dach/' }, { path: 'nedvizhimost/arenda-komnat/' }], boards: [{ host: 'rg.tj', path: 'flats/rent' }, { host: 'rg.tj', path: 'houses/rent' }, { host: 'savdo.tj', path: 'nedvizhimost', words: /аренд|сда[её]т|сдаю|сдам|иҷора|ижара|посуточ|ijara/iu }, { host: 'paydo.tj', path: 'kvartiry-arenda' }, { host: 'paydo.tj', path: 'doma-dachi-i-havli-arenda' }, { host: 'ola.tj', path: 'dolgosrochnaya-arenda-kvartir' }],  fixed: 'estate' },
       query: 'Найди актуальные объявления об аренде жилья в Таджикистане (квартиры, дома, комнаты), сначала на somon.tj: что сдаётся, число комнат, цена в месяц, район или город, контакт хозяина. Только аренда жилья: продажу, участки и коммерческие помещения не показывай.' },
     { re: /^(?:замин\s+ва\s+тиҷоратӣ|земля\s+и\s+коммерческая|yer\s+va\s+tijorat)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
       somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], boards: [{ host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-arenda' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }, { host: 'ola.tj', path: 'pomeshcheniya' }],  mix: true, fixed: 'land' },
       query: 'Найди актуальные объявления о земельных участках под строительство и о коммерческой недвижимости (офисы, магазины, склады, помещения) в Таджикистане, сначала на somon.tj: что это, площадь, цена, продажа или аренда, место, контакт. Жилые квартиры и дома не показывай.' },
     // «Земля и коммерческая» — обширный раздел с вкладками: «Участки», «Сельхоз земли», «Помещения и офисы» (кнопки над карточками)
     { re: /^(?:қитъаҳои\s+замин|участки|yer\s+uchastkalari)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
-      somon: { sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/', page: 2 }], boards: [{ host: 'rg.tj', path: 'plots-construction/sale' }, { host: 'savdo.tj', q: 'участок' }, { host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }],  fixed: 'land' },
+      somon: { tg: 'land', sources: [{ path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/' }, { path: 'nedvizhimost/prodazha-zemelnyih-uchastkov/', page: 2 }], boards: [{ host: 'rg.tj', path: 'plots-construction/sale' }, { host: 'savdo.tj', q: 'участок' }, { host: 'paydo.tj', path: 'zemelnye-uchastki-prodazha' }, { host: 'ola.tj', path: 'zemelnye-uchasti' }],  fixed: 'land' },
       query: 'Найди актуальные объявления о продаже земельных участков в Таджикистане, сначала на somon.tj: площадь (сотки), цена, место, контакт.' },
     { re: /^(?:биноҳои\s+тиҷоратӣ|помещения\s+и\s+офисы|tijorat\s+binolari)$/, portal: /истиқомат|недвижим|ko.chmas/, mode: 'ads',
       somon: { sources: [{ path: 'nedvizhimost/prodazha-ofisov-i-pomeschenij/' }, { path: 'nedvizhimost/arenda-ofisov-i-pomeschenij/' }], boards: [{ host: 'rg.tj', path: 'offices/sale' }, { host: 'rg.tj', path: 'stores-outlets/sale' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-prodazha' }, { host: 'paydo.tj', path: 'kommercheskaya-nedvizhimost-arenda' }, { host: 'ola.tj', path: 'pomeshcheniya' }],  mix: true, fixed: 'land' },
@@ -601,10 +601,10 @@ const PORTAL_RULES = [
       somon: { sources: [{ q: 'аренда авто' }, { q: 'прокат авто' }, { q: 'машина в аренду' }, { q: 'иҷораи мошин' }], words: /аренд|прокат|напрокат|иҷора|ижара|ijara/iu, notWords: /квартир|комнат|(?<![\p{L}])дом(?:а|ов)?(?![\p{L}])|ҳавлӣ|офис|помещен|магазин|склад|спецтехник|экскаватор|автокран|кран[-\s]*манипулятор|самосвал|трактор|погрузчик|бульдозер|каток|вышк|прода[её]т|продаю|продажа|фурӯш|sotiladi/iu, fixed: 'service' },
       query: 'Найди актуальные объявления об аренде (прокате) легковых машин в Таджикистане, сначала на somon.tj: какая машина, цена за сутки или за день, с водителем или без, город, контакт. Только аренда легковых машин: продажу машин, спецтехнику и жильё не показывай.' },
     { re: /^(?:мошинҳо|машины|mashinalar)$/, mode: 'ads',
-      somon: { sources: [{ path: 'transport/legkovyie-avtomobili/' }], boards: [{ host: 'rg.tj', path: 'cars' }, { host: 'savdo.tj', path: 'transport', words: /(?<!\d)(?:19[89]\d|20[0-3]\d)(?!\d)/ }, { host: 'paydo.tj', path: 'legkovye-avto-prodazha' }, { host: 'ola.tj', path: 'legkovye-avto' }],  facts: 'car', fixed: 'car' },
+      somon: { tg: 'car', sources: [{ path: 'transport/legkovyie-avtomobili/' }], boards: [{ host: 'rg.tj', path: 'cars' }, { host: 'savdo.tj', path: 'transport', words: /(?<!\d)(?:19[89]\d|20[0-3]\d)(?!\d)/ }, { host: 'paydo.tj', path: 'legkovye-avto-prodazha' }, { host: 'ola.tj', path: 'legkovye-avto' }],  facts: 'car', fixed: 'car' },
       query: 'Найди актуальные объявления о продаже легковых автомобилей в Таджикистане, сначала на somon.tj: марка и модель, год, пробег, цена, город, контакт продавца. Только продажа машин: запчасти и услуги не показывай.' },
     { re: /^(?:қисмҳои\s+эҳтиётӣ|запчасти|qismlar)$/, mode: 'ads',
-      somon: { sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], boards: [{ host: 'rg.tj', path: 'spare-parts' }, { host: 'savdo.tj', q: 'запчасти' }, { host: 'paydo.tj', path: 'zapchasti-prodazha' }, { host: 'ola.tj', path: 'zapchasti-i-aksessuary' }],  facts: 'parts', fixed: 'parts' },
+      somon: { tg: 'parts', sources: [{ path: 'transport/avtozapchasti-i-prinadlezhnosti/avtozapchasti/' }, { path: 'transport/avtozapchasti-i-prinadlezhnosti/shiny-diski/' }], boards: [{ host: 'rg.tj', path: 'spare-parts' }, { host: 'savdo.tj', q: 'запчасти' }, { host: 'paydo.tj', path: 'zapchasti-prodazha' }, { host: 'ola.tj', path: 'zapchasti-i-aksessuary' }],  facts: 'parts', fixed: 'parts' },
       query: 'Найди актуальные объявления о продаже автозапчастей, шин и дисков в Таджикистане, сначала на somon.tj: что за деталь, для какой машины, состояние, цена, город, контакт продавца.' },
     { re: /^(?:қисмҳо|запчасти|qismlar):\s*\S/u, mode: 'ads', make: partsRule },
     // «Тӯҳфаҳо ва гулҳо» (подарки и цветы) и вкладки: цветы, подарки, игрушки. Своей рубрики на somon.tj нет — поиск по словам
@@ -623,19 +623,19 @@ const PORTAL_RULES = [
       somon: { sources: [{ q: 'игрушки' }, { q: 'мягкие игрушки' }, { q: 'детские игрушки' }], boards: [{ host: 'rg.tj', path: 'toys-games' }, { host: 'savdo.tj', path: 'detskie_tovary' }, { host: 'paydo.tj', q: 'игрушки' }], words: new RegExp(GIFT_W.toys, 'iu'), notWords: GIFT_NOT },
       query: 'Найди актуальные объявления о продаже детских игрушек в Таджикистане, сначала на somon.tj: что за игрушка, цена, город, контакт продавца.' },
     { re: /^(?:мебел|мебель|mebel)$/, mode: 'ads',
-      somon: { sources: [{ path: 'vse-dlya-doma/mebel/' }], boards: [{ host: 'rg.tj', path: 'furniture' }, { host: 'savdo.tj', q: 'мебель' }, { host: 'paydo.tj', path: 'mebel-i-interer' }, { host: 'ola.tj', path: 'mebel' }],  notWords: /компьютер(?!н)|ноутбук|монитор|системн\w*\s+блок|процессор|видеокарт|принтер|моноблок|(?<![\p{L}])пк(?![\p{L}])|копилк/iu, facts: 'furniture', fixed: 'furniture' },
+      somon: { tg: 'furniture', sources: [{ path: 'vse-dlya-doma/mebel/' }], boards: [{ host: 'rg.tj', path: 'furniture' }, { host: 'savdo.tj', q: 'мебель' }, { host: 'paydo.tj', path: 'mebel-i-interer' }, { host: 'ola.tj', path: 'mebel' }],  notWords: /компьютер(?!н)|ноутбук|монитор|системн\w*\s+блок|процессор|видеокарт|принтер|моноблок|(?<![\p{L}])пк(?![\p{L}])|копилк/iu, facts: 'furniture', fixed: 'furniture' },
       query: 'Найди актуальные объявления о продаже мебели в Таджикистане, сначала на somon.tj: что за мебель, размер, материал, состояние, цена, город, контакт продавца.' },
     { re: /^(?:либос|одежда|kiyim)$/, mode: 'ads',
-      somon: { sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], boards: [{ host: 'rg.tj', path: 'wear' }, { host: 'savdo.tj', path: 'odezhda_i_lichnye_veshchi' }, { host: 'paydo.tj', path: 'odezhda' }, { host: 'ola.tj', path: 'muzhskaya-odezhda' }, { host: 'ola.tj', path: 'obuv' }],  facts: 'clothes', fixed: 'clothes' },
+      somon: { tg: 'clothes', sources: [{ path: 'odezhda-i-obuv/mujskaya-odejda/' }, { path: 'odezhda-i-obuv/jenskay-odejda/' }, { path: 'odezhda-i-obuv/obuv/' }], boards: [{ host: 'rg.tj', path: 'wear' }, { host: 'savdo.tj', path: 'odezhda_i_lichnye_veshchi' }, { host: 'paydo.tj', path: 'odezhda' }, { host: 'ola.tj', path: 'muzhskaya-odezhda' }, { host: 'ola.tj', path: 'obuv' }],  facts: 'clothes', fixed: 'clothes' },
       query: 'Найди актуальные объявления о продаже одежды и обуви в Таджикистане, сначала на somon.tj: что за вещь, размер, состояние, цена, город, контакт продавца. Женскую одежду и обувь (кроме хиджаба, абаи, чодара), украшения, косметику и духи не показывай.' },
     { re: /^(?:техника|texnika)$/, mode: 'ads',
-      somon: { sources: [{ path: 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/' }, { path: 'kompyuteryi-i-orgtehnika/noutbuki/' }, { path: 'elektronika-i-tehnika/tv-dvd-video/televizoryi/' }, { path: 'kompyuteryi-i-orgtehnika/personalnyie-kompyuteryi/' }], boards: [{ host: 'rg.tj', path: 'kitchen-household-appliances' }, { host: 'savdo.tj', path: 'elektronika_i_bytovaya_tehnika' }, { host: 'paydo.tj', path: 'tekhnika-dlya-doma' }, { host: 'paydo.tj', path: 'noutbuki' }, { host: 'paydo.tj', path: 'audio-i-video' }, { host: 'ola.tj', path: 'tekhnika-dlya-doma-i-kukhni' }, { host: 'ola.tj', path: 'noutbuki' }, { host: 'ola.tj', path: 'tv-dvd-i-video' }],  facts: 'tech', fixed: 'tech' },
+      somon: { tg: 'tech', sources: [{ path: 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/' }, { path: 'kompyuteryi-i-orgtehnika/noutbuki/' }, { path: 'elektronika-i-tehnika/tv-dvd-video/televizoryi/' }, { path: 'kompyuteryi-i-orgtehnika/personalnyie-kompyuteryi/' }], boards: [{ host: 'rg.tj', path: 'kitchen-household-appliances' }, { host: 'savdo.tj', path: 'elektronika_i_bytovaya_tehnika' }, { host: 'paydo.tj', path: 'tekhnika-dlya-doma' }, { host: 'paydo.tj', path: 'noutbuki' }, { host: 'paydo.tj', path: 'audio-i-video' }, { host: 'ola.tj', path: 'tekhnika-dlya-doma-i-kukhni' }, { host: 'ola.tj', path: 'noutbuki' }, { host: 'ola.tj', path: 'tv-dvd-i-video' }],  facts: 'tech', fixed: 'tech' },
       query: 'Найди актуальные объявления о продаже бытовой техники, ноутбуков, компьютеров и телевизоров в Таджикистане, сначала на somon.tj: что за техника, характеристики, состояние, цена, город, контакт продавца.' },
     { re: /^(?:телефонҳо|телефоны|telefon)$/, mode: 'ads',
-      somon: { sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], boards: [{ host: 'rg.tj', path: 'phones' }, { host: 'savdo.tj', path: 'telefony_i_gadzhety' }, { host: 'paydo.tj', path: 'telefony' }],  facts: 'phone', fixed: 'phone' },
+      somon: { tg: 'phone', sources: [{ path: 'telefonyi-i-svyaz/mobilnyie-telefonyi/' }], boards: [{ host: 'rg.tj', path: 'phones' }, { host: 'savdo.tj', path: 'telefony_i_gadzhety' }, { host: 'paydo.tj', path: 'telefony' }],  facts: 'phone', fixed: 'phone' },
       query: 'Найди актуальные объявления о продаже мобильных телефонов в Таджикистане, сначала на somon.tj: модель, память, состояние, цена, город, контакт продавца.' },
     { re: /^(?:кор\s+ва\s+шуғл|вакансии|ish)$/, mode: 'jobs',
-      somon: { sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], boards: [{ host: 'rg.tj', path: 'vacancies' }, { host: 'savdo.tj', path: 'vakasiya' }, { host: 'paydo.tj', path: 'vakansii' }, { host: 'ola.tj', path: 'vakansii' }],  notCat: /Banki-strahovanie-lizing/i, notWords: /(?<![\p{L}])(?:ищу|ишу|ищем\s+себе)\s+работ|кор\s+мекобам|ҷои\s+кор\s+мекобам|ish\s+qidir/iu, facts: 'job', fixed: 'job' },
+      somon: { tg: 'job', sources: [{ path: 'vakansii/' }, { path: 'vakansii/', page: 2 }], boards: [{ host: 'rg.tj', path: 'vacancies' }, { host: 'savdo.tj', path: 'vakasiya' }, { host: 'paydo.tj', path: 'vakansii' }, { host: 'ola.tj', path: 'vakansii' }],  notCat: /Banki-strahovanie-lizing/i, notWords: /(?<![\p{L}])(?:ищу|ишу|ищем\s+себе)\s+работ|кор\s+мекобам|ҷои\s+кор\s+мекобам|ish\s+qidir/iu, facts: 'job', fixed: 'job' },
       query: 'Найди актуальные вакансии в Таджикистане на сегодня, сначала на somon.tj: должность, зарплата, город, работодатель, график, контакт. ' + JOB_SKIP_TEXT },
     { re: /^(?:земли|заминҳои\s+кишт|сельхоз\s+земли|ekin\s+yerlari)$/, mode: 'ads', somon: SOMON_FARMLAND,
       query: 'Найди актуальные объявления о продаже и аренде земли под посев в Таджикистане, сначала на somon.tj: площадь, цена, место, контакт владельца.' },
@@ -4625,12 +4625,102 @@ function parseRgCards(html, max = 60) {
     return out;
 }
 
+// ---------- Telegram-каналы объявлений (26.11.2026) — ТОЛЬКО с согласия админа канала ----------
+// Читаем открытую страницу канала t.me/s/<канал> (её видит любой без входа в Telegram): без бота-аккаунта, без вступления в канал.
+// Карточка — короткая: заголовок, цена, фото, город и ссылка на оригинальный пост (покупатель идёт в канал). Пост целиком не копируем,
+// телефоны и @ники скрываем — связаться можно в самом посте. Ничего не храним: список живёт в памяти 20 минут, посты старше 60 дней не берём.
+// Админ попросил убрать — удаляем строку здесь (или добавляем канал в TG_OFF на сервере), и канал пропадает при следующем обновлении.
+// tags — в каких разделах сайта показывать (spec.tg у раздела); '*' — только в поиске по словам.
+const TG_CHANNELS = {
+    // 'moshin_bozor0': { tags: ['car'], ok: '2026-12-01', note: 'согласие админа @…' },
+};
+const TG_OFF = new Set(String(process.env.TG_OFF || '').split(',').map(x => x.trim().toLowerCase()).filter(Boolean));
+const TG_NAME = /^[A-Za-z][A-Za-z0-9_]{3,31}$/;
+const TG_MAX_AGE_DAYS = 60;
+function tgBoards(spec) {
+    const out = [];
+    for (const [ch, c] of Object.entries(TG_CHANNELS)) {
+        if (!TG_NAME.test(ch) || TG_OFF.has(ch.toLowerCase()) || !c || !Array.isArray(c.tags)) continue;
+        if ((spec.tg && c.tags.includes(spec.tg)) || (spec.keyword && c.tags.length)) out.push({ host: 't.me', path: ch });
+    }
+    return out;
+}
+// телефоны и @ники продавцов в тексте карточки не показываем: они есть в оригинальном посте
+const TG_HIDDEN = '[в посте]';
+function tgMask(s) {
+    return String(s || '')
+        .replace(/(?<![\d+])\+?\d[\d\s().\-]{6,17}\d(?![\d])/g, m => (m.replace(/\D/g, '').length >= 7 ? TG_HIDDEN : m))
+        .replace(/(?:https?:\/\/)?(?:t\.me|wa\.me|telegram\.me)\/[^\s]+/gi, TG_HIDDEN)
+        .replace(/(?<![\w@])@[A-Za-z][A-Za-z0-9_]{3,31}/g, TG_HIDDEN)
+        .replace(/(?:\[в посте\][\s,;/]*){2,}/g, TG_HIDDEN + ' ');
+}
+const TG_PRICE = /(?:(?:нарх|цена|narx|price)\s*[:\-–—]?\s*)?(\$\s?\d[\d\s.,]{0,12}\d|\d[\d\s.,]{0,12}\d?\s*(?:сомон\p{L}*|сом\.?|смн|tjs|c\.(?=\s|$)|\$|долл\p{L}*|usd|у\.е\.|тысяч\p{L}*\s*(?:сомон\p{L}*|\$|долл\p{L}*)|хазор\s*(?:сомон\p{L}*|\$|доллар)))/iu;
+const TG_PROMO = /(?:^|[\s#])(?:реклама|подпис(?:ывайтесь|аться|ка)\s+на|обуна\s+шавед|розыгрыш|конкурс|правила\s+(?:группы|канала)|қоидаҳои\s+канал)/iu;
+function tgPublished(iso) {
+    const ms = Date.parse(iso || '');
+    if (!Number.isFinite(ms)) return '';
+    const min = Math.max(0, Math.round((Date.now() - ms) / 60000));
+    if (min < 60) return min ? `${min} мин. назад` : 'Только что';
+    if (min < 1440) return `${Math.floor(min / 60)} час. назад`;
+    if (min < 7 * 1440) return `${Math.floor(min / 1440)} дн. назад`;
+    const d = new Date(ms + 5 * 3600 * 1000); // время Душанбе
+    return `${String(d.getUTCDate()).padStart(2, '0')}.${String(d.getUTCMonth() + 1).padStart(2, '0')}.${d.getUTCFullYear()}`;
+}
+const tgLines = h => decodeEntities(String(h || '').replace(/<br\s*\/?>/gi, '\n').replace(/<[^>]*>/g, '')).replace(/[ \t ]+/g, ' ').split('\n').map(x => x.trim()).filter(Boolean);
+// Разбор страницы t.me/s/<канал>: посты — блоки data-post="канал/номер"; текст, фото (background-image), время (<time datetime>)
+function parseTgPreview(html, max = 40) {
+    const h = String(html || '');
+    const title = htmlText((/class="tgme_channel_info_header_title"[^>]*>([\s\S]*?)<\/div>/.exec(h) || [])[1]);
+    const starts = [...h.matchAll(/class="tgme_widget_message (?:[^"]*\s)?js-widget_message"[^>]*data-post="([A-Za-z0-9_]{4,32})\/(\d{1,9})"/g)];
+    const out = [];
+    for (let i = starts.length - 1; i >= 0 && out.length < max; i--) {   // на странице снизу — самые новые
+        const [, ch, num] = starts[i];
+        const c = h.slice(starts[i].index, i + 1 < starts.length ? starts[i + 1].index : starts[i].index + 40000);
+        if (/service_message/.test(c.slice(0, 300))) continue;
+        const iso = (/<time datetime="([^"]+)"/.exec(c) || [])[1] || '';
+        const ms = Date.parse(iso);
+        if (Number.isFinite(ms) && Date.now() - ms > TG_MAX_AGE_DAYS * 86400000) continue;
+        const lines = tgLines((/class="tgme_widget_message_text[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(c) || [])[1]);
+        if (!lines.length) continue;
+        const text = lines.join('\n');
+        if (TG_PROMO.test(text)) continue;
+        // заголовок — первая строка со смыслом (без хэштегов и одних смайликов)
+        const cleanLine = l => l.replace(/#[\p{L}\p{N}_]+/gu, ' ').replace(/^[^\p{L}\p{N}$]+/u, '').replace(/\s+/g, ' ').trim();
+        let ti = lines.findIndex(l => cleanLine(l).replace(/[^\p{L}]/gu, '').length >= 3);
+        if (ti < 0) continue;
+        let t0 = tgMask(cleanLine(lines[ti]));
+        if (t0.length > 90) t0 = cutAtWord(t0, 90);
+        if (!t0 || t0 === TG_HIDDEN) continue;
+        const images = [...new Set([...c.matchAll(/tgme_widget_message_photo_wrap[^>]*background-image:url\('(https:\/\/[a-z0-9.\-]+\.(?:telesco\.pe|telegram\.org|cdn-telegram\.org)\/[^')]+)'\)/g)].map(m => m[1]))].slice(0, 10);
+        const pm = TG_PRICE.exec(text);
+        const price = pm ? pm[1].replace(/\s+/g, ' ').trim() : '';
+        const city = cityOf(text);
+        const rest = lines.filter((_, k) => k !== ti).join('\n');
+        out.push({ id: `tg${ch.toLowerCase()}_${num}`, title: t0, description: clip(tgMask(rest), 600), price, priceNote: '', thumb: images[0] || '', imgCount: images.length, images,
+            published: tgPublished(iso), path: '', url: `https://t.me/${ch}/${num}`, location: city ? city.names.ru : '', who: '', cats: '', channel: title || ch, _ms: Number.isFinite(ms) ? ms : 0 });
+    }
+    // самые новые — первыми (по времени поста, а не по месту на странице)
+    return out.sort((x, y) => y._ms - x._ms).map(({ _ms, ...a }) => a);
+}
+// Сведения о канале с его открытой страницы: название, подписчики, описание (там админы обычно пишут свой контакт)
+function tgChannelInfo(html) {
+    const h = String(html || '');
+    const counters = {};
+    for (const m of h.matchAll(/<span class="counter_value">([^<]{1,20})<\/span>\s*<span class="counter_type">([^<]{1,30})<\/span>/g)) counters[htmlText(m[2])] = htmlText(m[1]);
+    return {
+        title: htmlText((/class="tgme_channel_info_header_title"[^>]*>([\s\S]*?)<\/div>/.exec(h) || /class="tgme_page_title"[^>]*>([\s\S]*?)<\/div>/.exec(h) || [])[1]),
+        extra: htmlText((/class="tgme_page_extra"[^>]*>([\s\S]*?)<\/div>/.exec(h) || [])[1]),
+        counters,
+        description: tgLines((/class="tgme_channel_info_description"[^>]*>([\s\S]*?)<\/div>/.exec(h) || /class="tgme_page_description[^"]*"[^>]*>([\s\S]*?)<\/div>/.exec(h) || [])[1]).join('\n').slice(0, 800)
+    };
+}
+
 function boardGet(host, url) {
     const hit = BOARD_CACHE.get(url);
     if (hit && Date.now() - hit.at < BOARD_CACHE_MS) return hit.p;
     // ola.tj бывает медленным (страница раздела ~600 КБ, 8–15 с): грузим до 25 с, но человек ждёт не дольше BOARD_WAIT_MS — остальное ляжет в запас
     const p = fetchPage(url, { cap: 2500000, timeoutMs: 25000 }).then(r => {
-        const list = detach(host === 'ola.tj' ? parseOlaCards(r.html) : host === 'savdo.tj' ? parseSavdoCards(r.html) : host === 'rg.tj' ? parseRgCards(r.html) : parsePaydoAds(r.html));
+        const list = detach(host === 't.me' ? parseTgPreview(r.html) : host === 'ola.tj' ? parseOlaCards(r.html) : host === 'savdo.tj' ? parseSavdoCards(r.html) : host === 'rg.tj' ? parseRgCards(r.html) : parsePaydoAds(r.html));
         if (!list.length) throw new Error('в странице нет списка');
         return list;
     });
@@ -4645,6 +4735,7 @@ function boardUrl(b, city = null) {
     // поиск по словам: paydo.tj сам находит нужный раздел («iphone» → Телефоны → Apple); у ola.tj адреса поиска нет
     if (b && b.q) return b.host === 'paydo.tj' ? `https://paydo.tj/ru/all?q=${encodeURIComponent(String(b.q).slice(0, 80))}`
         : b.host === 'savdo.tj' ? `https://savdo.tj/search?keywords=${encodeURIComponent(String(b.q).slice(0, 80))}` : null;
+    if (b && b.host === 't.me') return TG_NAME.test(b.path || '') ? `https://t.me/s/${b.path}` : null;
     const base = BOARD_HOSTS[b && b.host];
     if (!base || !/^[a-z0-9\-_]{2,60}(?:\/[a-z0-9\-_]{2,30})?$/i.test(b.path || '')) return null;
     if (city && b.host === 'rg.tj' && /^[a-z]{3,20}$/.test(city.rg || '')) return `https://${city.rg}.rg.tj/${b.path}/`;
@@ -4669,7 +4760,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             const general = somonUrl(src), local = slug ? somonUrl(src, slug) : null;
             return { host: 'somon.tj', url: local || general, fallback: local ? general : null, local: !!local, words: src.words, get: somonGet };
         }),
-        ...(boardsOn ? (spec.boards || []).filter(b => !BOARD_OFF.has(b.host)) : []).map(b => {
+        ...(boardsOn ? [...(spec.boards || []), ...tgBoards(spec)].filter(b => !BOARD_OFF.has(b.host)) : []).map(b => {
             const general = boardUrl(b), local = city ? boardUrl(b, city) : null;
             const own = !!local && local !== general;
             return { host: b.host, url: own ? local : general, fallback: own ? general : null, local: own, words: b.words, get: u => boardGet(b.host, u) };
@@ -6549,6 +6640,7 @@ async function verifyItems(original, current, kind, debug, nameCheck = false) {
     if (process.env.PHOTO_CHECK === 'off') return current;
     const stat = { pagesOk: 0, pagesFailed: 0, contactsKept: 0, contactsDropped: 0, pointsDropped: 0, notOnPage: 0 };
     const facts = await Promise.all(original.map(async it => {
+        if (/^https:\/\/t\.me\//.test(it.url || '')) return null; // пост Telegram-канала: проверено при разборе страницы канала
         try { return pageFacts((await withTimeout(getPage(it.url), 9000)).html); } catch { return null; }
     }));
     const out = current.map((it, i) => {
@@ -6648,6 +6740,8 @@ async function resolvePhotos(items, debug, hotel = false) {
     const stat = { items: items.length, fromPage: 0, fromModel: 0, none: 0, why: {}, samples: [] };
     const why = (r) => { stat.why[r] = (stat.why[r] || 0) + 1; };
     const one = async (it) => {
+        // пост Telegram-канала: фото уже взяты с открытой страницы канала; страницу поста не открываем — там полный текст с телефонами
+        if (/^https:\/\/t\.me\//.test(it.url || '')) return { img: it.image || null, why: 'tg', gallery: it.gallery0 || [], desc: '', specs: null };
         // у гостиниц страница — это страница самой гостиницы (проверяем по заголовку ниже), а не номер объявления
         if (!(hotel ? /^https:\/\//i.test(it.url || '') : isListingUrl(it.url))) return { img: null, why: 'общая страница списка' };
         const hit = PHOTO_CACHE.get(it.url);
@@ -9426,6 +9520,22 @@ async function handleDiag(req, res) {
     // Аудит площадок объявлений (26.11.2026): robots.txt и правила сайта — можно ли показывать их объявления со ссылкой.
     // Только заранее известные адреса; отдаём текст robots.txt и отрывки правил со словами про копирование/сбор данных.
     // Контакты площадок для партнёрства (26.11.2026): опубликованные на их сайтах Telegram, WhatsApp, Instagram, телефоны, почта
+    // Telegram-каналы (26.11.2026): открытая страница канала — название, подписчики, описание с контактом админа и как разбираются посты.
+    // Это только проверка для владельца iZamoN; на сайте канал появляется лишь после согласия админа (TG_CHANNELS).
+    if (req.query?.tgprev) {
+        const ch = String(req.query.tgprev).replace(/^@/, '');
+        if (!TG_NAME.test(ch)) return res.status(400).json({ error: 'bad channel' });
+        const get = async u => { try { return (await fetchPage(u, { cap: 2500000, timeoutMs: 15000 })).html; } catch (e) { return { error: String(e.message || e).slice(0, 80) }; } };
+        const prev = await get(`https://t.me/s/${ch}`);
+        const items = typeof prev === 'string' ? parseTgPreview(prev, 40) : [];
+        const info = typeof prev === 'string' ? tgChannelInfo(prev) : null;
+        // группа (чат) открытой ленты не имеет — берём её обычную страницу t.me/<имя>
+        const page = !items.length ? await get(`https://t.me/${ch}`) : null;
+        return res.json({ channel: ch, preview: typeof prev === 'string' ? { size: prev.length, posts: (prev.match(/data-post="/g) || []).length } : prev,
+            info: info && (info.title || Object.keys(info.counters).length) ? info : typeof page === 'string' ? tgChannelInfo(page) : info,
+            consent: !!TG_CHANNELS[ch], parsed: items.length,
+            sample: items.slice(0, Number(req.query.n) > 0 ? Math.min(40, Number(req.query.n)) : 6).map(a => ({ title: a.title, price: a.price, place: a.location, when: a.published, photos: a.imgCount, url: a.url, text: a.description.slice(0, 160) })) });
+    }
     if (req.query?.contacts) {
         const CH = { 'somon.tj': ['/', '/contacts', '/about', '/help'], 'savdo.tj': ['/', '/page/contacts', '/page/about', '/page/terms'], 'alon.tj': ['/', '/contacts.html', '/about.html'],
             'rg.tj': ['/', '/contacts', '/kontakty', '/about'], 'ola.tj': ['/', '/contacts', '/about', '/rules'], 'autoprom.tj': ['/', '/contacts', '/about', '/rules/privacy'] };
@@ -9968,5 +10078,5 @@ module.exports = {
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, handleClientLog, CLIENT_LOG, handleDeleteRequest, handleAdminDeletionDone, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, handleClientLog, CLIENT_LOG, handleDeleteRequest, handleAdminDeletionDone, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, parseTgPreview, tgChannelInfo, tgMask, tgBoards, TG_CHANNELS, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
