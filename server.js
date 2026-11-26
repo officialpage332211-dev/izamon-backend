@@ -9421,6 +9421,34 @@ const DIAG_TOPICS = {
 async function handleDiag(req, res) {
     if (process.env.DIAG_KEY && req.query?.k !== process.env.DIAG_KEY) return res.status(403).json({ error: 'forbidden' });
     if (diagLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
+    // Аудит площадок объявлений (26.11.2026): robots.txt и правила сайта — можно ли показывать их объявления со ссылкой.
+    // Только заранее известные адреса; отдаём текст robots.txt и отрывки правил со словами про копирование/сбор данных.
+    if (req.query?.robots) {
+        const AUD = { 'somon.tj': ['/rules', '/terms', '/help/rules', '/page/rules', '/agreement'], 'savdo.tj': ['/page/privacy_policy', '/page/rules', '/page/terms', '/page/agreement'],
+            'autoprom.tj': ['/rules', '/rules/privacy', '/rules/terms', '/rules/agreement'], 'alon.tj': ['/terms', '/rules', '/privacy'], 'arzon.tj': ['/terms', '/rules', '/privacy'],
+            'ola.tj': ['/terms', '/rules'], 'rg.tj': ['/terms', '/rules'], 'tut.tj': ['/terms', '/rules'] };
+        const host = String(req.query.robots).toLowerCase();
+        if (!AUD[host]) return res.status(400).json({ error: 'unknown host', hosts: Object.keys(AUD) });
+        const get = async (path) => {
+            try {
+                const r = await withTimeout(fetch(`https://${host}${path}`, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; iZamoN-audit/1.0; +https://izamon.vercel.app)' }, redirect: 'follow' }), 12000);
+                const t = await r.text();
+                return { status: r.status, url: r.url, text: t };
+            } catch (e) { return { status: 0, error: String(e.message || e).slice(0, 120) }; }
+        };
+        const rb = await get('/robots.txt');
+        const pages = [];
+        for (const path of AUD[host]) {
+            const g = await get(path);
+            const plain = String(g.text || '').replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ').replace(/&nbsp;/g, ' ').replace(/\s+/g, ' ');
+            const title = (String(g.text || '').match(/<title[^>]*>([^<]{0,160})/i) || [])[1] || '';
+            const hits = [];
+            const re = /[^.]{0,220}(копир|воспроизвед|парс|автоматическ|робот|скрап|scrap|crawl|сбор данных|извлечен|использовани[ея] материал|без согласия|без письменного)[^.]{0,220}\./gi;
+            let m; while ((m = re.exec(plain)) && hits.length < 6) hits.push(m[0].trim().slice(0, 450));
+            pages.push({ path, status: g.status, url: g.url, title: title.trim(), hits, size: plain.length });
+        }
+        return res.json({ host, robots: { status: rb.status, text: String(rb.text || '').slice(0, 6000) }, pages });
+    }
     // Проверка собеседников «Садои дил»: одно и то же письмо — нескольким моделям (только по ключу диагностики)
     if (req.query?.heartlab === '1') {
         const HEART_LAB_SAMPLES = {
