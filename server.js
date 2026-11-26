@@ -4475,6 +4475,8 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
 // ---------- Другие сайты объявлений напрямую: ola.tj (он же arzon.tj) и paydo.tj ----------
 // Те же поля, что у списка somon.tj: { id, title, description, price, priceNote, thumb, imgCount, images, published, path, url, location, who, cats }.
 // Все сайты равны: ни один не ставится впереди других (см. somonListings).
+// Площадки, которые отказались от показа своих объявлений (решение владельца iZamoN): rg.tj — отказ 26.11.2026
+const BOARD_OFF = new Set(String(process.env.BOARD_OFF || 'rg.tj').split(',').map(x => x.trim()).filter(Boolean));
 const BOARD_HOSTS = { 'ola.tj': 'https://ola.tj/category/', 'paydo.tj': 'https://paydo.tj/ru/all/', 'savdo.tj': 'https://savdo.tj/category/', 'rg.tj': 'https://rg.tj/' };
 const BOARD_WAIT_MS = 5000;           // дольше не ждём медленный сайт: покажем остальные, а его список ляжет в запас
 const BOARD_CACHE = new Map();        // адрес → { at, p }
@@ -4667,7 +4669,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             const general = somonUrl(src), local = slug ? somonUrl(src, slug) : null;
             return { host: 'somon.tj', url: local || general, fallback: local ? general : null, local: !!local, words: src.words, get: somonGet };
         }),
-        ...(boardsOn ? spec.boards || [] : []).map(b => {
+        ...(boardsOn ? (spec.boards || []).filter(b => !BOARD_OFF.has(b.host)) : []).map(b => {
             const general = boardUrl(b), local = city ? boardUrl(b, city) : null;
             const own = !!local && local !== general;
             return { host: b.host, url: own ? local : general, fallback: own ? general : null, local: own, words: b.words, get: u => boardGet(b.host, u) };
