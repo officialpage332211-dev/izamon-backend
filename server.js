@@ -7811,6 +7811,24 @@ function checkSolution(b, date) {
     }
     return null;
 }
+// ---------------------------------------------------------------------------
+// Серия дней и таблица недели (26.11.2026). Серия — дни подряд, в которые решена хотя бы одна игра; каждые 7 дней подряд
+// +5 монет. Очки недели (пн–вс по Душанбе) — сумма выигрышей за игры. Таблица: сокращённые имена, только значки, без денег;
+// можно скрыть себя (iz_lb_hide). Город — тот, что выбран на сайте (iz_city).
+// ---------------------------------------------------------------------------
+const STREAK_BONUS = 5;
+function isoAdd(iso, days) { const [y, m, d] = String(iso).split('-').map(Number); return new Date(Date.UTC(y, m - 1, d) + days * 864e5).toISOString().slice(0, 10); }
+function weekOf(iso) { const [y, m, d] = String(iso).split('-').map(Number); const wd = (new Date(Date.UTC(y, m - 1, d)).getUTCDay() + 6) % 7; return isoAdd(iso, -wd); }
+function streakNow(md, date) { const s = md && md.iz_streak; return s && (s.last === date || s.last === isoAdd(date, -1)) ? Number(s.n) || 0 : 0; }
+function playUpdate(md, prize, date, city) {
+    const s = md.iz_streak && typeof md.iz_streak === 'object' ? md.iz_streak : {};
+    let n = Number(s.n) || 0, bonus = 0;
+    if (s.last !== date) { n = s.last === isoAdd(date, -1) ? n + 1 : 1; if (n % 7 === 0) bonus = STREAK_BONUS; }
+    const wk = weekOf(date), w = md.iz_week && md.iz_week.w === wk ? md.iz_week : { w: wk, pts: 0 };
+    const patch = { iz_streak: { last: date, n }, iz_week: { w: wk, pts: r1((Number(w.pts) || 0) + prize + bonus) } };
+    if (typeof city === 'string' && /^[a-z_-]{2,30}$/.test(city)) patch.iz_city = city;
+    return { patch, bonus, n };
+}
 async function handleCoinsClaim(req, res) {
     if (coinsLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
     const user = await getUser(req);
@@ -7821,9 +7839,10 @@ async function handleCoinsClaim(req, res) {
         const out = await withCoinLock(user.id, async () => {
             const u = await authAdmin(user.id), m = coinMeta(u);
             if (m.claims.includes(sol.key)) return { ok: true, already: true, coins: m.coins, prize: 0 };
-            const coins = r1(m.coins + sol.prize);
-            await authAdmin(user.id, 'PUT', { app_metadata: { ...(u.app_metadata || {}), iz_coins: coins, iz_claims: m.claims.concat(sol.key).slice(-60), iz_game_coins: r1(coinSplit(u).fromGames + sol.prize) } });
-            return { ok: true, coins, prize: sol.prize, refBy: refByOf(u) };
+            const md = u.app_metadata || {}, pu = playUpdate(md, sol.prize, todayTJ().iso, req.body && req.body.city);
+            const coins = r1(m.coins + sol.prize + pu.bonus);
+            await authAdmin(user.id, 'PUT', { app_metadata: { ...md, ...pu.patch, iz_coins: coins, iz_claims: m.claims.concat(sol.key).slice(-60), iz_game_coins: r1(coinSplit(u).fromGames + sol.prize + pu.bonus) } });
+            return { ok: true, coins, prize: sol.prize, streak: pu.n, ...(pu.bonus ? { streakBonus: pu.bonus } : {}), refBy: refByOf(u) };
         });
         // 10% сверху тому, кто пригласил (только за игры, монеты у самого человека не отнимаются)
         if (out && out.prize > 0 && out.refBy) refShare(out.refBy, out.prize).catch(err => console.warn(`[ref 10%]: ${err.message}`));
@@ -7837,7 +7856,11 @@ async function handleCoinsClaim(req, res) {
 async function handleCoinsGet(req, res) {
     const user = await getUser(req);
     if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
-    try { const u = await authAdmin(user.id); return res.json({ ok: true, coins: coinMeta(u).coins, ...coinSplit(u), bumpCost: BUMP_COINS }); }
+    try {
+        const u = await authAdmin(user.id), md = u.app_metadata || {}, day = todayTJ().iso;
+        return res.json({ ok: true, coins: coinMeta(u).coins, ...coinSplit(u), bumpCost: BUMP_COINS, streak: streakNow(md, day), playedToday: !!(md.iz_streak && md.iz_streak.last === day),
+            streakBonus: STREAK_BONUS, week: md.iz_week && md.iz_week.w === weekOf(day) ? r1(Number(md.iz_week.pts) || 0) : 0, lbHide: !!md.iz_lb_hide });
+    }
     catch (err) { return res.status(503).json({ ok: false, error: 'store_failed' }); }
 }
 // ---------------------------------------------------------------------------
@@ -8011,12 +8034,14 @@ async function handleNarxGuess(req, res) {
             const r = narxPts(g[i], T.p[i]);
             const all = T.p.every((_, k) => g[k] > 0), key = `narx:${date}`;
             let prize = null, coins = m.coins, claims = m.claims, gameCoins = coinSplit(u).fromGames;
+            let pu = null;
             if (all && !claims.includes(key)) {
                 prize = T.p.reduce((s2, p, k) => s2 + narxPts(g[k], p).pts, 0);
-                coins = r1(m.coins + prize); claims = claims.concat(key).slice(-60); gameCoins = r1(gameCoins + prize);
+                pu = playUpdate(md, prize, date, b.city);
+                coins = r1(m.coins + prize + pu.bonus); claims = claims.concat(key).slice(-60); gameCoins = r1(gameCoins + prize + pu.bonus);
             }
-            await authAdmin(user.id, 'PUT', { app_metadata: { ...md, iz_narx: st, ...(prize !== null ? { iz_coins: coins, iz_claims: claims, iz_game_coins: gameCoins } : {}) } });
-            return { ok: true, i, guess: g[i], price: T.p[i], url: T.u[i], err: r.err, pts: r.pts, done: all, ...(prize !== null ? { prize, coins } : {}), refBy: prize ? refByOf(u) : '' };
+            await authAdmin(user.id, 'PUT', { app_metadata: { ...md, iz_narx: st, ...(prize !== null ? { ...pu.patch, iz_coins: coins, iz_claims: claims, iz_game_coins: gameCoins } : {}) } });
+            return { ok: true, i, guess: g[i], price: T.p[i], url: T.u[i], err: r.err, pts: r.pts, done: all, ...(prize !== null ? { prize, coins, streak: pu.n, ...(pu.bonus ? { streakBonus: pu.bonus } : {}) } : {}), refBy: prize ? refByOf(u) : '' };
         });
         if (out.prize > 0 && out.refBy) refShare(out.refBy, out.prize).catch(err => console.warn(`[ref 10%]: ${err.message}`));
         delete out.refBy;
@@ -8028,6 +8053,69 @@ async function handleNarxGuess(req, res) {
 }
 app.get('/api/narx', handleNarxGet);
 app.post('/api/narx/guess', handleNarxGuess);
+// Таблица недели: все пользователи (admin API, по 500 на страницу), запоминаем на 5 минут; свои очки — всегда свежие.
+const BOARD_MEMO = { at: 0, p: null };
+const boardLimited = makeLimiter(30);
+function boardUsers() {
+    if (BOARD_MEMO.p && Date.now() - BOARD_MEMO.at < 5 * MIN) return BOARD_MEMO.p;
+    const p = (async () => {
+        const out = [];
+        for (let page = 1; page <= 20; page++) {
+            const r = await withTimeout(fetch(`${SB_URL()}/auth/v1/admin/users?page=${page}&per_page=500`, { headers: { apikey: SB_KEY(), Authorization: `Bearer ${SB_KEY()}` } }), 10000);
+            if (!r.ok) throw new Error(`users ${r.status}`);
+            const d = await r.json().catch(() => ({}));
+            const list = Array.isArray(d) ? d : (Array.isArray(d.users) ? d.users : []);
+            out.push(...list);
+            if (list.length < 500) break;
+        }
+        return out;
+    })();
+    BOARD_MEMO.at = Date.now(); BOARD_MEMO.p = p;
+    p.catch(() => { if (BOARD_MEMO.p === p) BOARD_MEMO.p = null; });
+    return p;
+}
+function shortName(u) {
+    const md = (u && u.user_metadata) || {};
+    const parts = String(md.full_name || md.name || '').trim().split(/\s+/).filter(Boolean);
+    if (!parts.length) return '';
+    return parts[0].slice(0, 20) + (parts[1] ? ' ' + parts[1][0].toUpperCase() + '.' : '');
+}
+async function handleBoard(req, res) {
+    if (boardLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const user = await getUser(req);
+    const city = /^[a-z_-]{2,30}$/.test(String(req.query && req.query.city || '')) ? String(req.query.city) : '';
+    const day = todayTJ().iso, wk = weekOf(day);
+    try {
+        let users = await boardUsers();
+        if (user) { const me = await authAdmin(user.id).catch(() => null); if (me) users = users.filter(u => u.id !== user.id).concat(me); }
+        const rows = users.map(u => {
+            const md = u.app_metadata || {};
+            if (!md.iz_week || md.iz_week.w !== wk || !(Number(md.iz_week.pts) > 0)) return null;
+            if (city && md.iz_city !== city) return null;
+            return { id: u.id, n: shortName(u), pts: r1(Number(md.iz_week.pts)), st: streakNow(md, day), hide: !!md.iz_lb_hide };
+        }).filter(Boolean).sort((a, b) => b.pts - a.pts || b.st - a.st);
+        const vis = rows.filter(r => !r.hide || (user && r.id === user.id));
+        const top = vis.slice(0, 10).map((r, i) => ({ p: i + 1, n: r.n || '—', pts: r.pts, st: r.st, ...(user && r.id === user.id ? { me: true } : {}) }));
+        const mi = user ? vis.findIndex(r => r.id === user.id) : -1;
+        const me = mi >= 0 ? { p: mi + 1, pts: vis[mi].pts, st: vis[mi].st, hide: vis[mi].hide } : null;
+        return res.json({ ok: true, week: wk, end: isoAdd(wk, 6), city, total: vis.length, top, me });
+    } catch (err) {
+        console.warn(`[board]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'unavailable' });
+    }
+}
+async function handleBoardHide(req, res) {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    const hide = !!(req.body && req.body.hide);
+    try {
+        await withCoinLock(user.id, async () => { const u = await authAdmin(user.id); await authAdmin(user.id, 'PUT', { app_metadata: { ...(u.app_metadata || {}), iz_lb_hide: hide } }); });
+        return res.json({ ok: true, hide });
+    } catch (err) { return res.status(503).json({ ok: false, error: 'store_failed' }); }
+}
+app.get('/api/games/board', handleBoard);
+app.post('/api/games/board/hide', handleBoardHide);
+
 
 
 async function handleAdBump(req, res) {
@@ -9816,7 +9904,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    bumpCost, handleNarxGet, handleNarxGuess, narxOpen, narxSeal, NARX_MEMO, parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
+    bumpCost, playUpdate, weekOf, isoAdd, streakNow, handleBoard, handleBoardHide, BOARD_MEMO, handleNarxGet, handleNarxGuess, narxOpen, narxSeal, NARX_MEMO, parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     detach, TTLCache, mixedWhy, OPENAI_CHAT, handleRefClaim, handleRefGet, refCode, refUid, refBadge, REF, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, coinSplit, checkSolution,
