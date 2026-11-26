@@ -9423,6 +9423,31 @@ async function handleDiag(req, res) {
     if (diagLimited(req.ip)) return res.status(429).json({ error: 'rate_limited' });
     // Аудит площадок объявлений (26.11.2026): robots.txt и правила сайта — можно ли показывать их объявления со ссылкой.
     // Только заранее известные адреса; отдаём текст robots.txt и отрывки правил со словами про копирование/сбор данных.
+    // Контакты площадок для партнёрства (26.11.2026): опубликованные на их сайтах Telegram, WhatsApp, Instagram, телефоны, почта
+    if (req.query?.contacts) {
+        const CH = { 'somon.tj': ['/', '/contacts', '/about', '/help'], 'savdo.tj': ['/', '/page/contacts', '/page/about', '/page/terms'], 'alon.tj': ['/', '/contacts.html', '/about.html'],
+            'rg.tj': ['/', '/contacts', '/kontakty', '/about'], 'ola.tj': ['/', '/contacts', '/about', '/rules'], 'autoprom.tj': ['/', '/contacts', '/about', '/rules/privacy'] };
+        const host = String(req.query.contacts).toLowerCase();
+        if (!CH[host]) return res.status(400).json({ error: 'unknown host', hosts: Object.keys(CH) });
+        const found = { telegram: new Set(), whatsapp: new Set(), instagram: new Set(), facebook: new Set(), phone: new Set(), email: new Set() }, pages = [];
+        for (const path of CH[host]) {
+            let t = '', st = 0;
+            try { const r = await withTimeout(fetch(`https://${host}${path}`, { headers: { 'User-Agent': 'Mozilla/5.0 (compatible; iZamoN-partner/1.0; +https://izamon.vercel.app)' }, redirect: 'follow' }), 12000); st = r.status; t = await r.text(); }
+            catch (e) { st = 0; }
+            pages.push({ path, status: st });
+            if (st !== 200) continue;
+            for (const m of t.matchAll(/https?:\/\/(?:t\.me|telegram\.me)\/([A-Za-z0-9_+]{3,40})/g)) found.telegram.add('https://t.me/' + m[1]);
+            for (const m of t.matchAll(/https?:\/\/(?:wa\.me|api\.whatsapp\.com\/send\?phone=)\/?(\+?\d{9,15})/g)) found.whatsapp.add(m[1].replace(/^\+/, ''));
+            for (const m of t.matchAll(/https?:\/\/(?:www\.)?instagram\.com\/([A-Za-z0-9_.]{2,40})/g)) found.instagram.add('https://instagram.com/' + m[1]);
+            for (const m of t.matchAll(/https?:\/\/(?:www\.)?facebook\.com\/([A-Za-z0-9_.-]{2,60})/g)) found.facebook.add('https://facebook.com/' + m[1]);
+            for (const m of t.matchAll(/mailto:([^"'?\s>]{3,80})/g)) found.email.add(m[1]);
+            const plain = t.replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, ' ').replace(/<[^>]+>/g, ' ');
+            for (const m of plain.matchAll(/(?:\+?992|8)[\s(-]*\d{2,3}[\s)-]*\d{2,3}[\s-]*\d{2}[\s-]*\d{2}/g)) found.phone.add(m[0].replace(/\s+/g, ' ').trim());
+            for (const m of t.matchAll(/href="tel:([+\d\s()-]{7,20})"/g)) found.phone.add(m[1].trim());
+        }
+        const out = {}; for (const k of Object.keys(found)) out[k] = [...found[k]].slice(0, 10);
+        return res.json({ host, pages, contacts: out });
+    }
     if (req.query?.robots) {
         const AUD = { 'somon.tj': ['/rules', '/terms', '/help/rules', '/page/rules', '/agreement'], 'savdo.tj': ['/page/privacy_policy', '/page/rules', '/page/terms', '/page/agreement'],
             'autoprom.tj': ['/rules', '/rules/privacy', '/rules/terms', '/rules/agreement'], 'alon.tj': ['/terms', '/rules', '/privacy'], 'arzon.tj': ['/terms', '/rules', '/privacy'],
