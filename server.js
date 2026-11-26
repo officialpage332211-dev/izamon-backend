@@ -8222,6 +8222,12 @@ app.post('/api/games/board/hide', handleBoardHide);
 const IG_TAGS = ['car', 'parts', 'flat-sale', 'flat-rent', 'land', 'furniture', 'clothes', 'tech', 'phone', 'job'];
 const IG_MAX_AGE_DAYS = 90;
 const igOn = () => !!(process.env.IG_APP_ID && process.env.IG_APP_SECRET && adsOn());
+// Новые приложения Meta (с осени 2026) — только «единый вход» (Unified login): окно входа facebook.com с config_id (Facebook Login for
+// Business, маркер системного пользователя с доступом к выбранным аккаунтам Instagram), запросы — на graph.facebook.com.
+// Есть IG_CONFIG_ID — единый вход; нет — старый «вход через Instagram» (instagram.com, graph.instagram.com) для старых приложений.
+const IG_GRAPH = 'https://graph.facebook.com/v21.0';
+const igUnified = () => /^\d{5,25}$/.test(String(process.env.IG_CONFIG_ID || ''));
+const IG_FIELDS = 'id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,children%7Bmedia_type,media_url,thumbnail_url%7D';
 const igRedirect = () => process.env.IG_REDIRECT || `${publicBase()}/api/ig/callback`;
 const igSite = () => String(process.env.SITE_URL || 'https://izamon.vercel.app').replace(/\/+$/, '');
 const igLimited = makeLimiter(20);
@@ -8262,7 +8268,7 @@ function igItems(list, username, max = 30) {
 async function igToken(uid, ig) {
     const t = narxOpen(ig && ig.tok);
     if (!t || !t.a) throw new Error('нет токена');
-    if (Date.now() - Number(ig.at || 0) < 7 * 86400000) return t.a;
+    if (ig.mode === 'fb' || Date.now() - Number(ig.at || 0) < 7 * 86400000) return t.a; // маркер единого входа не истекает
     try {
         const d = await igJson(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(t.a)}`);
         if (d.access_token) {
@@ -8284,7 +8290,9 @@ function igMediaList(uid) {
         const ig = u && u.app_metadata && u.app_metadata.iz_ig;
         if (!ig) throw new Error('Instagram не подключён');
         const tok = await igToken(uid, ig);
-        const d = await igJson(`https://graph.instagram.com/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,children%7Bmedia_type,media_url,thumbnail_url%7D&limit=30&access_token=${encodeURIComponent(tok)}`);
+        const d = await igJson(ig.mode === 'fb'
+            ? `${IG_GRAPH}/${encodeURIComponent(ig.id)}/media?fields=${IG_FIELDS}&limit=30&access_token=${encodeURIComponent(tok)}`
+            : `https://graph.instagram.com/me/media?fields=${IG_FIELDS}&limit=30&access_token=${encodeURIComponent(tok)}`);
         const list = detach(igItems(d.data, ig.username));
         if (!list.length) throw new Error('в Instagram нет подходящих постов');
         return list;
@@ -8301,6 +8309,39 @@ async function igBoards(spec) {
     try { users = await withTimeout(boardUsers(), 3000); } catch { return []; }
     return users.filter(u => { const ig = u.app_metadata && u.app_metadata.iz_ig; return ig && ig.tok && (spec.keyword || ig.tag === spec.tg); })
         .slice(0, 12).map(u => ({ host: 'instagram.com', path: u.id }));
+}
+// Единый вход: код → маркер (системного пользователя — без срока), затем какой аккаунт Instagram продавец открыл:
+// 1) /debug_token → granular_scopes (instagram_basic).target_ids; 2) /me/assigned_instagram_accounts; 3) /me/accounts → instagram_business_account
+async function igUnifiedLink(code) {
+    const app = encodeURIComponent(process.env.IG_APP_ID), sec = encodeURIComponent(process.env.IG_APP_SECRET);
+    const t = await igJson(`${IG_GRAPH}/oauth/access_token?client_id=${app}&client_secret=${sec}&redirect_uri=${encodeURIComponent(igRedirect())}&code=${encodeURIComponent(code)}`);
+    let tok = t.access_token;
+    if (!tok) throw new Error('нет маркера');
+    // обычный маркер пользователя (если конфигурация такая) — меняем на долгий; маркер системного пользователя приходит без срока
+    if (t.expires_in && Number(t.expires_in) < 7 * 86400) {
+        try { const l = await igJson(`${IG_GRAPH}/oauth/access_token?grant_type=fb_exchange_token&client_id=${app}&client_secret=${sec}&fb_exchange_token=${encodeURIComponent(tok)}`); if (l.access_token) tok = l.access_token; } catch (e) {}
+    }
+    const q = encodeURIComponent(tok);
+    let ids = [], fbu = '';
+    try {
+        const d = await igJson(`${IG_GRAPH}/debug_token?input_token=${q}&access_token=${app}%7C${sec}`);
+        fbu = String((d.data && d.data.user_id) || '');
+        for (const g of (d.data && d.data.granular_scopes) || []) if (/^instagram_/.test(g.scope || '')) ids.push(...(g.target_ids || []));
+    } catch (e) {}
+    if (!ids.length) { try { const d = await igJson(`${IG_GRAPH}/me/assigned_instagram_accounts?fields=id,username&access_token=${q}`); ids = (d.data || []).map(x => x.id); } catch (e) {} }
+    if (!ids.length) { try { const d = await igJson(`${IG_GRAPH}/me/accounts?fields=instagram_business_account&access_token=${q}`); ids = (d.data || []).map(x => x.instagram_business_account && x.instagram_business_account.id).filter(Boolean); } catch (e) {} }
+    const id = [...new Set(ids.map(String))].find(x => /^\d{5,30}$/.test(x));
+    if (!id) throw new Error('нет аккаунта Instagram в доступе');
+    let username = '', type = '';
+    try { const me = await igJson(`${IG_GRAPH}/${id}?fields=username&access_token=${q}`); username = String(me.username || ''); } catch (e) {}
+    return { id, username, type, tok, fbu };
+}
+async function igSave(uid, x) {
+    await withCoinLock(uid, async () => {
+        const u = await authAdmin(uid); const md = u.app_metadata || {};
+        await authAdmin(uid, 'PUT', { app_metadata: { ...md, iz_ig: { id: String(x.id || ''), username: String(x.username || '').slice(0, 40), type: String(x.type || ''), mode: x.mode || 'ig', ...(x.fbu ? { fbu: String(x.fbu) } : {}), tag: x.tag, tok: narxSeal({ a: x.tok }), at: Date.now(), since: todayTJ().iso } } });
+    });
+    IG_MEDIA.delete(uid); BOARD_MEMO.p = null;
 }
 async function handleIgMe(req, res) {
     const user = await getUser(req);
@@ -8319,7 +8360,9 @@ async function handleIgStart(req, res) {
     const tag = String(req.body && req.body.tag || '');
     if (!IG_TAGS.includes(tag)) return res.status(400).json({ ok: false, error: 'bad_tag' });
     const state = narxSeal({ u: user.id, t: Date.now(), tag });
-    const url = `https://www.instagram.com/oauth/authorize?client_id=${encodeURIComponent(process.env.IG_APP_ID)}&redirect_uri=${encodeURIComponent(igRedirect())}&response_type=code&scope=instagram_business_basic&state=${encodeURIComponent(state)}`;
+    const url = igUnified()
+        ? `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(process.env.IG_APP_ID)}&redirect_uri=${encodeURIComponent(igRedirect())}&config_id=${encodeURIComponent(process.env.IG_CONFIG_ID)}&response_type=code&override_default_response_type=true&state=${encodeURIComponent(state)}`
+        : `https://www.instagram.com/oauth/authorize?client_id=${encodeURIComponent(process.env.IG_APP_ID)}&redirect_uri=${encodeURIComponent(igRedirect())}&response_type=code&scope=instagram_business_basic&state=${encodeURIComponent(state)}`;
     return res.json({ ok: true, url });
 }
 async function handleIgCallback(req, res) {
@@ -8329,17 +8372,20 @@ async function handleIgCallback(req, res) {
     const st = narxOpen(String(req.query.state || ''));
     const code = String(req.query.code || '').replace(/#_$/, '');
     if (!st || !st.u || !IG_TAGS.includes(st.tag) || Date.now() - Number(st.t) > 15 * MIN || !/^[\w\-.]{10,2000}$/.test(code)) return back('err');
+    if (igUnified()) {
+        try {
+            const link = await igUnifiedLink(code);
+            await igSave(st.u, { ...link, mode: 'fb', tag: st.tag });
+            return back('ok');
+        } catch (err) { console.warn(`[ig unified]: ${err.message}`); return back(/нет аккаунта/.test(err.message) ? 'noacc' : 'err'); }
+    }
     try {
         const body = new URLSearchParams({ client_id: process.env.IG_APP_ID, client_secret: process.env.IG_APP_SECRET, grant_type: 'authorization_code', redirect_uri: igRedirect(), code });
         const s = await igJson('https://api.instagram.com/oauth/access_token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
         const l = await igJson(`https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(process.env.IG_APP_SECRET)}&access_token=${encodeURIComponent(s.access_token)}`);
         const tok = l.access_token || s.access_token;
         const me = await igJson(`https://graph.instagram.com/me?fields=user_id,username,account_type&access_token=${encodeURIComponent(tok)}`);
-        await withCoinLock(st.u, async () => {
-            const u = await authAdmin(st.u); const md = u.app_metadata || {};
-            await authAdmin(st.u, 'PUT', { app_metadata: { ...md, iz_ig: { id: String(me.user_id || s.user_id || ''), username: String(me.username || '').slice(0, 40), type: String(me.account_type || ''), tag: st.tag, tok: narxSeal({ a: tok }), at: Date.now(), since: todayTJ().iso } } });
-        });
-        IG_MEDIA.delete(st.u); BOARD_MEMO.p = null;
+        await igSave(st.u, { id: me.user_id || s.user_id, username: me.username, type: me.account_type, mode: 'ig', tag: st.tag, tok });
         return back('ok');
     } catch (err) { console.warn(`[ig callback]: ${err.message}`); return back('err'); }
 }
@@ -8367,7 +8413,7 @@ async function handleIgDeauth(req, res) {
     const code = crypto.randomBytes(6).toString('hex');
     try {
         BOARD_MEMO.p = null;
-        const u = (await boardUsers()).find(x => x.app_metadata && x.app_metadata.iz_ig && x.app_metadata.iz_ig.id === String(data.user_id));
+        const u = (await boardUsers()).find(x => { const ig = x.app_metadata && x.app_metadata.iz_ig; return ig && (ig.id === String(data.user_id) || ig.fbu === String(data.user_id)); });
         if (u) await igUnlink(u.id);
     } catch (err) { console.warn(`[ig deauth]: ${err.message}`); }
     return res.json({ url: `${igSite()}/privacy.html`, confirmation_code: code });
@@ -10246,5 +10292,5 @@ module.exports = {
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, handleClientLog, CLIENT_LOG, handleDeleteRequest, handleAdminDeletionDone, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, parseTgPreview, tgChannelInfo, tgMask, tgBoards, TG_CHANNELS, igItems, igBoards, igSigned, handleIgMe, handleIgStart, handleIgCallback, handleIgDeauth, IG_TAGS, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, handleClientLog, CLIENT_LOG, handleDeleteRequest, handleAdminDeletionDone, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, parseTgPreview, tgChannelInfo, tgMask, tgBoards, TG_CHANNELS, igItems, igBoards, igSigned, igUnifiedLink, handleIgMe, handleIgStart, handleIgCallback, handleIgDeauth, IG_TAGS, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
