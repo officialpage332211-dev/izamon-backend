@@ -8232,6 +8232,7 @@ const igRedirect = () => process.env.IG_REDIRECT || `${publicBase()}/api/ig/call
 const igSite = () => String(process.env.SITE_URL || 'https://izamon.vercel.app').replace(/\/+$/, '');
 const igLimited = makeLimiter(20);
 const IG_MEDIA = new Map(); // id пользователя → { at, p }
+const IG_LAST = []; // последние попытки подключения (для проверки владельцем): время, итог, причина — без ключей и кодов
 async function igJson(url, opts = {}) {
     const r = await withTimeout(fetch(url, opts), 10000);
     const d = await r.json().catch(() => ({}));
@@ -8360,24 +8361,25 @@ async function handleIgStart(req, res) {
     const tag = String(req.body && req.body.tag || '');
     if (!IG_TAGS.includes(tag)) return res.status(400).json({ ok: false, error: 'bad_tag' });
     const state = narxSeal({ u: user.id, t: Date.now(), tag });
+    IG_LAST.unshift({ at: new Date().toISOString(), r: 'start', why: tag }); IG_LAST.length = Math.min(IG_LAST.length, 8);
     const url = igUnified()
         ? `https://www.facebook.com/v21.0/dialog/oauth?client_id=${encodeURIComponent(process.env.IG_APP_ID)}&redirect_uri=${encodeURIComponent(igRedirect())}&config_id=${encodeURIComponent(process.env.IG_CONFIG_ID)}&response_type=code&override_default_response_type=true&state=${encodeURIComponent(state)}`
         : `https://www.instagram.com/oauth/authorize?client_id=${encodeURIComponent(process.env.IG_APP_ID)}&redirect_uri=${encodeURIComponent(igRedirect())}&response_type=code&scope=instagram_business_basic&state=${encodeURIComponent(state)}`;
     return res.json({ ok: true, url });
 }
 async function handleIgCallback(req, res) {
-    const back = r => res.redirect(302, `${igSite()}/?ig=${r}`);
+    const back = (r, why = '') => { IG_LAST.unshift({ at: new Date().toISOString(), r, why: String(why).replace(/access_token=[^&\s]+|code=[^&\s]+/g, '…').slice(0, 160) }); IG_LAST.length = Math.min(IG_LAST.length, 8); return res.redirect(302, `${igSite()}/?ig=${r}`); };
     if (!igOn()) return back('off');
-    if (req.query.error) return back('cancel');
+    if (req.query.error) return back('cancel', `${req.query.error}: ${req.query.error_reason || ''} ${req.query.error_description || ''}`);
     const st = narxOpen(String(req.query.state || ''));
     const code = String(req.query.code || '').replace(/#_$/, '');
-    if (!st || !st.u || !IG_TAGS.includes(st.tag) || Date.now() - Number(st.t) > 15 * MIN || !/^[\w\-.]{10,2000}$/.test(code)) return back('err');
+    if (!st || !st.u || !IG_TAGS.includes(st.tag) || Date.now() - Number(st.t) > 15 * MIN || !/^[\w\-.]{10,2000}$/.test(code)) return back('err', !st ? 'state не прочитан' : Date.now() - Number(st.t) > 15 * MIN ? 'state устарел' : 'нет кода');
     if (igUnified()) {
         try {
             const link = await igUnifiedLink(code);
             await igSave(st.u, { ...link, mode: 'fb', tag: st.tag });
             return back('ok');
-        } catch (err) { console.warn(`[ig unified]: ${err.message}`); return back(/нет аккаунта/.test(err.message) ? 'noacc' : 'err'); }
+        } catch (err) { console.warn(`[ig unified]: ${err.message}`); return back(/нет аккаунта/.test(err.message) ? 'noacc' : 'err', err.message); }
     }
     try {
         const body = new URLSearchParams({ client_id: process.env.IG_APP_ID, client_secret: process.env.IG_APP_SECRET, grant_type: 'authorization_code', redirect_uri: igRedirect(), code });
@@ -8387,7 +8389,7 @@ async function handleIgCallback(req, res) {
         const me = await igJson(`https://graph.instagram.com/me?fields=user_id,username,account_type&access_token=${encodeURIComponent(tok)}`);
         await igSave(st.u, { id: me.user_id || s.user_id, username: me.username, type: me.account_type, mode: 'ig', tag: st.tag, tok });
         return back('ok');
-    } catch (err) { console.warn(`[ig callback]: ${err.message}`); return back('err'); }
+    } catch (err) { console.warn(`[ig callback]: ${err.message}`); return back('err', err.message); }
 }
 async function igUnlink(uid) {
     await withCoinLock(uid, async () => { const u = await authAdmin(uid); const md = { ...(u.app_metadata || {}) }; delete md.iz_ig; await authAdmin(uid, 'PUT', { app_metadata: md }); });
@@ -9739,7 +9741,7 @@ async function handleDiag(req, res) {
     if (req.query?.igstat) {
         let linked = null;
         try { linked = igOn() ? (await withTimeout(boardUsers(), 8000)).filter(u => u.app_metadata && u.app_metadata.iz_ig).length : 0; } catch (e) { linked = 'н/д'; }
-        return res.json({ on: igOn(), unified: igUnified(), appId: !!process.env.IG_APP_ID, appIdDigits: /^\d{6,25}$/.test(String(process.env.IG_APP_ID || '')), secret: !!process.env.IG_APP_SECRET, configId: igUnified() ? String(process.env.IG_CONFIG_ID) : null, redirect: igRedirect(), linked });
+        return res.json({ on: igOn(), unified: igUnified(), appId: !!process.env.IG_APP_ID, appIdDigits: /^\d{6,25}$/.test(String(process.env.IG_APP_ID || '')), secret: !!process.env.IG_APP_SECRET, configId: igUnified() ? String(process.env.IG_CONFIG_ID) : null, redirect: igRedirect(), linked, last: IG_LAST });
     }
     if (req.query?.tgprev) {
         const ch = String(req.query.tgprev).replace(/^@/, '');
