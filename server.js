@@ -7765,7 +7765,7 @@ function checkSolution(b, date) {
     if (game === 'scan') {
         const P = GAMES.SCAN.build(date);
         const ok = Object.keys(P.grid).every(k => fill[k] === P.grid[k].ch);
-        return ok ? { key: `scan:${date}`, prize: Math.max(3, 15 - hints) } : null; // сканворд дня — 15 монет (минус подсказки)
+        return ok ? { key: `scan:${date}`, prize: Math.max(3, 20 - 4 * hints) } : null; // сканворд дня — 20 монет, подсказка −4 (не меньше 3)
     }
     if (game === 'kalima') {
         // слова, найденные за день: все должны быть из букв дня и из словаря; среди них — само слово дня
