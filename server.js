@@ -9534,6 +9534,7 @@ async function handleDiag(req, res) {
         return res.json({ channel: ch, preview: typeof prev === 'string' ? { size: prev.length, posts: (prev.match(/data-post="/g) || []).length } : prev,
             info: info && (info.title || Object.keys(info.counters).length) ? info : typeof page === 'string' ? tgChannelInfo(page) : info,
             consent: !!TG_CHANNELS[ch], parsed: items.length,
+            ...(req.query.raw && typeof prev === 'string' ? { raw: (() => { const i = prev.lastIndexOf('data-post="'); return i < 0 ? '' : prev.slice(Math.max(0, i - 300), i + Math.min(5000, Number(req.query.raw) || 3000)); })() } : {}),
             sample: items.slice(0, Number(req.query.n) > 0 ? Math.min(40, Number(req.query.n)) : 6).map(a => ({ title: a.title, price: a.price, place: a.location, when: a.published, photos: a.imgCount, url: a.url, text: a.description.slice(0, 160) })) });
     }
     if (req.query?.contacts) {
