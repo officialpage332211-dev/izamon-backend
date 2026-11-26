@@ -7930,6 +7930,105 @@ app.get('/api/ref', handleRefGet);
 
 app.post('/api/coins/claim', handleCoinsClaim);
 app.get('/api/coins', handleCoinsGet);
+// ---------------------------------------------------------------------------
+// «Нархро ёб» (26.11.2026): каждый день 5 настоящих объявлений somon.tj (мебель, ноутбуки, техника, телевизоры, обувь,
+// детские товары) — человек угадывает цену, после ответа видит настоящую цену и ссылку на объявление.
+//  * GET /api/narx — объявления дня без цен + зашифрованный токен (цены внутри, прочитать нельзя; сервер ничего не хранит);
+//  * POST /api/narx/guess { token, i, guess } — только для вошедших: первая догадка по объявлению запоминается
+//    (app_metadata.iz_narx), второй раз не переиграть; ответ — настоящая цена, ошибка в %, монета;
+//    после пятой догадки монеты начисляются один раз в день (ключ narx:дата): по 1 за каждую с ошибкой не больше 10%.
+// ---------------------------------------------------------------------------
+const NARX_SECTIONS = ['vse-dlya-doma/mebel/', 'kompyuteryi-i-orgtehnika/noutbuki/', 'elektronika-i-tehnika/tehnika-dlya-doma-i-kuhni/',
+    'elektronika-i-tehnika/tv-dvd-video/televizoryi/', 'odezhda-i-obuv/obuv/', 'detskij-mir/'];
+const NARX_MEMO = new Map(); // дата → Promise({ items, token })
+const narxLimited = makeLimiter(30);
+function narxKey() { return crypto.createHash('sha256').update('iz-narx:' + (process.env.IZ_GAME_SECRET || SB_KEY() || 'izamon')).digest(); }
+function narxSeal(obj) {
+    const iv = crypto.randomBytes(12), c = crypto.createCipheriv('aes-256-gcm', narxKey(), iv);
+    const enc = Buffer.concat([c.update(JSON.stringify(obj), 'utf8'), c.final()]);
+    return Buffer.concat([iv, c.getAuthTag(), enc]).toString('base64url');
+}
+function narxOpen(tok) {
+    try {
+        const b = Buffer.from(String(tok || ''), 'base64url');
+        if (b.length < 30 || b.length > 4000) return null;
+        const d = crypto.createDecipheriv('aes-256-gcm', narxKey(), b.subarray(0, 12));
+        d.setAuthTag(b.subarray(12, 28));
+        return JSON.parse(Buffer.concat([d.update(b.subarray(28)), d.final()]).toString('utf8'));
+    } catch (e) { return null; }
+}
+function narxPrice(s) { const n = Number(String(s || '').replace(/[^\d.]/g, '')); return Number.isFinite(n) ? Math.round(n) : 0; }
+function narxHash(s) { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; } return h; }
+async function narxBuild(date) {
+    const h = narxHash('narx:' + date), items = [], seen = new Set();
+    for (let k = 0; k < NARX_SECTIONS.length && items.length < 5; k++) {
+        const path = NARX_SECTIONS[(h + k) % NARX_SECTIONS.length];
+        let list = [];
+        try { list = await somonGet(somonUrl({ path })); } catch (e) { continue; }
+        const ok = list.filter(a => { const p = narxPrice(a.price); return p >= 20 && p <= 300000 && !/договор/i.test(a.priceNote || '') && (a.thumb || (a.images || [])[0]) && a.title && !seen.has(a.id); });
+        if (!ok.length) continue;
+        const a = ok[narxHash(date + ':' + k) % ok.length];
+        seen.add(a.id);
+        const photo = a.images && a.images[0] ? a.images[0] : a.thumb;
+        items.push({ id: String(a.id), title: String(a.title).slice(0, 120), photo, photoProxy: proxyImageUrl(photo), location: String(a.location || '').slice(0, 60),
+            price: narxPrice(a.price), url: 'https://somon.tj' + a.path });
+    }
+    if (items.length < 3) throw new Error('мало объявлений');
+    const token = narxSeal({ d: date, ids: items.map(x => x.id), p: items.map(x => x.price), u: items.map(x => x.url) });
+    return { items: items.map(({ price, url, ...x }) => x), token };
+}
+function narxToday(date) {
+    const hit = NARX_MEMO.get(date);
+    if (hit) return hit;
+    const p = narxBuild(date);
+    p.catch(() => NARX_MEMO.delete(date));
+    for (const k of NARX_MEMO.keys()) if (k !== date) NARX_MEMO.delete(k);
+    NARX_MEMO.set(date, p);
+    return p;
+}
+// монета за догадку: ошибка не больше 10% — 1
+function narxPts(guess, price) { const e = Math.abs(guess - price) / price; return { err: Math.round(e * 100), pts: e <= 0.1 ? 1 : 0 }; }
+async function handleNarxGet(req, res) {
+    if (narxLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    try { const out = await narxToday(todayTJ().iso); return res.json({ ok: true, date: todayTJ().iso, ...out }); }
+    catch (err) { console.warn(`[narx]: ${err.message}`); return res.status(503).json({ ok: false, error: 'unavailable' }); }
+}
+async function handleNarxGuess(req, res) {
+    if (narxLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    const b = req.body || {}, T = narxOpen(b.token), date = todayTJ().iso;
+    if (!T || T.d !== date) return res.status(400).json({ ok: false, error: 'bad_token' });
+    const i = Math.floor(Number(b.i)), guess = Math.round(Number(b.guess));
+    if (!(i >= 0 && i < T.p.length) || !(guess > 0 && guess <= 10000000)) return res.status(400).json({ ok: false, error: 'bad_guess' });
+    try {
+        const out = await withCoinLock(user.id, async () => {
+            const u = await authAdmin(user.id), md = u.app_metadata || {}, m = coinMeta(u);
+            let st = md.iz_narx && md.iz_narx.d === date && md.iz_narx.s === T.ids.join(',') && Array.isArray(md.iz_narx.g) ? md.iz_narx : { d: date, s: T.ids.join(','), g: [] };
+            const g = st.g.slice(0, T.p.length);
+            if (!(g[i] > 0)) g[i] = guess; // первая догадка остаётся
+            st = { d: date, s: st.s, g };
+            const r = narxPts(g[i], T.p[i]);
+            const all = T.p.every((_, k) => g[k] > 0), key = `narx:${date}`;
+            let prize = null, coins = m.coins, claims = m.claims, gameCoins = coinSplit(u).fromGames;
+            if (all && !claims.includes(key)) {
+                prize = T.p.reduce((s2, p, k) => s2 + narxPts(g[k], p).pts, 0);
+                coins = r1(m.coins + prize); claims = claims.concat(key).slice(-60); gameCoins = r1(gameCoins + prize);
+            }
+            await authAdmin(user.id, 'PUT', { app_metadata: { ...md, iz_narx: st, ...(prize !== null ? { iz_coins: coins, iz_claims: claims, iz_game_coins: gameCoins } : {}) } });
+            return { ok: true, i, guess: g[i], price: T.p[i], url: T.u[i], err: r.err, pts: r.pts, done: all, ...(prize !== null ? { prize, coins } : {}), refBy: prize ? refByOf(u) : '' };
+        });
+        if (out.prize > 0 && out.refBy) refShare(out.refBy, out.prize).catch(err => console.warn(`[ref 10%]: ${err.message}`));
+        delete out.refBy;
+        return res.json(out);
+    } catch (err) {
+        console.warn(`[narx Сбой]: ${err.message}`);
+        return res.status(503).json({ ok: false, error: 'store_failed' });
+    }
+}
+app.get('/api/narx', handleNarxGet);
+app.post('/api/narx/guess', handleNarxGuess);
+
 
 async function handleAdBump(req, res) {
     if (bumpLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
@@ -9717,7 +9816,7 @@ if (require.main === module) {
 }
 
 module.exports = {
-    bumpCost, parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
+    bumpCost, handleNarxGet, handleNarxGuess, narxOpen, narxSeal, NARX_MEMO, parseRgCards, parseSavdoCards, boardUrl, keywordSpec, pageDescriptionAny, fullText,
     speakAny, GEMINI_VOICE,
     localizeMoney, nbtRatesFor, _setRates: r => { nbtRatesMemo = { at: Date.now(), rates: r }; },
     detach, TTLCache, mixedWhy, OPENAI_CHAT, handleRefClaim, handleRefGet, refCode, refUid, refBadge, REF, districtMatch, districtById, partsRule, resolvePortal, dictSkel, heartPrompt, heartTopicOf, gated, computeGate, rssItems, kunLatin, getNews, handleNews, handleUpload, photoType, handleUploadVideo, handleAvatar, ourVideo, videoCol, handleCoinsClaim, handleCoinsGet, coinSplit, checkSolution,
