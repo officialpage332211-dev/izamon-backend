@@ -4654,7 +4654,7 @@ function tgMask(s) {
         .replace(/(?<![\w@])@[A-Za-z][A-Za-z0-9_]{3,31}/g, TG_HIDDEN)
         .replace(/(?:•••[\s,;/]*){2,}/g, TG_HIDDEN + ' ');
 }
-const TG_PRICE = /(?:(?:нарх|цена|narx|price)\s*[:\-–—]?\s*)?(\$\s?\d[\d\s.,]{0,12}\d|\d[\d\s.,]{0,12}\d?\s*(?:сомон\p{L}*|сом\.?|смн|tjs|c\.(?=\s|$)|\$|долл\p{L}*|usd|у\.е\.|тысяч\p{L}*\s*(?:сомон\p{L}*|\$|долл\p{L}*)|хазор\s*(?:сомон\p{L}*|\$|доллар)))/iu;
+const TG_PRICE = /(?:(?:нарх|цена|narx|price)\s*[:\-–—]?\s*)?(\$\s?\d[\d\s.,]{0,12}\d|\d[\d\s.,]{0,12}\d?\s*(?:сомон\p{L}*|сом\.?|смн|tjs|c\.(?=\s|$)|\$(?!\s?\d)|долл\p{L}*|usd|у\.е\.|тысяч\p{L}*\s*(?:сомон\p{L}*|\$|долл\p{L}*)|хазор\s*(?:сомон\p{L}*|\$|доллар)))/iu;
 const TG_PROMO = /(?:^|[\s#])(?:реклама|подпис(?:ывайтесь|аться|ка)\s+на|обуна\s+шавед|розыгрыш|конкурс|правила\s+(?:группы|канала)|қоидаҳои\s+канал)/iu;
 function tgPublished(iso) {
     const ms = Date.parse(iso || '');
@@ -4716,6 +4716,7 @@ function tgChannelInfo(html) {
 }
 
 function boardGet(host, url) {
+    if (host === 'instagram.com') return igMediaList(String(url).replace(/^ig:/, ''));
     const hit = BOARD_CACHE.get(url);
     if (hit && Date.now() - hit.at < BOARD_CACHE_MS) return hit.p;
     // ola.tj бывает медленным (страница раздела ~600 КБ, 8–15 с): грузим до 25 с, но человек ждёт не дольше BOARD_WAIT_MS — остальное ляжет в запас
@@ -4735,6 +4736,7 @@ function boardUrl(b, city = null) {
     // поиск по словам: paydo.tj сам находит нужный раздел («iphone» → Телефоны → Apple); у ola.tj адреса поиска нет
     if (b && b.q) return b.host === 'paydo.tj' ? `https://paydo.tj/ru/all?q=${encodeURIComponent(String(b.q).slice(0, 80))}`
         : b.host === 'savdo.tj' ? `https://savdo.tj/search?keywords=${encodeURIComponent(String(b.q).slice(0, 80))}` : null;
+    if (b && b.host === 'instagram.com') return /^[0-9a-f\-]{36}$/.test(b.path || '') ? `ig:${b.path}` : null;
     if (b && b.host === 't.me') return TG_NAME.test(b.path || '') ? `https://t.me/s/${b.path}` : null;
     const base = BOARD_HOSTS[b && b.host];
     if (!base || !/^[a-z0-9\-_]{2,60}(?:\/[a-z0-9\-_]{2,30})?$/i.test(b.path || '')) return null;
@@ -4760,7 +4762,7 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
             const general = somonUrl(src), local = slug ? somonUrl(src, slug) : null;
             return { host: 'somon.tj', url: local || general, fallback: local ? general : null, local: !!local, words: src.words, get: somonGet };
         }),
-        ...(boardsOn ? [...(spec.boards || []), ...tgBoards(spec)].filter(b => !BOARD_OFF.has(b.host)) : []).map(b => {
+        ...(boardsOn ? [...(spec.boards || []), ...tgBoards(spec), ...(await igBoards(spec))].filter(b => !BOARD_OFF.has(b.host)) : []).map(b => {
             const general = boardUrl(b), local = city ? boardUrl(b, city) : null;
             const own = !!local && local !== general;
             return { host: b.host, url: own ? local : general, fallback: own ? general : null, local: own, words: b.words, get: u => boardGet(b.host, u) };
@@ -6640,7 +6642,7 @@ async function verifyItems(original, current, kind, debug, nameCheck = false) {
     if (process.env.PHOTO_CHECK === 'off') return current;
     const stat = { pagesOk: 0, pagesFailed: 0, contactsKept: 0, contactsDropped: 0, pointsDropped: 0, notOnPage: 0 };
     const facts = await Promise.all(original.map(async it => {
-        if (/^https:\/\/t\.me\//.test(it.url || '')) return null; // пост Telegram-канала: проверено при разборе страницы канала
+        if (/^https:\/\/(?:t\.me|www\.instagram\.com)\//.test(it.url || '')) return null; // пост Telegram-канала: проверено при разборе страницы канала
         try { return pageFacts((await withTimeout(getPage(it.url), 9000)).html); } catch { return null; }
     }));
     const out = current.map((it, i) => {
@@ -6741,7 +6743,7 @@ async function resolvePhotos(items, debug, hotel = false) {
     const why = (r) => { stat.why[r] = (stat.why[r] || 0) + 1; };
     const one = async (it) => {
         // пост Telegram-канала: фото уже взяты с открытой страницы канала; страницу поста не открываем — там полный текст с телефонами
-        if (/^https:\/\/t\.me\//.test(it.url || '')) return { img: it.image || null, why: 'tg', gallery: it.gallery0 || [], desc: '', specs: null };
+        if (/^https:\/\/(?:t\.me|www\.instagram\.com)\//.test(it.url || '')) return { img: it.image || null, why: 'tg', gallery: it.gallery0 || [], desc: '', specs: null };
         // у гостиниц страница — это страница самой гостиницы (проверяем по заголовку ниже), а не номер объявления
         if (!(hotel ? /^https:\/\//i.test(it.url || '') : isListingUrl(it.url))) return { img: null, why: 'общая страница списка' };
         const hit = PHOTO_CACHE.get(it.url);
@@ -8211,6 +8213,171 @@ async function handleBoardHide(req, res) {
 }
 app.get('/api/games/board', handleBoard);
 app.post('/api/games/board/hide', handleBoardHide);
+
+// ---------- Instagram: продавец сам подключает свой бизнес-аккаунт (26.11.2026) ----------
+// Официальный путь Meta — «Instagram API with Instagram Login»: продавец входит через instagram.com и разрешает iZamoN читать
+// ЕГО посты (instagram_business_basic). Чужие аккаунты не читаем. Посты продавца показываются в выбранном им разделе со ссылкой на пост.
+// Включается переменными сервера IG_APP_ID и IG_APP_SECRET (приложение в Meta for Developers регистрирует владелец iZamoN).
+// Токен храним зашифрованным в app_metadata.iz_ig; продавец отключает в «Ҳисоби ман», Meta присылает отзыв на /api/ig/deauth.
+const IG_TAGS = ['car', 'parts', 'flat-sale', 'flat-rent', 'land', 'furniture', 'clothes', 'tech', 'phone', 'job'];
+const IG_MAX_AGE_DAYS = 90;
+const igOn = () => !!(process.env.IG_APP_ID && process.env.IG_APP_SECRET && adsOn());
+const igRedirect = () => process.env.IG_REDIRECT || `${publicBase()}/api/ig/callback`;
+const igSite = () => String(process.env.SITE_URL || 'https://izamon.vercel.app').replace(/\/+$/, '');
+const igLimited = makeLimiter(20);
+const IG_MEDIA = new Map(); // id пользователя → { at, p }
+async function igJson(url, opts = {}) {
+    const r = await withTimeout(fetch(url, opts), 10000);
+    const d = await r.json().catch(() => ({}));
+    if (!r.ok || (d && d.error)) { const e = new Error(`instagram ${r.status}: ${String((d && d.error && (d.error.message || d.error.type)) || d.error_message || '').slice(0, 80)}`); e.status = r.status; throw e; }
+    return d;
+}
+// Пост Instagram → объявление в том же виде, что у других сайтов. Продавец — сам владелец аккаунта: контакты в тексте его, их оставляем.
+function igItems(list, username, max = 30) {
+    const out = [];
+    for (const m of Array.isArray(list) ? list : []) {
+        if (!m || !/^https:\/\/(?:www\.)?instagram\.com\//.test(m.permalink || '')) continue;
+        const ms = Date.parse(m.timestamp || '');
+        if (Number.isFinite(ms) && Date.now() - ms > IG_MAX_AGE_DAYS * 86400000) continue;
+        const lines = String(m.caption || '').split('\n').map(x => x.trim()).filter(Boolean);
+        const clean = l => l.replace(/#[\p{L}\p{N}_]+/gu, ' ').replace(/^[^\p{L}\p{N}$]+/u, '').replace(/\s+/g, ' ').trim();
+        const ti = lines.findIndex(l => clean(l).replace(/[^\p{L}]/gu, '').length >= 3);
+        if (ti < 0) continue;
+        let title = clean(lines[ti]);
+        if (title.length > 90) title = cutAtWord(title, 90);
+        const text = lines.join('\n');
+        const kids = (m.children && Array.isArray(m.children.data)) ? m.children.data : [];
+        const images = [...new Set([m.media_type === 'VIDEO' ? m.thumbnail_url : m.media_url, ...kids.map(k => k && (k.media_type === 'VIDEO' ? k.thumbnail_url : k.media_url))]
+            .filter(u => typeof u === 'string' && /^https:\/\//.test(u) && u.length < 1500))].slice(0, 10);
+        const pm = TG_PRICE.exec(text);
+        const city = cityOf(text);
+        out.push({ id: 'ig' + String(m.id || '').replace(/\D/g, '').slice(0, 30), title, description: clip(lines.filter((_, k) => k !== ti).join('\n'), 600),
+            price: pm ? pm[1].replace(/\s+/g, ' ').trim() : '', priceNote: '', thumb: images[0] || '', imgCount: images.length, images,
+            published: tgPublished(m.timestamp), path: '', url: m.permalink, location: city ? city.names.ru : '', who: username ? '@' + username : '', cats: '' });
+        if (out.length >= max) break;
+    }
+    return out;
+}
+// токен живёт 60 дней; продлеваем, когда ему больше недели (Meta: продлить можно, если ему больше суток и он не истёк)
+async function igToken(uid, ig) {
+    const t = narxOpen(ig && ig.tok);
+    if (!t || !t.a) throw new Error('нет токена');
+    if (Date.now() - Number(ig.at || 0) < 7 * 86400000) return t.a;
+    try {
+        const d = await igJson(`https://graph.instagram.com/refresh_access_token?grant_type=ig_refresh_token&access_token=${encodeURIComponent(t.a)}`);
+        if (d.access_token) {
+            await withCoinLock(uid, async () => {
+                const u = await authAdmin(uid); const md = u.app_metadata || {};
+                if (md.iz_ig && md.iz_ig.id === ig.id) await authAdmin(uid, 'PUT', { app_metadata: { ...md, iz_ig: { ...md.iz_ig, tok: narxSeal({ a: d.access_token }), at: Date.now() } } });
+            });
+            return d.access_token;
+        }
+    } catch (err) { console.warn(`[ig refresh]: ${err.message}`); }
+    return t.a;
+}
+function igMediaList(uid) {
+    const hit = IG_MEDIA.get(uid);
+    if (hit && Date.now() - hit.at < 20 * MIN) return hit.p;
+    const p = (async () => {
+        const users = await boardUsers();
+        const u = users.find(x => x.id === uid);
+        const ig = u && u.app_metadata && u.app_metadata.iz_ig;
+        if (!ig) throw new Error('Instagram не подключён');
+        const tok = await igToken(uid, ig);
+        const d = await igJson(`https://graph.instagram.com/me/media?fields=id,caption,media_type,media_url,thumbnail_url,permalink,timestamp,children%7Bmedia_type,media_url,thumbnail_url%7D&limit=30&access_token=${encodeURIComponent(tok)}`);
+        const list = detach(igItems(d.data, ig.username));
+        if (!list.length) throw new Error('в Instagram нет подходящих постов');
+        return list;
+    })();
+    if (IG_MEDIA.size >= 200) IG_MEDIA.delete(IG_MEDIA.keys().next().value);
+    IG_MEDIA.set(uid, { at: Date.now(), p });
+    p.catch(() => { if (IG_MEDIA.get(uid) && IG_MEDIA.get(uid).p === p) IG_MEDIA.delete(uid); });
+    return p;
+}
+// какие подключённые аккаунты показать в этом разделе: тот, что выбрал продавец (spec.tg), и все — в поиске по словам
+async function igBoards(spec) {
+    if (!igOn() || !(spec.tg || spec.keyword)) return [];
+    let users = [];
+    try { users = await withTimeout(boardUsers(), 3000); } catch { return []; }
+    return users.filter(u => { const ig = u.app_metadata && u.app_metadata.iz_ig; return ig && ig.tok && (spec.keyword || ig.tag === spec.tg); })
+        .slice(0, 12).map(u => ({ host: 'instagram.com', path: u.id }));
+}
+async function handleIgMe(req, res) {
+    const user = await getUser(req);
+    if (!igOn()) return res.json({ ok: true, on: false });
+    if (!user) return res.json({ ok: true, on: true, linked: null, tags: IG_TAGS });
+    try {
+        const u = await authAdmin(user.id); const ig = (u.app_metadata || {}).iz_ig;
+        return res.json({ ok: true, on: true, tags: IG_TAGS, linked: ig ? { username: ig.username || '', tag: ig.tag || '', since: ig.since || '' } : null });
+    } catch (err) { return res.status(503).json({ ok: false, error: 'unavailable' }); }
+}
+async function handleIgStart(req, res) {
+    if (igLimited(req.ip)) return res.status(429).json({ ok: false, error: 'rate_limited' });
+    if (!igOn()) return res.status(503).json({ ok: false, error: 'ig_off' });
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    const tag = String(req.body && req.body.tag || '');
+    if (!IG_TAGS.includes(tag)) return res.status(400).json({ ok: false, error: 'bad_tag' });
+    const state = narxSeal({ u: user.id, t: Date.now(), tag });
+    const url = `https://www.instagram.com/oauth/authorize?client_id=${encodeURIComponent(process.env.IG_APP_ID)}&redirect_uri=${encodeURIComponent(igRedirect())}&response_type=code&scope=instagram_business_basic&state=${encodeURIComponent(state)}`;
+    return res.json({ ok: true, url });
+}
+async function handleIgCallback(req, res) {
+    const back = r => res.redirect(302, `${igSite()}/?ig=${r}`);
+    if (!igOn()) return back('off');
+    if (req.query.error) return back('cancel');
+    const st = narxOpen(String(req.query.state || ''));
+    const code = String(req.query.code || '').replace(/#_$/, '');
+    if (!st || !st.u || !IG_TAGS.includes(st.tag) || Date.now() - Number(st.t) > 15 * MIN || !/^[\w\-.]{10,2000}$/.test(code)) return back('err');
+    try {
+        const body = new URLSearchParams({ client_id: process.env.IG_APP_ID, client_secret: process.env.IG_APP_SECRET, grant_type: 'authorization_code', redirect_uri: igRedirect(), code });
+        const s = await igJson('https://api.instagram.com/oauth/access_token', { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body });
+        const l = await igJson(`https://graph.instagram.com/access_token?grant_type=ig_exchange_token&client_secret=${encodeURIComponent(process.env.IG_APP_SECRET)}&access_token=${encodeURIComponent(s.access_token)}`);
+        const tok = l.access_token || s.access_token;
+        const me = await igJson(`https://graph.instagram.com/me?fields=user_id,username,account_type&access_token=${encodeURIComponent(tok)}`);
+        await withCoinLock(st.u, async () => {
+            const u = await authAdmin(st.u); const md = u.app_metadata || {};
+            await authAdmin(st.u, 'PUT', { app_metadata: { ...md, iz_ig: { id: String(me.user_id || s.user_id || ''), username: String(me.username || '').slice(0, 40), type: String(me.account_type || ''), tag: st.tag, tok: narxSeal({ a: tok }), at: Date.now(), since: todayTJ().iso } } });
+        });
+        IG_MEDIA.delete(st.u); BOARD_MEMO.p = null;
+        return back('ok');
+    } catch (err) { console.warn(`[ig callback]: ${err.message}`); return back('err'); }
+}
+async function igUnlink(uid) {
+    await withCoinLock(uid, async () => { const u = await authAdmin(uid); const md = { ...(u.app_metadata || {}) }; delete md.iz_ig; await authAdmin(uid, 'PUT', { app_metadata: md }); });
+    IG_MEDIA.delete(uid); BOARD_MEMO.p = null;
+}
+async function handleIgDisconnect(req, res) {
+    const user = await getUser(req);
+    if (!user) return res.status(401).json({ ok: false, error: 'login_required' });
+    try { await igUnlink(user.id); return res.json({ ok: true }); } catch (err) { return res.status(503).json({ ok: false, error: 'store_failed' }); }
+}
+// Meta: человек отозвал доступ или просит удалить данные — signed_request (HMAC-SHA256 секретом приложения)
+function igSigned(sr) {
+    const [sig, payload] = String(sr || '').split('.');
+    if (!sig || !payload || !process.env.IG_APP_SECRET) return null;
+    const want = crypto.createHmac('sha256', process.env.IG_APP_SECRET).update(payload).digest('base64url');
+    const a = Buffer.from(want), b = Buffer.from(sig.replace(/=+$/, ''));
+    if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+    try { return JSON.parse(Buffer.from(payload, 'base64url').toString('utf8')); } catch { return null; }
+}
+async function handleIgDeauth(req, res) {
+    const data = igSigned(req.body && req.body.signed_request);
+    if (!data || !data.user_id) return res.status(400).json({ error: 'bad_request' });
+    const code = crypto.randomBytes(6).toString('hex');
+    try {
+        BOARD_MEMO.p = null;
+        const u = (await boardUsers()).find(x => x.app_metadata && x.app_metadata.iz_ig && x.app_metadata.iz_ig.id === String(data.user_id));
+        if (u) await igUnlink(u.id);
+    } catch (err) { console.warn(`[ig deauth]: ${err.message}`); }
+    return res.json({ url: `${igSite()}/privacy.html`, confirmation_code: code });
+}
+app.get('/api/ig/me', handleIgMe);
+app.post('/api/ig/start', handleIgStart);
+app.get('/api/ig/callback', handleIgCallback);
+app.post('/api/ig/disconnect', handleIgDisconnect);
+// Meta присылает форму (application/x-www-form-urlencoded)
+app.post('/api/ig/deauth', typeof express.urlencoded === 'function' ? express.urlencoded({ extended: false, limit: '10kb' }) : (q, r, n) => n(), handleIgDeauth);
 
 
 
@@ -10079,5 +10246,5 @@ module.exports = {
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, handleClientLog, CLIENT_LOG, handleDeleteRequest, handleAdminDeletionDone, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, parseTgPreview, tgChannelInfo, tgMask, tgBoards, TG_CHANNELS, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, handleClientLog, CLIENT_LOG, handleDeleteRequest, handleAdminDeletionDone, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, parseTgPreview, tgChannelInfo, tgMask, tgBoards, TG_CHANNELS, igItems, igBoards, igSigned, handleIgMe, handleIgStart, handleIgCallback, handleIgDeauth, IG_TAGS, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
