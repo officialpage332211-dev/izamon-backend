@@ -9641,6 +9641,15 @@ app.post('/api/admin/reports/:id', handleAdminReportAct);
 app.post('/api/ads', handleAdsCreate);
 app.get('/api/ads', handleAdsSearch);
 app.get('/api/ads/mine', handleAdsMine);
+// Те же адреса без слова «ads» (26.11.2026): блокировщики рекламы в браузерах (Samsung Internet и др.) режут запросы с «/ads/» —
+// «Эълонҳои ман», «поднять», «изменить», «удалить», «пожаловаться» не доходили до сервера («Failed to fetch»). Сайт ходит сюда.
+app.post('/api/elon', handleAdsCreate);
+app.get('/api/elon', handleAdsSearch);
+app.get('/api/elon/mine', handleAdsMine);
+app.delete('/api/elon/:id', handleAdsDelete);
+app.post('/api/elon/:id/bump', handleAdBump);
+app.post('/api/elon/:id/edit', handleAdEdit);
+app.post('/api/elon/:id/report', handleAdReport);
 
 // ---------------------------------------------------------------------------
 // Диагностика: откройте /diag в браузере — страница покажет, что именно не работает (ключи не показываются).
