@@ -9741,7 +9741,21 @@ async function handleDiag(req, res) {
     if (req.query?.igstat) {
         let linked = null;
         try { linked = igOn() ? (await withTimeout(boardUsers(), 8000)).filter(u => u.app_metadata && u.app_metadata.iz_ig).length : 0; } catch (e) { linked = 'н/д'; }
-        return res.json({ on: igOn(), unified: igUnified(), appId: !!process.env.IG_APP_ID, appIdDigits: /^\d{6,25}$/.test(String(process.env.IG_APP_ID || '')), secret: !!process.env.IG_APP_SECRET, configId: igUnified() ? String(process.env.IG_CONFIG_ID) : null, redirect: igRedirect(), linked, last: IG_LAST });
+        // posts=1: для каждого подключённого аккаунта — сколько постов стали объявлениями (или почему нет); без ключей
+        let accounts;
+        if (req.query.posts && igOn()) {
+            try {
+                const us = (await withTimeout(boardUsers(), 8000)).filter(u => u.app_metadata && u.app_metadata.iz_ig).slice(0, 5);
+                accounts = await Promise.all(us.map(async u => {
+                    const ig = u.app_metadata.iz_ig;
+                    const row = { username: ig.username || '', tag: ig.tag || '', mode: ig.mode || 'ig', since: ig.since || '', idOk: /^\d{5,30}$/.test(ig.id || '') };
+                    try { IG_MEDIA.delete(u.id); const l = await withTimeout(igMediaList(u.id), 15000); row.ads = l.length; row.sample = l.slice(0, 3).map(a => ({ title: a.title, price: a.price, place: a.location, when: a.published, photos: a.imgCount, url: a.url })); }
+                    catch (e) { row.error = String(e.message || e).replace(/access_token=[^&\s]+/g, '…').slice(0, 200); }
+                    return row;
+                }));
+            } catch (e) { accounts = String(e.message || e).slice(0, 100); }
+        }
+        return res.json({ accounts, on: igOn(), unified: igUnified(), appId: !!process.env.IG_APP_ID, appIdDigits: /^\d{6,25}$/.test(String(process.env.IG_APP_ID || '')), secret: !!process.env.IG_APP_SECRET, configId: igUnified() ? String(process.env.IG_CONFIG_ID) : null, redirect: igRedirect(), linked, last: IG_LAST });
     }
     if (req.query?.tgprev) {
         const ch = String(req.query.tgprev).replace(/^@/, '');
