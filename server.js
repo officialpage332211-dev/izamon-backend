@@ -6018,6 +6018,28 @@ async function conceptPicture(text, lang, given = null) {
     if (WIKI_CACHE.size > 500) WIKI_CACHE.delete(WIKI_CACHE.keys().next().value);
     return v;
 }
+// «Илм ва табиат» (27.11.2026): темы науки — ответ из Википедии на языке человека (с картинкой той же статьи и ссылкой).
+// Названия — как статьи в Википедии каждого языка (проверка: /diag?wikichk=tg|ru|uz). Список тот же, что в izamon-sci.js на сайте.
+const SCI_TOPICS = [
+    ['sun', 'Офтоб', 'Солнце', 'Quyosh'], ['moon', 'Моҳ', 'Луна', 'Oy (yoʻldosh)'], ['earth', 'Замин', 'Земля', 'Yer'],
+    ['solar', 'Системаи Офтобӣ', 'Солнечная система', 'Quyosh tizimi'], ['star', 'Ситора', 'Звезда', 'Yulduz'],
+    ['quake', 'Заминларза', 'Землетрясение', 'Zilzila'], ['volcano', 'Вулқон', 'Вулкан', 'Vulqon'], ['rainbow', 'Рангинкамон', 'Радуга', 'Kamalak'],
+    ['lightning', 'Барқ', 'Молния', 'Chaqmoq'], ['photo', 'Фотосинтез', 'Фотосинтез', 'Fotosintez'], ['water', 'Об', 'Вода', 'Suv'],
+    ['air', 'Атмосфера', 'Атмосфера', 'Atmosfera'], ['dna', 'ДНК', 'ДНК', 'DNK'], ['bact', 'Бактерияҳо', 'Бактерии', 'Bakteriyalar'], ['magnet', 'Магнит', 'Магнит', 'Magnit']
+];
+function sciTerm(text, lang) {
+    const t = String(text || '').trim().toLowerCase();
+    const col = lang === 'ru' ? 2 : lang === 'uz' ? 3 : 1;
+    const row = SCI_TOPICS.find(r => r[col].toLowerCase() === t || r.slice(1).some(x => x.toLowerCase() === t));
+    return row ? row[col] : null;
+}
+async function sciAnswer(text, lang) {
+    const term = sciTerm(text, lang);
+    if (!term) return null;
+    const [wk, pic] = await Promise.all([wikiAnswer(term, lang, true).catch(() => null), withTimeout(conceptPicture(term, lang, term), 4000).catch(() => null)]);
+    if (!wk) return null;
+    return pic ? { ...wk, answer: withPictureHtml(wk.answer, pic, lang), picture: pic.page } : wk;
+}
 // Ответ-справка из Википедии на языке человека (tg/uz/ru) — когда ИИ не дал чистого ответа. Понятие: вопрос «что такое …»
 // или просто 1–3 слова без цифр («фотосинтез»). Только статья о том же слове, без смеси языков; 2–3 первых предложения.
 const WIKI_SRC = { tg: 'Википедия', ru: 'Википедия', uz: 'Vikipediya' };
@@ -6025,7 +6047,7 @@ function bareTerm(text) {
     const t = String(text || '').trim().replace(/[?？!.]+$/u, '').trim();
     return /^[\p{L}][\p{L}'’\- ]{2,39}$/u.test(t) && t.split(/\s+/).length <= 3 && !PIC_SKIP.test(t) ? t : null;
 }
-async function wikiAnswer(text, lang) {
+async function wikiAnswer(text, lang, long = false) {
     const term = conceptTerm(text) || bareTerm(text);
     if (!term) return null;
     const wl = lang === 'tg' || lang === 'uz' ? lang : 'ru';
@@ -6039,7 +6061,8 @@ async function wikiAnswer(text, lang) {
     if (!a.startsWith(b.slice(0, Math.max(4, Math.min(b.length - 1, 6))))) return null;
     const sents = String(d.extract).replace(/\s*\([^)]{0,120}\)/g, '').split(/(?<=[.!?])\s+/).filter(x => x.trim());
     let out = '';
-    for (const x of sents) { if ((out + ' ' + x).length > 520) break; out = (out + ' ' + x).trim(); if (out.split(/(?<=[.!?])\s+/).length >= 3) break; }
+    const maxLen = long ? 1100 : 520, maxN = long ? 6 : 3;
+    for (const x of sents) { if ((out + ' ' + x).length > maxLen) break; out = (out + ' ' + x).trim(); if (out.split(/(?<=[.!?])\s+/).length >= maxN) break; }
     if (out.length < 40 || mixedLanguage(out, lang)) return null;
     const page = (d.content_urls && d.content_urls.desktop && d.content_urls.desktop.page) || `https://${wl}.wikipedia.org/wiki/${encodeURIComponent(title)}`;
     const src = [{ title: WIKI_SRC[lang] || 'Wikipedia', uri: page }];
@@ -6134,6 +6157,10 @@ async function handleChat(req, res) {
     // а совет о запретном мягко отклонит (так сказано в heartPrompt)
     if (!topic && body.room !== 'heart' && HARAM_ASK.test(cleaned)) {
         return res.json({ answer: SHARIA_REPLY[lang], provider: 'rules', grounded: false, sources: [] });
+    }
+    // «Илм ва табиат»: тема из списка — статья энциклопедии с картинкой, без ИИ (быстро и с источником)
+    if (body.sci && !topic && cleaned.length <= 40) {
+        try { const sa = await sciAnswer(cleaned, lang); if (sa) return res.json(sa); } catch (e) { /* дальше — обычный ответ */ }
     }
     // «Садои дил»: человек рассказывает свою историю постепенно — помним больше (6 обменов репликами)
     const history = body.room === 'heart' ? cleanHistory(body.history, 12, 900) : cleanHistory(body.history);
@@ -10190,12 +10217,18 @@ async function handleDiag(req, res) {
         return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang: tl, ms: Date.now() - t0, provider: got ? got.provider : null, type: got ? got.type : null, bytes: got ? got.buf.length : 0, tried });
     }
     // Набранный запрос так, как его пишет человек: /diag?ask=iphone%2013&lang=ru — что увидит человек (вид ответа, карточки, сайты)
+    // /diag?wikichk=tg: каждая тема «Илм ва табиат» — есть ли статья, длина текста, картинка
+    if (['tg', 'ru', 'uz'].includes(req.query?.wikichk)) {
+        const l = req.query.wikichk, col = l === 'ru' ? 2 : l === 'uz' ? 3 : 1;
+        const out = await Promise.all(SCI_TOPICS.map(async r => { const a = await sciAnswer(r[col], l).catch(e => ({ err: String(e && e.message || e).slice(0, 60) })); return [r[0], r[col], a && a.answer ? String(a.answer).replace(/<[^>]+>/g, '').length : 0, !!(a && a.picture), a && a.err || undefined]; }));
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang: l, topics: out });
+    }
     if (typeof req.query?.ask === 'string' && req.query.ask.trim()) {
         const askLang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'ru';
         const t0 = Date.now();
         let out = null;
         const times = {};
-        await handleChat({ __times: times, body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang, city: req.query.city, pmin: req.query.pmin, pmax: req.query.pmax, page: req.query.page, room: req.query.room, heartTopic: req.query.heartTopic, migc: req.query.migc }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
+        await handleChat({ __times: times, body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang, city: req.query.city, pmin: req.query.pmin, pmax: req.query.pmax, page: req.query.page, room: req.query.room, heartTopic: req.query.heartTopic, migc: req.query.migc, sci: req.query.sci }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
         const html = String(out && out.answer || '');
         const urls = [...html.matchAll(/<a class="iz-lc-a" href="([^"]+)"/g)].map(m => m[1]);
         const titles = [...html.matchAll(/<div class="iz-lc-t">([^<]*)<\/div>/g)].map(m => m[1]);
