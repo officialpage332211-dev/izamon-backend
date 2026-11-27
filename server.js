@@ -10066,7 +10066,7 @@ async function handleDiag(req, res) {
         const t0 = Date.now();
         let out = null;
         const times = {};
-        await handleChat({ __times: times, body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang, city: req.query.city, pmin: req.query.pmin, pmax: req.query.pmax, room: req.query.room, heartTopic: req.query.heartTopic }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
+        await handleChat({ __times: times, body: { prompt: String(req.query.ask).slice(0, 200), lang: askLang, city: req.query.city, pmin: req.query.pmin, pmax: req.query.pmax, page: req.query.page, room: req.query.room, heartTopic: req.query.heartTopic }, ip: 'diag-' + Math.random(), headers: {}, query: {} }, { status() { return this; }, json(b) { out = b; return this; } });
         const html = String(out && out.answer || '');
         const urls = [...html.matchAll(/<a class="iz-lc-a" href="([^"]+)"/g)].map(m => m[1]);
         const titles = [...html.matchAll(/<div class="iz-lc-t">([^<]*)<\/div>/g)].map(m => m[1]);
