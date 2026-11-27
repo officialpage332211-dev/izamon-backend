@@ -5983,8 +5983,8 @@ function conceptTerm(text) {
     }
     return null;
 }
-async function conceptPicture(text, lang) {
-    const term = conceptTerm(text);
+async function conceptPicture(text, lang, given = null) {
+    const term = given || conceptTerm(text);
     if (!term) return null;
     const key = `${lang}|${term.toLowerCase()}`;
     const hit = WIKI_CACHE.get(key);
@@ -6210,7 +6210,9 @@ async function handleChat(req, res) {
     const picP = !heart && !topic && mode === 'general' && !somon ? conceptPicture(cleaned, lang).catch(() => null) : null;
     const withPic = async b => {
         if (!picP || !b || b.view || !b.answer || /class="iz-/.test(b.answer) || /^(?:none|rate-limit|busy|rules)$/.test(b.provider || '')) return b;
-        const pic = await Promise.race([picP, new Promise(z => setTimeout(() => z(null), 3000))]);
+        let pic = await Promise.race([picP, new Promise(z => setTimeout(() => z(null), 3000))]);
+        // ответ-справка из Википедии на одно слово («Фотосинтез»): картинка той же статьи
+        if (!pic && b.provider === 'wikipedia' && bareTerm(cleaned)) pic = await Promise.race([conceptPicture(cleaned, lang, bareTerm(cleaned)).catch(() => null), new Promise(z => setTimeout(() => z(null), 3500))]);
         return pic ? { ...b, answer: withPictureHtml(b.answer, pic, lang), picture: pic.page } : b;
     };
     // только проверка с /diag?ask=…: сколько заняли этапы (somon.tj, перевод, фото, другие сайты)
