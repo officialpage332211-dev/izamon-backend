@@ -9840,6 +9840,24 @@ async function handleDiag(req, res) {
         }
         return res.json({ accounts, on: igOn(), unified: igUnified(), appId: !!process.env.IG_APP_ID, appIdDigits: /^\d{6,25}$/.test(String(process.env.IG_APP_ID || '')), secret: !!process.env.IG_APP_SECRET, configId: igUnified() ? String(process.env.IG_CONFIG_ID) : null, redirect: igRedirect(), linked, last: IG_LAST });
     }
+    // igdisc=<имя>: можно ли через наш подключённый аккаунт (единый вход) прочитать публичные посты чужой бизнес-страницы
+    // (Business Discovery) — только проверка для владельца сайта, без ключей в ответе
+    if (req.query?.igdisc) {
+        const name = String(req.query.igdisc).replace(/^@/, '');
+        if (!/^[A-Za-z0-9._]{1,30}$/.test(name)) return res.status(400).json({ error: 'bad name' });
+        try {
+            const u = (await withTimeout(boardUsers(), 8000)).find(x => x.app_metadata && x.app_metadata.iz_ig && x.app_metadata.iz_ig.mode === 'fb');
+            if (!u) return res.json({ error: 'нет аккаунта с единым входом' });
+            const ig = u.app_metadata.iz_ig, tok = await igToken(u.id, ig);
+            const f = `business_discovery.username(${name})%7Busername,name,media_count,media.limit(12)%7B${IG_FIELDS}%7D%7D`;
+            const d = await igJson(`${IG_GRAPH}/${encodeURIComponent(ig.id)}?fields=${f}&access_token=${encodeURIComponent(tok)}`);
+            const bd = d.business_discovery || {};
+            const media = (bd.media && bd.media.data) || [];
+            const items = igItems(media, bd.username, 12);
+            return res.json({ ok: true, via: ig.username, username: bd.username, name: bd.name, media_count: bd.media_count, got: media.length, ads: items.length,
+                newest: media.map(m => m.timestamp).filter(Boolean).sort().pop() || '', sample: items.slice(0, 3).map(a => ({ title: a.title, price: a.price, place: a.location, imgs: a.imgCount })) });
+        } catch (e) { return res.json({ ok: false, error: String(e.message || e).replace(/access_token=[^&\s]+/g, '…').slice(0, 300) }); }
+    }
     if (req.query?.tgprev) {
         const ch = String(req.query.tgprev).replace(/^@/, '');
         if (!TG_NAME.test(ch)) return res.status(400).json({ error: 'bad channel' });
