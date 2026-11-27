@@ -766,7 +766,7 @@ function kwGroup(w) {
 // Цена в запросе: «диван до 3000», «от 1000 до 5000 сомони», «телефон то 2000», «1000 dan 3000 gacha», «до 500$».
 // Возвращает { min, max, cur } и текст без этих слов (чтобы «3000» не искалось в названиях).
 const PRICE_NUM = String.raw`(\d{1,3}(?:[  ]\d{3})+|\d{2,})`;  // не меньше двух цифр: «от 2 комнат», «до 5 этажа» — не цена
-const PRICE_CUR = String.raw`(?:\s*(сомон[иӣ]?|сом\.?|с\.|tjs|somoni|\$|usd|долл\S*|dollar|доллар\S*))?`;
+const PRICE_CUR = String.raw`(?:\s*(сомон[иӣа]?|сомонӣ|сом\.?|с\.|tjs|somoni|\$|usd|долл\S*|dollar|доллар\S*))?`;
 function priceRange(text) {
     let t = String(text || '');
     let min = 0, max = 0, cur = 'TJS';
@@ -1000,7 +1000,7 @@ const DISTRICT_DEFS = {
           any: String.raw`исмоили\s*сомони|исмоили|ismoili|шотемур|umari\s*хайям|умари\s*хайям|umari\s*hayyom|umari\s*xayyom`,
           loc: String.raw`сомони|somoni` },
         { id: 'sino', ru: 'Сино',
-          any: String.raw`(?<!ибни\s)(?<!ибн\s)(?<!ibni\s)(?<!ibn\s)(?:сино|sino)|зарафшон|zarafshon|(?:82|91|92)\s*-?\s*(?:й\s*)?(?:мкр|микр\p{L}*|mkr|mikr\p{L}*)` },
+          any: String.raw`(?<!ибни\s)(?<!ибн\s)(?<!ibni\s)(?<!ibn\s)(?:сино|sino)|зарафшон\p{L}{0,2}|zarafshon|(?:82|91|92)\s*-?\s*(?:й\s*)?(?:мкр|микр\p{L}*|mkr|mikr\p{L}*)` },
         { id: 'firdavsi', ru: 'Фирдавси',
           any: String.raw`фирдавс\p{L}*|фирдоус\p{L}*|firdavs\p{L}*|firdous\p{L}*|firdaus\p{L}*` },
         { id: 'shohmansur', ru: 'Шоҳмансур',
@@ -1014,6 +1014,12 @@ for (const [cid, list] of Object.entries(DISTRICT_DEFS)) {
         any: new RegExp(`(?<![\\p{L}\\d])(?:${d.any})(?![\\p{L}])`, 'u'),
         loc: d.loc ? new RegExp(`(?<![\\p{L}\\d])(?:${d.loc})(?![\\p{L}])`, 'u') : null
     }));
+}
+// Район, названный в набранном запросе («квартира да Зарафшон», «иҷора дар Сино») — как если бы его выбрали в фильтре
+function districtOf(text) {
+    const t = kwNorm(text);
+    for (const list of Object.values(DISTRICTS)) for (const d of list) if (d.any.test(t)) return d;
+    return null;
 }
 function districtById(cityId, id) { return (DISTRICTS[cityId] || []).find(d => d.id === String(id || '')) || null; }
 // Объявление из выбранного района? Район назван в «месте» или заголовке — да. В «месте» назван другой район этого города — нет.
@@ -1029,9 +1035,18 @@ function districtMatch(a, d) {
 const KW_HOME = /(?<![\p{L}])(?:квартир|комнат|жиль|жил(?:ой|ая|ое|ые|ого|ую|ищ)|недвижимост|дом(?:а|у|ом)?(?![\p{L}])|хавли|ҳавлӣ|хона(?![\p{L}])|хонаи|kvartira|xonadon|uy(?![\p{L}])|hovli)/iu;
 const KW_RENT = /(?<![\p{L}])(?:сним|снять|снимаю|аренд|сда[её]т|сдам|сдаю|посуточн|иҷора|ижара|ijara|kiraga)/iu;
 const KW_LAND = /(?<![\p{L}])(?:участ|земл|сотк|замин|yer(?![\p{L}])|офис|склад|магазин\s+в\s+аренду|помещени)/iu;
+// «Квартира … то 3500 сомона»: за такие деньги жильё не продают — значит, ищут аренду (если прямо не сказано «купить/продажа»).
+// Самая дешёвая квартира на продажу в Таджикистане — от ~100 000 сомони, аренда — до ~15 000 в месяц.
+const KW_BUY = /(?<![\p{L}])(?:куп|покуп|прода|продаж|харид|фуруш|фурӯш|sotib|sotiladi|sotuv)/iu;
+function cheapHome(t) {
+    if (KW_BUY.test(t)) return false;
+    const pr = priceRange(t);
+    if (!pr || !pr.max) return false;
+    return pr.cur === 'USD' ? pr.max <= 2000 : pr.max <= 20000;
+}
 function keywordSection(t) {
     if (KW_LAND.test(t) && !KW_HOME.test(t)) return resolvePortal('недвижимость - земля и коммерческая');
-    if (KW_HOME.test(t)) return resolvePortal(KW_RENT.test(t) ? 'недвижимость - аренда' : 'недвижимость - продажа жилья');
+    if (KW_HOME.test(t)) return resolvePortal(KW_RENT.test(t) || cheapHome(t) ? 'недвижимость - аренда' : 'недвижимость - продажа жилья');
     return null;
 }
 
@@ -4490,6 +4505,8 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
 //  • rg.tj — ответ 27.11.2026: «когда активность за месяц перевалит за тысячу — поговорим».
 // Разрешили — убрать хост отсюда (или задать BOARD_OFF на сервере без него).
 const BOARD_OFF = new Set(String(process.env.BOARD_OFF || 'rg.tj,ola.tj').split(',').map(x => x.trim()).filter(Boolean));
+// и с поддоменами (cdn.ola.tj) — ни в лентах, ни в находках поиска по интернету
+const boardOff = h => { h = String(h || '').toLowerCase().replace(/^www\./, ''); for (const b of BOARD_OFF) if (h === b || h.endsWith('.' + b)) return true; return false; };
 const BOARD_HOSTS = { 'ola.tj': 'https://ola.tj/category/', 'paydo.tj': 'https://paydo.tj/ru/all/', 'savdo.tj': 'https://savdo.tj/category/', 'rg.tj': 'https://rg.tj/' };
 const BOARD_WAIT_MS = 5000;           // дольше не ждём медленный сайт: покажем остальные, а его список ляжет в запас
 const BOARD_CACHE = new Map();        // адрес → { at, p }
@@ -5146,10 +5163,22 @@ async function widenCity(spec, direct, kind, lang) {
     if (direct.length + more.length < 3) return null;
     return { items: [...direct, ...more].slice(0, FEED_MAX), wide: { city: spec.city, n: direct.length } };
 }
+// Находка поиска по интернету подходит под фильтры ленты: город, район, цена «до/от» (без цены — не подходит), сайт не в режиме ожидания
+function fitsSpec(x, spec) {
+    if (boardOff(hostOf(x.url))) return false;
+    if (spec.city && !cityMatch({ location: x.place, title: x.title }, spec.city)) return false;
+    if (spec.district && !districtMatch({ location: x.place, title: x.title, description: (x.points || []).join(' ') }, spec.district)) return false;
+    if (spec.price) {
+        const v = priceInTjs(x.price, spec.price.rates);
+        if (v === null || (spec.price.min && v < spec.price.min) || (spec.price.max && v > spec.price.max)) return false;
+    }
+    return true;
+}
 async function searchListings({ kind, lang, date, query, debug, somon, spread, fixed = null, opts = null }) {
     const hotel = kind === 'places' && fixed === 'hotel';
     const local = !!(opts && opts.local);
     // Сначала готовый список somon.tj: точные ссылки и фото. Мало найдено или сайт не ответил — ищем через модель, как раньше.
+    let few = [];  // 1–2 объявления с сайтов: не теряем, ставим впереди находок поиска
     if (somon) {
         let direct = [];
         const ts = Date.now();
@@ -5165,14 +5194,13 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
                 ? withTimeout(webExtra({ kind, lang, date, query, somon }), WEB_EXTRA_WAIT_MS).catch(() => ({ items: [], late: true }))
                 : null;
             const [main, extra] = await Promise.all([finishItems(direct, kind, lang, debug, somon.fixed || ''), extraP || { items: [] }]);
-            const extraItems = extra.items.filter(x => (!somon.city || cityMatch({ location: x.place, title: x.title }, somon.city))
-                && (!somon.district || districtMatch({ location: x.place, title: x.title, description: '' }, somon.district))
-                && (!somon.price || (v => v !== null && (!somon.price.min || v >= somon.price.min) && (!somon.price.max || v <= somon.price.max))(priceInTjs(x.price, somon.price.rates))));
+            const extraItems = extra.items.filter(x => fitsSpec(x, somon));
             const mixed = extraP ? mixFeeds(main, extraItems) : main;
             if (widened) mixed.wide = widened.wide;
             if (debug && extraP) debug.web = { n: extra.items.length, shown: mixed.filter(x => !SOMON_HOST.test(hostOf(x.url))).length, ms: extra.ms || 0, cached: !!extra.cached, late: !!extra.late, hosts: [...new Set(extra.items.map(x => hostOf(x.url)))].slice(0, 6), list: extra.items.map(x => `${String(x.title).slice(0, 36)} | ${x.price || '-'} | ${hostOf(x.url)}${(() => { try { return new URL(x.url).pathname.slice(0, 28); } catch { return ''; } })()}`), ...(extra.dbg ? { err: extra.dbg.error, text: extra.dbg.textStart, parseError: extra.dbg.parseError, retry: extra.dbg.retry, confirm: extra.dbg.confirm, drop: extra.dbg.drop, cites: extra.dbg.cites, consulted: extra.dbg.consulted, rawItems: extra.dbg.rawItems, kept: extra.dbg.kept, fin: extra.dbg.finish } : {}) };
             return mixed;
         }
+        few = direct;
     }
     let items;
     if (Array.isArray(spread) && spread.length) {
@@ -5190,6 +5218,16 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
     if (opts && opts.dropPoints) items = items.map(it => ({ ...it, points: (it.points || []).filter(p => !opts.dropPoints.test(p)) }));
     // opts.dropCards: карточку целиком не показываем (парикмахерские: «химзавивка, вечерняя укладка» — значит, салон и для женщин)
     if (opts && opts.dropCards) items = items.filter(it => !opts.dropCards.test(`${it.title || ''} ${(it.points || []).join(' ')}`));
+    // лента с фильтрами (цена, город, район): находки поиска по интернету — тоже только подходящие
+    if (somon) {
+        const n0 = items.length;
+        items = items.filter(x => fitsSpec(x, somon));
+        if (debug) debug.specDrop = n0 - items.length;
+        if (few.length) {
+            const [main, web] = await Promise.all([finishItems(few, kind, lang, debug, somon.fixed || ''), finishItems(items.slice(0, 10), kind, lang, debug, somon.fixed || '')]);
+            return mixFeeds(main, web);
+        }
+    }
     const done = await finishItems(items.slice(0, opts && opts.max || 10), kind, lang, debug, (kind === 'ads' || kind === 'jobs' || kind === 'services' || kind === 'masters') && somon && somon.fixed || (kind === 'tours' ? 'tour' : '') || (hotel ? 'hotel' : ''), { nameOnPage: !!(opts && opts.nameOnPage) });
     // курс — заранее, чтобы карточки показали цену в валюте языка
     try { await nbtRatesFor(date); } catch {}
@@ -5252,6 +5290,7 @@ url — обычная ссылка https://… (без Markdown и скобок
         if (local && ((apps && APP_PAGE.test(String(it.url))) || (allow && allow.test(h)))) { /* приложение службы или разрешённая площадка — оставляем */ }
         else if (local && !localPlaceUrl(it.url) && !(hotel && (hotelOwnSite(it.title, it.url) || (/(?:^|\.)booking\.com$/i.test(h) && /\/(?:hotel\/tj|gostinicy\/tj\/[^/]+)\/[^/]+\.html/i.test(String(it.url))) || (/(?:^|\.)google\.[a-z.]{2,6}$/i.test(h) && /\/travel\/hotels\//.test(String(it.url)))))) { drop.foreign = (drop.foreign || 0) + 1; return false; }
         if (skip && skip.test(h)) { drop.skipped = (drop.skipped || 0) + 1; return false; }
+        if (boardOff(h)) { drop.boardOff = (drop.boardOff || 0) + 1; return false; }
         if (itemForbidden(it, kind)) { drop.forbidden++; return false; }
         // Одну и ту же страницу объявления дважды не показываем. Если ссылка ведёт на общую страницу списка
         // (в адресе нет номера объявления), разные пункты с ней оставляем, повтор по заголовку убираем.
@@ -6116,10 +6155,14 @@ async function handleChat(req, res) {
         }
     }
     // Город: выбранный на сайте или названный в запросе — только для лент объявлений, вакансий и услуг
-    const city = cityById(body.city) || (somon ? cityOf(routeOn) : null);
+    let city = cityById(body.city) || (somon ? cityOf(routeOn) : null);
+    // Район: выбранный на сайте (вместе с городом) или названный в запросе («квартира да Зарафшон» → Душанбе, Сино)
+    let district = city ? districtById(city.id, body.district) : null;
+    if (somon && !district) {
+        const d = districtOf(routeOn);
+        if (d && (!city || city.id === d.city)) { district = d; city = city || cityById(d.city); }
+    }
     if (somon && city) somon = { ...somon, city };
-    // Район: только вместе с выбранным городом (список районов задан для города)
-    const district = city ? districtById(city.id, body.district) : null;
     if (somon && district) somon = { ...somon, district };
     // «Боз 15 эълон»: следующая страница той же ленты (1–4)
     const page = Math.max(0, Math.min(4, parseInt(body.page, 10) || 0));
@@ -6146,7 +6189,7 @@ async function handleChat(req, res) {
     const placeDist = placeCity ? districtById(placeCity.id, body.district) : null;
     const placeNote = placeCity && TG_CITY_NAMES[placeCity.id] ? `\nТолько места в городе ${TG_CITY_NAMES[placeCity.id].ru}${placeDist ? `, район ${placeDist.ru}` : ''}.` : '';
     // Объявления, вакансии, услуги: выбранный или названный город — и в поиск по интернету (сайты без страниц города, Telegram-каналы)
-    const cityNote = somon && somon.city ? `\nТолько объявления из: ${somon.city.names.ru} (Таджикистан).` : '';
+    const cityNote = somon && somon.city ? `\nТолько объявления из: ${somon.city.names.ru}${somon.district ? `, район ${somon.district.ru}` : ''} (Таджикистан).` : '';
     const fullMessage = (category ? `[Подраздел: ${category}] ${userText}` : userText) + placeNote + cityNote;
     const date = todayTJ();
 
