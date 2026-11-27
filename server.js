@@ -6044,7 +6044,7 @@ async function langTitle(ruTitle, lang) {
     } catch { return null; }
     return t;
 }
-const SCI_OWN_SKIP = { uz: ['water'] };
+const SCI_OWN_SKIP = { uz: ['water', 'bact'] }; // uz «Suv», «Bakteriyalar»: текст статьи после разбора искажён
 const SCI_RU_NOTE = { tg: 'Мақола бо забони тоҷикӣ ҳоло нест — аз Википедияи русӣ:', uz: "O'zbek tilida maqola hozircha yo'q — rus Vikipediyasidan:" };
 function sciRow(text, lang) {
     const t = String(text || '').trim().toLowerCase();
