@@ -4477,7 +4477,9 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
 // Те же поля, что у списка somon.tj: { id, title, description, price, priceNote, thumb, imgCount, images, published, path, url, location, who, cats }.
 // Все сайты равны: ни один не ставится впереди других (см. somonListings).
 // Площадки, которые отказались от показа своих объявлений (решение владельца iZamoN): rg.tj — отказ 26.11.2026
-const BOARD_OFF = new Set(String(process.env.BOARD_OFF || 'rg.tj').split(',').map(x => x.trim()).filter(Boolean));
+// ola.tj — на паузе до ответа владельцев (их правила запрещают копирование без разрешения; разбор новой вёрстки готов, 27.11.2026).
+// Одобрят — убрать 'ola.tj' отсюда (или задать BOARD_OFF=rg.tj на сервере).
+const BOARD_OFF = new Set(String(process.env.BOARD_OFF || 'rg.tj,ola.tj').split(',').map(x => x.trim()).filter(Boolean));
 const BOARD_HOSTS = { 'ola.tj': 'https://ola.tj/category/', 'paydo.tj': 'https://paydo.tj/ru/all/', 'savdo.tj': 'https://savdo.tj/category/', 'rg.tj': 'https://rg.tj/' };
 const BOARD_WAIT_MS = 5000;           // дольше не ждём медленный сайт: покажем остальные, а его список ляжет в запас
 const BOARD_CACHE = new Map();        // адрес → { at, p }
@@ -4486,7 +4488,7 @@ const htmlText = s => decodeEntities(String(s || '').replace(/<[^>]*>/g, ' ')).r
 
 // ola.tj: карточки <article class="ola-card"> прямо в странице раздела
 // ola.tj: в поле цены иногда попадает начало описания («Договорная 🇩🇪 ХОЧЕШЬ ЗАГОВОРИТЬ…»). Оставляем только саму цену.
-const OLA_PRICE = /^(?:цена\s+)?(?:договорная|торг|бесплатно|даром|обмен|\d[\d\s\u00a0.,]*(?:\s*(?:TJS|сомони|сом\.?|смн|\$|USD|долл\.?|руб\.?|₽|€|EUR))?(?:\s+(?:в|за)\s+(?:месяц|сутки|день|час|м²|кв\.?\s*м|сотку))?)/i;
+const OLA_PRICE = /^(?:цена\s+)?(?:договорная|торг|бесплатно|даром|обмен|\d[\d\s\u00a0.,]*(?:\s*(?:TJS|сомони|сом\.?|смн|с\.|с(?=\s|$)|\$|USD|долл\.?|руб\.?|₽|€|EUR))?(?:\s+(?:в|за)\s+(?:месяц|сутки|день|час|м²|кв\.?\s*м|сотку))?)/i;
 function olaPrice(t) {
     const s = String(t || '').replace(/\s+/g, ' ').trim();
     const m = OLA_PRICE.exec(s);
@@ -4495,6 +4497,32 @@ function olaPrice(t) {
 
 function parseOlaCards(html, max = 60) {
     const out = [];
+    // вёрстка с ноября 2026: <div class="contents" data-card-id="ID"> → <article> с фото (/storage/…), ценой (<p … t-22-xb>),
+    // названием-ссылкой (<h2><a href="/listing/ID/…">), характеристиками (<li><span>76 м²</span>) и «Душанбе · Сегодня».
+    // Телефона в странице нет (он показывается только по кнопке «Позвонить») — карточка ведёт на объявление.
+    {
+        const h0 = String(html || '');
+        const starts = [...h0.matchAll(/data-card-id="(\d{1,12})"/g)];
+        const seen = new Set();
+        for (let i = 0; i < starts.length && out.length < max; i++) {
+            const id = starts[i][1];
+            if (seen.has(id)) continue;
+            const c = h0.slice(starts[i].index, i + 1 < starts.length ? starts[i + 1].index : starts[i].index + 30000);
+            const link = /<h2[^>]*>\s*<a[^>]*href="(\/listing\/(\d+)\/[^"#?]*)"[^>]*>([\s\S]*?)<\/a>/.exec(c);
+            if (!link || link[2] !== id) continue;
+            const title = htmlText(link[3]);
+            if (!title || title.length > 300) continue;
+            seen.add(id);
+            const imgs = [...new Set([...c.matchAll(/<img[^>]*?\ssrc="(\/storage\/[^"\s]+?\.(?:jpe?g|png|webp)(?:\?[^"]*)?)"/gi)].map(m => 'https://ola.tj' + m[1].replace(/&amp;/g, '&')))].slice(0, 16);
+            const price = olaPrice(htmlText((/<p class="[^"]*\bt-(?:22|16)-xb\b[^"]*">([\s\S]*?)<\/p>/.exec(c) || [])[1]));
+            const specs = [...c.slice(0, c.indexOf('</article>') > 0 ? c.indexOf('</article>') : c.length).matchAll(/<li class="[^"]*">[\s\S]*?<span>([^<]{1,40})<\/span><\/li>/g)].map(m => htmlText(m[1])).filter(Boolean).slice(0, 6);
+            const pd = htmlText((/<span class="truncate">([^<]{1,120})<\/span>/.exec(c) || [])[1]);
+            const [city, when] = pd.split(/\s*·\s*/);
+            out.push({ id: 'ola' + id, title, description: specs.join(' · '), price, priceNote: '', thumb: imgs[0] || '', imgCount: imgs.length, images: imgs,
+                published: when || '', path: '', url: 'https://ola.tj' + link[1], location: city || '', who: '', cats: '' });
+        }
+        if (out.length) return out;
+    }
     for (const m of String(html || '').matchAll(/<article class="ola-card[^"]*">([\s\S]*?)<\/article>/g)) {
         const c = m[1];
         const link = /class="ola-card__link"\s+href="(https:\/\/ola\.tj\/listing\/(\d+)\/[^"#?]*)"/.exec(c);
@@ -10356,5 +10384,5 @@ module.exports = {
     app, safeHandler, weatherToday, weatherLines, _resetWeather: () => { weatherMemo = { at: 0, data: null }; nowWeatherMemo.clear(); }, nowWeather, handleWeatherNow, CITY_COORDS, handleChat, handleImport, handleSpeak, handleAdBump, handleAdEdit, handleAccountDelete,
     detectMode, needsFacts, normalizePrompt, buildUserText, buildSystemPrompt, resolvePortal, routeRequest, mixedLanguage,
     isPrivateIp, assertPublicUrl, speechText, finalize, todayTJ, sourceLabel, uniqueSources, salvageItems, dropMixedLines, rewriteForUser, cleanItem,
-    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, handleClientLog, CLIENT_LOG, handleDeleteRequest, handleAdminDeletionDone, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, parseTgPreview, tgChannelInfo, tgMask, tgBoards, TG_CHANNELS, igItems, igBoards, igSigned, igUnifiedLink, handleIgMe, handleIgStart, handleIgCallback, handleIgDeauth, IG_TAGS, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
+    unifyPrice, suspectFlags, modelKey, resetGeminiBreaker, geminiUp, askGemini, geminiPauseMs: () => Math.max(0, geminiDownUntil - Date.now()), cleanModelText, capLines, linkify, realSource, handleFeedback, handleAdReport, handleClientLog, CLIENT_LOG, handleDeleteRequest, handleAdminDeletionDone, purgeUserFiles, handleAdminReports, handleAdminReportAct, sellerKey, reporterKey, REPORT_HIDE, reportsReset: () => { reportsMem = null; reportsChain = Promise.resolve(); adminIdsAt = 0; }, handleDictList, handleDictAdd, handleDictDelete, handleStt, isAdmin, withDictionary, dictionaryHints, searchListings, mixFeeds, nuxtData, otherSitesQuery, confirmOnPage, webExtraCache, webExtraBusy, ticketLink, ticketRoute, ticketDate, airCode, withTicketLinks, somonContacts, somonNote, somonTitle, somonItem, polishTg, uzLatin, pageGallery, pageDescription, localizeItems, finishItems, cardHtml, parsePublished, dateLabel, pageDate, handleImg, proxyImageUrl, imgSig, parseSomonAdverts, somonListings, keywordSpec, keywordQuery, keywordStems, keywordHas, kwGroup, cityOf, cityById, priceRange, priceInTjs, watchSpec, watchCheck, watchTick, watchLabel, handleWatchCreate, processWatchCommand, handleWatchCmd, handleTgSection, tgSectionRun, tgCards, tgText, handleWaSection, waSectionRun, parseOlaCards, parsePaydoAds, BOARD_OFF, parseTgPreview, tgChannelInfo, tgMask, tgBoards, TG_CHANNELS, igItems, igBoards, igSigned, igUnifiedLink, handleIgMe, handleIgStart, handleIgCallback, handleIgDeauth, IG_TAGS, boardUrl, BOARD_CACHE, somonPoints, SOMON_CACHE, pageImages, galleryImages, isListingUrl, pageFacts, verifyContact, verifyPoints, verifyItems, imageSize, judgeImage, checkImage, resolvePhotos, listingsAnswer, searchRates, ratesAnswer, tipsAnswer, mmtLines, mmtFromData, fmtRange, isoDate, factLines, factTopics, dropStaleDates, courseSlots, livestockSlots, landSlots, harvestSlots, serviceSlots, fullText, serviceKinds, svcKw, serviceExp, serviceWarranty, spaceTipLines, verifySowing, translateTips, SHARIA_REPLY, SHARIA_TALK, compute, nbtXmlRates, parseNbtXml, fmtRate, routeRequest2: routeRequest, setDictRows: rows => { dictRowsNow = rows; }, cleanHistory, withHistory, shapeLines, dropHaramLines, mixedLanguage2: mixedLanguage, guessCategory, getUser, handleConfig, handleMe, handleSeller, handleAdsDelete, handleFavList, handleFavAdd, handleFavDelete, handleAdsCreate, handleOrderCreate, handleOrdersMine, handleOrderStatus, handleTgHook, handleTgLink, handleTgUnlink, processTgUpdate, setupTgHook, orderText, notifySeller, tableReady, adChannelText, postAdToChannel, diagChannel, tgOn, cutAtWord, handleAdsSearch, handleAdsMine, handleDiag, searchAds, formatOwnAds, cleanNewAd, askOpenAISearch, askGemini
 };
