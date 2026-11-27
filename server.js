@@ -4476,9 +4476,10 @@ function somonItem(a, kind, lang = 'ru', facts = null) {
 // ---------- Другие сайты объявлений напрямую: ola.tj (он же arzon.tj) и paydo.tj ----------
 // Те же поля, что у списка somon.tj: { id, title, description, price, priceNote, thumb, imgCount, images, published, path, url, location, who, cats }.
 // Все сайты равны: ни один не ставится впереди других (см. somonListings).
-// Площадки, которые отказались от показа своих объявлений (решение владельца iZamoN): rg.tj — отказ 26.11.2026
-// ola.tj — на паузе до ответа владельцев (их правила запрещают копирование без разрешения; разбор новой вёрстки готов, 27.11.2026).
-// Одобрят — убрать 'ola.tj' отсюда (или задать BOARD_OFF=rg.tj на сервере).
+// Режим ожидания (разбор готов, на сайте не показываем):
+//  • ola.tj — ждём ответа владельцев (их правила запрещают копирование без разрешения; разбор новой вёрстки готов, 27.11.2026);
+//  • rg.tj — ответ 27.11.2026: «когда активность за месяц перевалит за тысячу — поговорим».
+// Разрешили — убрать хост отсюда (или задать BOARD_OFF на сервере без него).
 const BOARD_OFF = new Set(String(process.env.BOARD_OFF || 'rg.tj,ola.tj').split(',').map(x => x.trim()).filter(Boolean));
 const BOARD_HOSTS = { 'ola.tj': 'https://ola.tj/category/', 'paydo.tj': 'https://paydo.tj/ru/all/', 'savdo.tj': 'https://savdo.tj/category/', 'rg.tj': 'https://rg.tj/' };
 const BOARD_WAIT_MS = 5000;           // дольше не ждём медленный сайт: покажем остальные, а его список ляжет в запас
@@ -9801,7 +9802,7 @@ async function handleDiag(req, res) {
         const at = Number(req.query.at) || 0, from = hits.length ? Math.max(0, hits[Math.min(at, hits.length - 1)] - (Number(req.query.before) || 1500)) : Number(req.query.off) || 0;
         const len = Math.min(Number(req.query.len) || 4000, 12000);
         const classes = {}; for (const m of html.matchAll(/class="([^"]{2,60})"/g)) classes[m[1]] = (classes[m[1]] || 0) + 1;
-        return res.json({ url, st, size: html.length, hits: hits.length, parsed: host === 'ola.tj' ? parseOlaCards(html).length : null,
+        return res.json({ url, st, size: html.length, hits: hits.length, parsed: (host === 'ola.tj' ? parseOlaCards(html) : host === 'savdo.tj' ? parseSavdoCards(html) : host === 'rg.tj' ? parseRgCards(html) : parsePaydoAds(html)).length,
             topClasses: Object.entries(classes).filter(([, n]) => n >= 10 && n <= 80).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([k, n]) => k + '×' + n),
             slice: html.slice(from, from + len) });
     }
