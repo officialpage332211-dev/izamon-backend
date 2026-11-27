@@ -6044,6 +6044,7 @@ async function langTitle(ruTitle, lang) {
     } catch { return null; }
     return t;
 }
+const SCI_OWN_SKIP = { uz: ['water'] };
 const SCI_RU_NOTE = { tg: 'Мақола бо забони тоҷикӣ ҳоло нест — аз Википедияи русӣ:', uz: "O'zbek tilida maqola hozircha yo'q — rus Vikipediyasidan:" };
 function sciRow(text, lang) {
     const t = String(text || '').trim().toLowerCase();
@@ -6067,9 +6068,10 @@ async function sciAnswer(text, lang) {
     if (!row) return null;
     const col = lang === 'ru' ? 2 : lang === 'uz' ? 3 : 1;
     const ru = SCI_RU[row[0]];
-    const own = await langTitle(ru, lang);
+    // uz «Suv»: начало статьи после разбора искажено («hidli, rangli» — наоборот) — даём русскую
+    const own = (SCI_OWN_SKIP[lang] || []).includes(row[0]) ? null : await langTitle(ru, lang);
     // статья на языке человека; нет — русская с пометкой
-    for (const [term, wl] of own ? [[own, lang]] : [[ru, 'ru']]) {
+    for (const [term, wl] of own ? [[own, lang], [ru, 'ru']] : [[ru, 'ru']]) {
         const [wk, pic] = await Promise.all([wikiAnswer(term, wl, true).catch(() => null), withTimeout(conceptPicture(term, wl, term), 4000).catch(() => null)]);
         if (!wk) continue;
         wk.answer = String(wk.answer).replace(/^📖 [^:<]{1,80}:/, `📖 ${escapeHtml(row[col])}:${wl !== lang && SCI_RU_NOTE[lang] ? ' <i>' + escapeHtml(SCI_RU_NOTE[lang]) + '</i>' : ''}`);
@@ -6096,7 +6098,7 @@ async function wikiAnswer(text, lang, long = false) {
     const norm = x => String(x || '').toLowerCase().replace(/ё/g, 'е').replace(/[^\p{L}\p{N} ]/gu, '').trim();
     const a = norm(d.title), b = norm(term);
     if (!a.startsWith(b.slice(0, Math.max(4, Math.min(b.length - 1, 6))))) return null;
-    const sents = String(d.extract).replace(/\s*\([^)]{0,120}\)/g, '').split(/(?<=[.!?])\s+/).filter(x => x.trim());
+    const sents = String(d.extract).replace(/\u0301/g, '').replace(/\s*\([^)]{0,120}\)/g, '').split(/(?<=[.!?])\s+/).filter(x => x.trim());
     let out = '';
     const maxLen = long ? 1100 : 520, maxN = long ? 6 : 3;
     for (const x of sents) { if ((out + ' ' + x).length > maxLen) break; out = (out + ' ' + x).trim(); if (out.split(/(?<=[.!?])\s+/).length >= maxN) break; }
