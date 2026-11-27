@@ -17,7 +17,7 @@ const net = require('net');
 const dns = require('dns').promises;
 const { GoogleGenAI } = require('@google/genai');
 const OpenAI = require('openai');
-const { MIG_COUNTRY_GUIDES, migCountry, MIG_SOS } = require('./mig-countries.js');
+const { MIG_COUNTRY_GUIDES, migCountry, MIG_SOS, MIG_MONEY } = require('./mig-countries.js');
 
 const app = express();
 app.disable('x-powered-by');
@@ -326,6 +326,8 @@ const PORTAL_RULES = [
       spread: ['Найди актуальные объявления о сдаче жилья в Санкт-Петербурге, Екатеринбурге, Новосибирске, Казани, Краснодаре, Самаре и других городах России для приезжих: комната, квартира или койко-место, где прямо написано, что сдают гражданам Таджикистана, СНГ или иностранцам: что сдаётся, город и район, цена в месяц, контакт — только как написано в объявлении. Регистрацию «за деньги» без проживания и объявления «только славяне» не показывай. Не выдумывай.'] },
     { re: /^(?:ёрӣ\s+ва\s+телефонҳо|помощь\s+и\s+телефоны|yordam\s+va\s+telefonlar)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_help', query: 'Мигрантам: помощь и телефоны' },
     // «Мушкил дорам / У меня беда / Muammom bor» (27.11.2026): помощь по ситуации — зарплата, паспорт, задержание, опасность (MIG_SOS)
+    // «Пул ба хона / Деньги домой / Pulni uyga» (27.11.2026): кнопки на официальные страницы переводов в Таджикистан (MIG_MONEY)
+    { re: /^(?:пул\s+ба\s+хона|деньги\s+домой|pulni\s+uyga)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_money', query: 'Мигрантам: деньги домой' },
     { re: /^(?:мушкил\s+дорам|у\s+меня\s+беда|muammom\s+bor)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_sos', query: 'Мигрантам: у меня беда' },
     // ---------- «3. Товары»: новые подразделы (продукты, детские товары, стройматериалы, для дома, книги) ----------
     // Стоят раньше остальных правил: «Kitoblar» (Книги на узбекском) иначе попало бы в «Донишномаҳо» (энциклопедия)
@@ -1917,6 +1919,7 @@ const MIG_GUIDES = {
 };
 // c — страна из фильтра «Кишвар» (ru, kz, gb, kr); Россия — MIG_GUIDES, остальные — mig-countries.js
 MIG_GUIDES.mig_sos = MIG_SOS.ru; // «Мушкил дорам» для России
+MIG_GUIDES.mig_money = MIG_MONEY.ru; // «Пул ба хона» для России
 function migButtons(kind, lang, c = 'ru') { const g = (c !== 'ru' && MIG_COUNTRY_GUIDES[c] && MIG_COUNTRY_GUIDES[c][kind]) || MIG_GUIDES[kind]; return g ? guideBlock(g[lang] || g.ru) : ''; }
 const CUSTOMS_LINKS = {
     ru: '⚠️ Цифры здесь ориентировочные: точную сумму уточняйте на таможне или у таможенного брокера.',

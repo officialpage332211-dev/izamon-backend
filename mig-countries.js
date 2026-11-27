@@ -778,7 +778,82 @@ for (const c of Object.keys(MIG_SOS)) {
 }
 
 
+// ---------- «Пул ба хона / Деньги домой / Pulni uyga» (27.11.2026): только сервисы, у которых перевод в Таджикистан подтверждён
+// на их официальном сайте: Т-Банк (tbank.ru «Как перевести деньги в Таджикистан через Т-Банк»), ВТБ (vtb.ru «Денежные переводы
+// в Таджикистан»); Paysend — отправка из Германии, Великобритании, Румынии, Казахстана (paysend.com/supported-countries), из
+// Германии: карты Visa/Mastercard, счета Амонатбонк, Ориёнбонк, Эсхата, Спитамен, Душанбе Сити, первый перевод без комиссии;
+// Western Union — Великобритания (westernunion.com/gb), Турция через приложения банков Ziraat, İşbank, Garanti BBVA, Akbank,
+// Yapı Kredi, QNB, Şekerbank, Albaraka, Kliq (westernunion.com/tr), ОАЭ через Al Fardan Exchange, Катар через Alfardan Exchange;
+// Remitly — ОАЭ (только на карту) и Япония (на странице выплата показана в евро). Корея: подтверждённого сервиса нет. ----------
+const MONEY_T = {
+    intro: T('Кнопка открывает официальную страницу перевода. Сам перевод делаете в приложении или на сайте сервиса.', 'Тугма саҳифаи расмии интиқолро мекушояд. Худи интиқолро дар барнома ё сомонаи хизмат мекунед.', "Tugma o'tkazmaning rasmiy sahifasini ochadi. O'tkazmaning o'zini xizmat ilovasi yoki saytida qilasiz."),
+    terms: T('Комиссия, курс и лимиты — на странице сервиса, они меняются.', 'Комиссия, қурб ва маҳдудиятҳо — дар саҳифаи хизмат, онҳо тағйир меёбанд.', "Komissiya, kurs va limitlar — xizmat sahifasida, ular o'zgaradi."),
+    home: T('Перед отправкой спросите у получателя, как ему удобно получить: на карту, на счёт или наличными.', 'Пеш аз фиристодан аз гиранда пурсед, ки чӣ тавр гирифтан барояш қулай аст: ба корт, ба суратҳисоб ё нақд.', "Yuborishdan oldin oluvchidan qanday olish qulayligini so'rang: kartaga, hisobga yoki naqd."),
+    safe: T('Отправляйте только через официальные приложения. Не отдавайте наличные незнакомым «перевозчикам».', 'Танҳо тавассути барномаҳои расмӣ фиристед. Пули нақдро ба «расонандагони» ношинос надиҳед.', "Faqat rasmiy ilovalar orqali yuboring. Naqd pulni notanish «yetkazuvchilar»ga bermang."),
+    checked: T('Проверено 27.11.2026 по официальным сайтам сервисов.', 'Санҷида шуд 27.11.2026 аз рӯи сомонаҳои расмии хизматҳо.', "27.11.2026 da xizmatlarning rasmiy saytlari bo'yicha tekshirildi.")
+};
+const MONEY_H = {
+    intro: T('💸 Деньги домой', '💸 Пул ба хона', '💸 Pulni uyga'),
+    home: T('🏦 Получение дома', '🏦 Гирифтан дар ватан', '🏦 Vatanda olish'),
+    safe: T('🛡 Осторожно', '🛡 Эҳтиёт шавед', "🛡 Ehtiyot bo'ling")
+};
+// s: [{ head, text: T(...), btn: [label, href] }]
+function moneyGuide(country, s) {
+    const out = {};
+    for (const l of ['ru', 'tg', 'uz']) {
+        out[l] = [{ head: MONEY_H.intro[l] + ' · ' + country[l], text: [MONEY_T.intro[l], MONEY_T.terms[l]] }]
+            .concat(s.map((x, i) => ({ head: x.head, text: [x.text[l]], btns: x.btn ? [link('🔗 ' + x.btn[0], x.btn[1], !i)] : [] })))
+            .concat([{ head: MONEY_H.home[l], text: [MONEY_T.home[l]] }, { head: MONEY_H.safe[l], text: [MONEY_T.safe[l]] }, { head: '🕓', text: [MONEY_T.checked[l]] }]);
+    }
+    return out;
+}
+const C = {
+    ru: T('из России', 'аз Русия', 'Rossiyadan'), kz: T('из Казахстана', 'аз Қазоқистон', "Qozog'istondan"), gb: T('из Великобритании', 'аз Британия', 'Buyuk Britaniyadan'),
+    kr: T('из Кореи', 'аз Корея', 'Koreyadan'), tr: T('из Турции', 'аз Туркия', 'Turkiyadan'), ae: T('из ОАЭ', 'аз АМА', 'BAAdan'), qa: T('из Катара', 'аз Қатар', 'Qatardan'),
+    de: T('из Германии', 'аз Олмон', 'Germaniyadan'), jp: T('из Японии', 'аз Япония', 'Yaponiyadan'), ro: T('из Румынии', 'аз Руминия', 'Ruminiyadan')
+};
+const PS_LIST = 'https://paysend.com/en/supported-countries';
+const WU_ONLINE = T('Western Union', 'Western Union', 'Western Union');
+const MIG_MONEY = {
+    ru: moneyGuide(C.ru, [
+        { head: '🟡 Т-Банк', text: T('У банка есть официальная страница о переводах в Таджикистан — условия там.', 'Бонк саҳифаи расмӣ дар бораи интиқол ба Тоҷикистон дорад — шартҳо дар он ҷо.', "Bankda Tojikistonga o'tkazmalar haqida rasmiy sahifa bor — shartlar o'sha yerda."), btn: ['Т-Банк: перевод в Таджикистан', 'https://www.tbank.ru/bank/help/cross-border/directions/s/tj/'] },
+        { head: '🔵 ВТБ', text: T('Денежные переводы в Таджикистан в ВТБ Онлайн — условия на странице банка.', 'Интиқоли пул ба Тоҷикистон дар ВТБ Онлайн — шартҳо дар саҳифаи бонк.', "VTB Onlaynda Tojikistonga pul o'tkazmalari — shartlar bank sahifasida."), btn: ['ВТБ: переводы в Таджикистан', 'https://www.vtb.ru/personal/platezhi-i-perevody/perevody-v-tadzhikistan/'] }
+    ]),
+    kz: moneyGuide(C.kz, [
+        { head: '🟢 Paysend', text: T('Перевод с казахстанской карты в тенге на карту в Таджикистане.', 'Интиқол аз корти Қазоқистон бо тенге ба корт дар Тоҷикистон.', "Qozog'iston kartasidan tengeda Tojikistondagi kartaga o'tkazma."), btn: ['Paysend', PS_LIST] }
+    ]),
+    gb: moneyGuide(C.gb, [
+        { head: '🟡 Western Union', text: T('Наличными в пунктах Western Union, на банковский счёт, на карту или в кошелёк.', 'Нақд дар нуқтаҳои Western Union, ба суратҳисоби бонкӣ, ба корт ё ҳамён.', "Western Union punktlarida naqd, bank hisobiga, kartaga yoki hamyonga."), btn: ['Western Union', 'https://www.westernunion.com/gb/en/send-money-to-tajikistan.html'] },
+        { head: '🟢 Paysend', text: T('Перевод с британской карты на карту в Таджикистане.', 'Интиқол аз корти Британия ба корт дар Тоҷикистон.', "Britaniya kartasidan Tojikistondagi kartaga o'tkazma."), btn: ['Paysend', 'https://paysend.com/en-uk/send-money/from-united-kingdom-to-tajikistan'] }
+    ]),
+    kr: moneyGuide(C.kr, [
+        { head: '❓ Пока не найдено', text: T('Сервиса, у которого перевод из Кореи в Таджикистан подтверждён на официальном сайте, мы пока не нашли. Как только найдём — добавим.', 'Хизматеро, ки интиқол аз Корея ба Тоҷикистонро дар сомонаи расмӣ тасдиқ кардааст, ҳанӯз наёфтем. Ҳамин ки ёбем — илова мекунем.', "Koreyadan Tojikistonga o'tkazmani rasmiy saytida tasdiqlagan xizmatni hali topmadik. Topishimiz bilan qo'shamiz.") }
+    ]),
+    tr: moneyGuide(C.tr, [
+        { head: '🟡 Western Union', text: T('Через приложения банков: Ziraat, İşbank, Garanti BBVA, Akbank, Yapı Kredi, QNB, Şekerbank, Albaraka, Kliq.', 'Тавассути барномаҳои бонкҳо: Ziraat, İşbank, Garanti BBVA, Akbank, Yapı Kredi, QNB, Şekerbank, Albaraka, Kliq.', "Banklar ilovalari orqali: Ziraat, İşbank, Garanti BBVA, Akbank, Yapı Kredi, QNB, Şekerbank, Albaraka, Kliq."), btn: ['Western Union Türkiye', 'https://www.westernunion.com/tr/en/send-money-online.html'] }
+    ]),
+    ae: moneyGuide(C.ae, [
+        { head: '🟡 Western Union', text: T('В ОАЭ работает через Al Fardan Exchange.', 'Дар АМА тавассути Al Fardan Exchange кор мекунад.', "BAAda Al Fardan Exchange orqali ishlaydi."), btn: ['Western Union UAE', 'https://www.westernunion.com/ae/en/web/send-money/start'] },
+        { head: '🟢 Paysend', text: T('На карты Visa, Mastercard и счета таджикских банков.', 'Ба кортҳои Visa, Mastercard ва суратҳисобҳои бонкҳои тоҷик.', "Visa, Mastercard kartalariga va tojik banklari hisoblariga."), btn: ['Paysend', 'https://paysend.com/en-bd/send-money/from-uae-to-tajikistan'] },
+        { head: '🔵 Remitly', text: T('Только на банковскую карту получателя.', 'Танҳо ба корти бонкии гиранда.', "Faqat oluvchining bank kartasiga."), btn: ['Remitly', 'https://www.remitly.com/ae/en/money-transfer/send-money-to-tajikistan'] }
+    ]),
+    qa: moneyGuide(C.qa, [
+        { head: '🟡 Western Union', text: T('В Катаре работает через Alfardan Exchange.', 'Дар Қатар тавассути Alfardan Exchange кор мекунад.', "Qatarda Alfardan Exchange orqali ishlaydi."), btn: ['Western Union Qatar', 'https://www.westernunion.com/qa/en/web/send-money/start?redirect=true'] }
+    ]),
+    de: moneyGuide(C.de, [
+        { head: '🟢 Paysend', text: T('На карты Visa и Mastercard, на счета в Амонатбонк, Ориёнбонк, Эсхата, Спитамен, Душанбе Сити, в кошелёк Экспрессбанка. Первый перевод — без комиссии.', 'Ба кортҳои Visa ва Mastercard, ба суратҳисобҳо дар Амонатбонк, Ориёнбонк, Эсхата, Спитамен, Душанбе Сити, ба ҳамёни Экспрессбонк. Интиқоли аввал — бе комиссия.', "Visa va Mastercard kartalariga, Amonatbonk, Oriyonbonk, Eskhata, Spitamen, Dushanbe City hisoblariga, Ekspressbank hamyoniga. Birinchi o'tkazma — komissiyasiz."), btn: ['Paysend', 'https://paysend.com/en/send-money/from-germany-to-tajikistan'] }
+    ]),
+    jp: moneyGuide(C.jp, [
+        { head: '🔵 Remitly', text: T('Перевод из Японии в Таджикистан есть. На сайте выплата показана в евро — проверьте валюту получения в приложении до отправки.', 'Интиқол аз Япония ба Тоҷикистон ҳаст. Дар сомона пардохт бо евро нишон дода шудааст — пеш аз фиристодан асъори гирифтанро дар барнома санҷед.', "Yaponiyadan Tojikistonga o'tkazma bor. Saytda to'lov yevroda ko'rsatilgan — yuborishdan oldin ilovada olish valyutasini tekshiring."), btn: ['Remitly', 'https://www.remitly.com/jp/en/tajikistan/pricing'] }
+    ]),
+    ro: moneyGuide(C.ro, [
+        { head: '🟢 Paysend', text: T('Перевод из Румынии в евро на карту в Таджикистане.', 'Интиқол аз Руминия бо евро ба корт дар Тоҷикистон.', "Ruminiyadan yevroda Tojikistondagi kartaga o'tkazma."), btn: ['Paysend', PS_LIST] }
+    ])
+};
+for (const c of Object.keys(MIG_MONEY)) if (c !== 'ru') MIG_COUNTRY_GUIDES[c].mig_money = MIG_MONEY[c];
+
+
 const MIG_COUNTRIES = ['ru', 'kz', 'gb', 'kr', 'tr', 'ae', 'qa', 'de', 'jp', 'ro'];
 function migCountry(v) { return MIG_COUNTRIES.includes(v) ? v : 'ru'; }
 
-module.exports = { MIG_COUNTRY_GUIDES, MIG_COUNTRIES, migCountry, MIG_SOS };
+module.exports = { MIG_COUNTRY_GUIDES, MIG_COUNTRIES, migCountry, MIG_SOS, MIG_MONEY };
