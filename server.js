@@ -5943,11 +5943,11 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             const clean = sents.filter(x => !mixedLanguage(x, lang) && !foreignWord(x, lang, fullMessage));
             if (clean.length && clean.length >= sents.length * 0.6) return { body: { answer: shape(clean.join(' ')), provider: kept.name, grounded: false, sources: [] }, ttl: 0 };
             // понятие («фотосинтез», «что такое …»): статья Википедии на языке человека — чистый язык и источник
-            const wk = mode === 'general' && !kind ? await wikiAnswer(plain, lang).catch(() => null) : null;
+            const wk = mode === 'general' && !kind ? ((await sciAnswer(plain, lang).catch(() => null)) || await wikiAnswer(plain, lang).catch(() => null)) : null;
             if (wk) return { body: wk, ttl: 6 * 3600e3 };
             return { body: { answer: MIXED_FALLBACK[lang] || MIXED_FALLBACK.ru, provider: 'none', grounded: false, sources: [] }, ttl: 0 };
         }
-        const wk = mode === 'general' && !kind ? await wikiAnswer(plain, lang).catch(() => null) : null;
+        const wk = mode === 'general' && !kind ? ((await sciAnswer(plain, lang).catch(() => null)) || await wikiAnswer(plain, lang).catch(() => null)) : null;
         if (wk) return { body: wk, ttl: 6 * 3600e3 };
         return { body: { answer: ERR_FALLBACK[lang], provider: 'none', grounded: false, sources: [] }, ttl: 0 };
     } finally {
