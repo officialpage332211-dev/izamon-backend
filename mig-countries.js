@@ -263,7 +263,309 @@ const MIG_COUNTRY_GUIDES = {
     }
 };
 
-const MIG_COUNTRIES = ['ru', 'kz', 'gb', 'kr'];
+// ---------- Этап 2 (27.11.2026): Турция, ОАЭ, Катар, Германия ----------
+// Турция — безвиз для граждан Таджикистана отменён 05.04.2024 (Известия, 06.04.2024); виза: предзаявка и запись на visa.gov.tr,
+//   подача лично в посольстве Турции в Душанбе, не позже чем за месяц, паспорт ≥6 мес. и 2 чистые страницы, $60 однократная /
+//   $190 многократная, только наличными в долларах, не возвращается; любая виза — не более 90 дней из 180; виза не даёт права
+//   работать, рабочая виза — в стране гражданства: трудовой договор, документы работодателя, дольше рассматривается; штрафы за
+//   нарушение визы — только в пунктах оплаты в аэропорту (памятка посольства Турции в Душанбе, dushanbe-emb.mfa.gov.tr);
+//   разрешение на работу считается видом на жительство (Göç İdaresi, «Yabancı ikamet izni»); YİMER 157 — 24/7, в т.ч. русский
+//   и персидский (Daily Sabah, 22.08.2024).
+// ОАЭ — предложение о работе (offer letter) от MoHRE, проверка по номеру на сайте MoHRE; после подписи работодатель присылает
+//   электронное разрешение на въезд; расходы на найм несёт работодатель; туристическая виза не даёт права работать; ВНЖ не
+//   оформляется вне ОАЭ; разрешения Дубая — GDRFA, других эмиратов — ICP; MoHRE +971 6 802 7666 (u.ae «Tips to avoid labour and
+//   visa fraud», 06.10.2025); сборы с работника запрещены, паспорт забирать запрещено, WPS, жалобы — 80084 бесплатно
+//   (u.ae «Labour rights», 15.10.2026); запрет на новое разрешение на работу на 1 год по жалобе о побеге, проверка — 600590000,
+//   8:00–20:00 (u.ae, «Banning the issuance of a new work permit»); Ejari — регистрация договора аренды в Дубае, 177,75 AED
+//   через Dubai REST / сайт DLD (dubailand.gov.ae, 19.11.2026); 999 полиция, 998 скорая.
+// Катар — безвизовый въезд граждан Таджикистана на 30 дней (Ховар, 16.02.2024); вакансии через Службу миграции на 2025 год:
+//   животноводство, стройка, склады, гостиницы, от $600, английский, без судимости, 20–38 лет, работодатель оплачивает билет,
+//   визу, жильё, питание, лечение (Asia-Plus, 25.12.2024); минимальная зарплата 1 000 QAR + 500 жильё + 300 питание (или
+//   натурой), смена работы без NOC, выездные разрешения отменены, WPS, 11 киосков жалоб на 11 языках (Правительство Катара, gco.gov.qa);
+//   поправки к закону о труде — Закон №9 от 2026 года (gov.uz, 27.07.2026); платить за трудоустройство работник не должен
+//   (МОТ, 06.02.2019); 999 — экстренные службы.
+// Германия — Карта шансов: 6 баллов, немецкий A1 или английский B2, 1 027 € в месяц, до 1 года, работа до 20 ч в неделю,
+//   страховка ≥30 000 €, пошлина 75 € в сомони (памятка посольства Германии в Душанбе, июнь 2024); виза специалиста §18a:
+//   признание диплома, предложение о работе, согласие Агентства по труду, 2–3 месяца, 75 € (памятка, апрель 2024); меморандум
+//   Минтруда РТ и Баварии 30.04.2026 (Asia-Plus, 01.05.2026); экзамены TELC в Таджикистане, интерес Германии: соцработа,
+//   красота, физиотерапия, грузоперевозки, машиностроение, электрика (Caspian Post, 26.11.2025); регистрация по адресу — в течение
+//   2 недель с подтверждением хозяина (Wohnungsgeberbestätigung) (make-it-in-germany.com); 110 полиция, 112 скорая и пожарные.
+const TR_EMB = 'https://dushanbe-emb.mfa.gov.tr/';
+const TR_VISA = 'https://www.visa.gov.tr/';
+const AE_FRAUD = 'https://u.ae/en/information-and-services/visa-and-emirates-id/tips-to-avoid-labour-and-visa-fraud';
+const AE_RIGHTS = 'https://u.ae/en/information-and-services/jobs/Sector-of-employment/employment-in-the-private-sector/labour-rights';
+const AE_EJARI = 'https://dubailand.gov.ae/en/eservices/registration-and-renewal-of-lease-application/';
+const QA_EMB = 'https://dushanbe.embassy.qa/en';
+const QA_GCO = 'https://www.gco.gov.qa/en/focus/labour-reform/';
+const DE_EMB = 'https://duschanbe.diplo.de/';
+const DE_MIIG = 'https://www.make-it-in-germany.com/en/advice-support/worldwide/tajikistan';
+const tel = (n, h, main) => ({ label: '📞 ' + n, href: 'tel:' + (h || n.replace(/[^\d+]/g, '')), main: !!main });
+const link = (label, href, main) => ({ label, href, main: !!main });
+
+Object.assign(MIG_COUNTRY_GUIDES, {
+    tr: {
+        mig_docs: {
+            ru: [
+                { head: '🛂 Виза в Турцию', text: ['С апреля 2024 года гражданам Таджикистана нужна виза.', 'Заполните заявку и запишитесь на visa.gov.tr, затем подайте документы лично в посольстве Турции в Душанбе — не позже чем за месяц до поездки.', 'Паспорт — действует ещё 6 месяцев и есть 2 чистые страницы. Виза: $60 однократная, $190 многократная — только наличными в долларах, при отказе не возвращается.'], btns: [link('🌐 visa.gov.tr', TR_VISA, true), link('🏛 Посольство Турции в Душанбе', TR_EMB)] },
+                { head: '📅 Сколько можно находиться', text: ['По любой визе — не больше 90 дней за 180 дней. Дольше — нужен вид на жительство в Турции.'] },
+                { head: '🛡 Осторожно', text: ['Обычная виза не даёт права работать. Для работы нужна рабочая виза.'] }
+            ],
+            tg: [
+                { head: '🛂 Раводид ба Туркия', text: ['Аз апрели 2024 ба шаҳрвандони Тоҷикистон раводид лозим аст.', 'Дар visa.gov.tr ариза пур кунед ва навбат гиред, баъд ҳуҷҷатҳоро шахсан дар сафорати Туркия дар Душанбе супоред — на дертар аз як моҳ пеш аз сафар.', 'Шиноснома — боз 6 моҳ эътибор дорад ва 2 саҳифаи холӣ ҳаст. Раводид: $60 якдафъаина, $190 бисёрдафъаина — танҳо нақд бо доллар, ҳангоми рад баргардонида намешавад.'], btns: [link('🌐 visa.gov.tr', TR_VISA, true), link('🏛 Сафорати Туркия дар Душанбе', TR_EMB)] },
+                { head: '📅 Чанд вақт мондан мумкин', text: ['Бо ҳар раводид — на зиёда аз 90 рӯз дар 180 рӯз. Зиёдтар — иҷозати истиқомат дар Туркия лозим аст.'] },
+                { head: '🛡 Эҳтиёт шавед', text: ['Раводиди оддӣ ҳуқуқи кор намедиҳад. Барои кор раводиди корӣ лозим аст.'] }
+            ],
+            uz: [
+                { head: '🛂 Turkiyaga viza', text: ["2024-yil apreldan Tojikiston fuqarolariga viza kerak.", "visa.gov.tr saytida ariza to'ldiring va navbat oling, so'ng hujjatlarni Turkiyaning Dushanbedagi elchixonasiga shaxsan topshiring — safardan kamida bir oy oldin.", "Pasport — yana 6 oy amal qiladi va 2 ta bo'sh sahifa bor. Viza: $60 bir martalik, $190 ko'p martalik — faqat naqd dollarda, rad etilsa qaytarilmaydi."], btns: [link('🌐 visa.gov.tr', TR_VISA, true), link('🏛 Turkiyaning Dushanbedagi elchixonasi', TR_EMB)] },
+                { head: "📅 Qancha qolish mumkin", text: ["Har qanday viza bilan — 180 kun ichida 90 kundan ko'p emas. Ko'proq — Turkiyada yashash ruxsati kerak."] },
+                { head: "🛡 Ehtiyot bo'ling", text: ["Oddiy viza ishlash huquqini bermaydi. Ishlash uchun ishchi viza kerak."] }
+            ]
+        },
+        mig_work: {
+            ru: [
+                { head: '📄 Рабочая виза', text: ['Подаётся в своей стране — в посольстве Турции в Душанбе.', 'Нужны: трудовой договор, подписанный работодателем, и документы его компании (выписка из торгового реестра). Если работодатель — частное лицо, — его выписки из банка за 6 месяцев.', 'Рабочие визы рассматривают дольше остальных.'], btns: [link('🏛 Посольство Турции в Душанбе', TR_EMB, true)] },
+                { head: '🤝 Через Минтруд Таджикистана', text: [FREE_INFO.ru], btns: [agencyBtn('ru')] },
+                NO_MIDDLE.ru
+            ],
+            tg: [
+                { head: '📄 Раводиди корӣ', text: ['Дар кишвари худ — дар сафорати Туркия дар Душанбе супорида мешавад.', 'Лозим: шартномаи меҳнатӣ бо имзои корфармо ва ҳуҷҷатҳои ширкати ӯ (иқтибос аз феҳристи тиҷоратӣ). Агар корфармо шахси хусусӣ бошад — иқтибосҳои бонкии ӯ барои 6 моҳ.', 'Раводидҳои кориро нисбат ба дигарҳо дертар баррасӣ мекунанд.'], btns: [link('🏛 Сафорати Туркия дар Душанбе', TR_EMB, true)] },
+                { head: '🤝 Тавассути Вазорати меҳнат', text: [FREE_INFO.tg], btns: [agencyBtn('tg')] },
+                NO_MIDDLE.tg
+            ],
+            uz: [
+                { head: '📄 Ishchi viza', text: ["O'z mamlakatingizda — Turkiyaning Dushanbedagi elchixonasida topshiriladi.", "Kerak: ish beruvchi imzolagan mehnat shartnomasi va uning kompaniyasi hujjatlari (savdo reyestridan ko'chirma). Ish beruvchi xususiy shaxs bo'lsa — uning 6 oylik bank ko'chirmalari.", "Ishchi vizalar boshqalarga qaraganda uzoqroq ko'rib chiqiladi."], btns: [link('🏛 Turkiyaning Dushanbedagi elchixonasi', TR_EMB, true)] },
+                { head: '🤝 Tojikiston Mehnat vazirligi orqali', text: [FREE_INFO.uz], btns: [agencyBtn('uz')] },
+                NO_MIDDLE.uz
+            ]
+        },
+        mig_home: {
+            ru: [
+                { head: '🏠 Вид на жительство', text: ['Живёте в Турции дольше 90 дней — нужен вид на жительство (икамет) от Миграционной службы Турции.', 'Разрешение на работу в Турции одновременно считается видом на жительство.'] },
+                RENT.ru
+            ],
+            tg: [
+                { head: '🏠 Иҷозати истиқомат', text: ['Дар Туркия зиёда аз 90 рӯз зиндагӣ мекунед — иҷозати истиқомат (икамет) аз Хадамоти муҳоҷирати Туркия лозим аст.', 'Иҷозати кор дар Туркия ҳамзамон иҷозати истиқомат ҳисоб меёбад.'] },
+                RENT.tg
+            ],
+            uz: [
+                { head: '🏠 Yashash ruxsati', text: ["Turkiyada 90 kundan ortiq yashasangiz — Turkiya Migratsiya xizmatidan yashash ruxsati (ikamet) kerak.", "Turkiyadagi ishlash ruxsati bir vaqtda yashash ruxsati hisoblanadi."] },
+                RENT.uz
+            ]
+        },
+        mig_help: {
+            ru: [
+                { head: '☎️ Справочная для иностранцев — 157', text: ['Круглосуточно. Есть русский и персидский языки. Помогает и в беде: торговля людьми, насилие.'], btns: [tel('157', '157', true)] },
+                emb('ru'), sms('ru'),
+                { head: '🚨 Экстренная помощь в Турции', text: ['Единый номер экстренных служб — 112.'], btns: [tel('112')] }
+            ],
+            tg: [
+                { head: '☎️ Хадамоти маълумот барои хориҷиён — 157', text: ['Шабонарӯзӣ. Забонҳои русӣ ва форсӣ ҳаст. Дар мушкилот ҳам ёрӣ медиҳад: савдои одамон, зӯроварӣ.'], btns: [tel('157', '157', true)] },
+                emb('tg'), sms('tg'),
+                { head: '🚨 Ёрии фаврӣ дар Туркия', text: ['Рақами ягонаи хадамоти фаврӣ — 112.'], btns: [tel('112')] }
+            ],
+            uz: [
+                { head: "☎️ Chet elliklar uchun ma'lumot xizmati — 157", text: ["Kecha-kunduz. Rus va fors tillari bor. Muammoda ham yordam beradi: odam savdosi, zo'ravonlik."], btns: [tel('157', '157', true)] },
+                emb('uz'), sms('uz'),
+                { head: '🚨 Turkiyada shoshilinch yordam', text: ['Favqulodda xizmatlarning yagona raqami — 112.'], btns: [tel('112')] }
+            ]
+        }
+    },
+    ae: {
+        mig_docs: {
+            ru: [
+                { head: '📄 Въезд на работу', text: ['Работодатель даёт предложение о работе (offer letter) от Министерства труда ОАЭ (MoHRE). Его номер можно проверить на сайте MoHRE.', 'После подписи работодатель присылает электронное разрешение на въезд для работы.', 'Вид на жительство оформляют только внутри ОАЭ: сначала въезжаете по разрешению и остаётесь, пока его не оформят.'], btns: [link('🌐 u.ae: как не попасть к мошенникам', AE_FRAUD, true)] },
+                { head: '🔎 Проверьте разрешение', text: ['Выдано в Дубае — проверяйте на сайте GDRFA; в других эмиратах — на сайте ICP.'] },
+                { head: '🛡 Осторожно', text: ['По туристической визе работать нельзя — за это штрафы и ответственность.'] }
+            ],
+            tg: [
+                { head: '📄 Вуруд барои кор', text: ['Корфармо пешниҳоди корро (offer letter) аз Вазорати меҳнати АМА (MoHRE) медиҳад. Рақамашро дар сомонаи MoHRE санҷидан мумкин аст.', 'Баъди имзо корфармо иҷозати электронии вуруд барои корро мефиристад.', 'Иҷозати истиқоматро танҳо дар дохили АМА расмӣ мекунанд: аввал бо иҷозат ворид мешавед ва то расмӣ шудан мемонед.'], btns: [link('🌐 u.ae: аз қаллобон эҳтиёт', AE_FRAUD, true)] },
+                { head: '🔎 Иҷозатро санҷед', text: ['Дар Дубай дода шудааст — дар сомонаи GDRFA санҷед; дар дигар аморатҳо — дар сомонаи ICP.'] },
+                { head: '🛡 Эҳтиёт шавед', text: ['Бо раводиди сайёҳӣ кор кардан мумкин нест — ҷарима ва ҷавобгарӣ дорад.'] }
+            ],
+            uz: [
+                { head: '📄 Ishga kirish', text: ["Ish beruvchi BAA Mehnat vazirligidan (MoHRE) ish taklifini (offer letter) beradi. Uning raqamini MoHRE saytida tekshirish mumkin.", "Imzolaganingizdan keyin ish beruvchi ishlash uchun elektron kirish ruxsatini yuboradi.", "Yashash ruxsati faqat BAA ichida rasmiylashtiriladi: avval ruxsat bilan kirasiz va u rasmiylashguncha qolasiz."], btns: [link('🌐 u.ae: firibgarlardan ehtiyot', AE_FRAUD, true)] },
+                { head: '🔎 Ruxsatni tekshiring', text: ["Dubayda berilgan — GDRFA saytida tekshiring; boshqa amirliklarda — ICP saytida."] },
+                { head: "🛡 Ehtiyot bo'ling", text: ["Turistik viza bilan ishlash mumkin emas — jarima va javobgarlik bor."] }
+            ]
+        },
+        mig_work: {
+            ru: [
+                { head: '💼 Ваши права', text: ['Расходы на найм, дорогу и вид на жительство оплачивает работодатель. Брать за трудоустройство деньги с работника запрещено.', 'Забирать у работника паспорт запрещено.', 'Зарплата идёт через систему защиты зарплат (WPS) — не платят вовремя или полностью, обращайтесь в MoHRE.'], btns: [link('🌐 u.ae: права работника', AE_RIGHTS, true), tel('80084 (бесплатно)', '80084')] },
+                { head: '⚠️ Не уходите самовольно', text: ['По жалобе работодателя о самовольном уходе могут запретить новое разрешение на работу на 1 год. Узнать свой статус — в колл-центре MoHRE 600590000 (8:00–20:00, на разных языках).'], btns: [tel('600590000')] },
+                NO_MIDDLE.ru
+            ],
+            tg: [
+                { head: '💼 Ҳуқуқҳои Шумо', text: ['Хароҷоти ҷалб, роҳ ва иҷозати истиқоматро корфармо пардохт мекунад. Аз коргар барои ба кор гирифтан пул гирифтан манъ аст.', 'Шиносномаи коргарро гирифтан манъ аст.', 'Музд тавассути низоми ҳифзи музд (WPS) меояд — сари вақт ё пурра намедиҳанд, ба MoHRE муроҷиат кунед.'], btns: [link('🌐 u.ae: ҳуқуқҳои коргар', AE_RIGHTS, true), tel('80084 (ройгон)', '80084')] },
+                { head: '⚠️ Худсарона наравед', text: ['Бо шикояти корфармо дар бораи худсарона рафтан метавонанд иҷозати нави корро 1 сол манъ кунанд. Ҳолати худро дар маркази тамоси MoHRE 600590000 (8:00–20:00, бо забонҳои гуногун) фаҳмед.'], btns: [tel('600590000')] },
+                NO_MIDDLE.tg
+            ],
+            uz: [
+                { head: '💼 Huquqlaringiz', text: ["Yollash, yo'l va yashash ruxsati xarajatlarini ish beruvchi to'laydi. Ishga olish uchun ishchidan pul olish taqiqlangan.", "Ishchining pasportini olib qo'yish taqiqlangan.", "Maosh ish haqini himoya qilish tizimi (WPS) orqali keladi — o'z vaqtida yoki to'liq berilmasa, MoHRE ga murojaat qiling."], btns: [link('🌐 u.ae: ishchi huquqlari', AE_RIGHTS, true), tel('80084 (bepul)', '80084')] },
+                { head: "⚠️ O'zboshimchalik bilan ketmang", text: ["Ish beruvchining o'zboshimchalik bilan ketish haqidagi shikoyati bo'yicha yangi ishlash ruxsati 1 yilga taqiqlanishi mumkin. Holatingizni MoHRE aloqa markazida bilib oling: 600590000 (8:00–20:00, turli tillarda)."], btns: [tel('600590000')] },
+                NO_MIDDLE.uz
+            ]
+        },
+        mig_home: {
+            ru: [
+                { head: '🏠 Аренда в Дубае (Ejari)', text: ['Договор аренды в Дубае регистрируют в системе Ejari — это делает арендатор или хозяин.', 'Через приложение Dubai REST или сайт Земельного департамента Дубая регистрация стоит 177,75 дирхама.'], btns: [link('🌐 Dubai Land Department', AE_EJARI, true)] },
+                RENT.ru
+            ],
+            tg: [
+                { head: '🏠 Иҷора дар Дубай (Ejari)', text: ['Шартномаи иҷора дар Дубай дар низоми Ejari ба қайд гирифта мешавад — иҷорагир ё соҳиби хона мекунад.', 'Тавассути барномаи Dubai REST ё сомонаи Департаменти заминии Дубай бақайдгирӣ 177,75 дирҳам аст.'], btns: [link('🌐 Dubai Land Department', AE_EJARI, true)] },
+                RENT.tg
+            ],
+            uz: [
+                { head: '🏠 Dubayda ijara (Ejari)', text: ["Dubayda ijara shartnomasi Ejari tizimida ro'yxatga olinadi — buni ijarachi yoki uy egasi qiladi.", "Dubai REST ilovasi yoki Dubay Yer departamenti sayti orqali ro'yxat 177,75 dirham turadi."], btns: [link('🌐 Dubai Land Department', AE_EJARI, true)] },
+                RENT.uz
+            ]
+        },
+        mig_help: {
+            ru: [
+                { head: '⚖️ Трудовые жалобы', text: ['Бесплатная линия Министерства труда ОАЭ (MoHRE) по трудовым спорам — 80084. Иски до 100 000 дирхамов работники подают без пошлины.'], btns: [tel('80084', '80084', true), tel('600590000')] },
+                emb('ru'),
+                { head: '🚨 Экстренная помощь в ОАЭ', text: ['Полиция — 999, скорая — 998.'], btns: [tel('999'), tel('998')] }
+            ],
+            tg: [
+                { head: '⚖️ Шикоятҳои меҳнатӣ', text: ['Хати ройгони Вазорати меҳнати АМА (MoHRE) оид ба баҳсҳои меҳнатӣ — 80084. Даъвоҳои то 100 000 дирҳамро коргарон бе боҷ медиҳанд.'], btns: [tel('80084', '80084', true), tel('600590000')] },
+                emb('tg'),
+                { head: '🚨 Ёрии фаврӣ дар АМА', text: ['Пулис — 999, ёрии таъҷилӣ — 998.'], btns: [tel('999'), tel('998')] }
+            ],
+            uz: [
+                { head: '⚖️ Mehnat shikoyatlari', text: ["BAA Mehnat vazirligining (MoHRE) mehnat nizolari bo'yicha bepul liniyasi — 80084. 100 000 dirhamgacha bo'lgan da'volarni ishchilar bojsiz beradi."], btns: [tel('80084', '80084', true), tel('600590000')] },
+                emb('uz'),
+                { head: '🚨 BAAda shoshilinch yordam', text: ['Politsiya — 999, tez yordam — 998.'], btns: [tel('999'), tel('998')] }
+            ]
+        }
+    },
+    qa: {
+        mig_docs: {
+            ru: [
+                { head: '✈️ Въезд в Катар', text: ['С февраля 2024 года граждане Таджикистана могут въехать в Катар без визы и находиться там 30 дней.', 'Для работы нужен трудовой договор с работодателем в Катаре. Условия уточняйте в Службе миграции или в посольстве Катара.'], btns: [link('🏛 Посольство Катара в Душанбе', QA_EMB, true)] },
+                { head: '🛡 Осторожно', text: ['Работодатель в Катаре не может держать Вас разрешением на выезд: выездные разрешения отменены.'] }
+            ],
+            tg: [
+                { head: '✈️ Вуруд ба Қатар', text: ['Аз феврали 2024 шаҳрвандони Тоҷикистон метавонанд бе раводид ба Қатар ворид шаванд ва 30 рӯз монанд.', 'Барои кор шартномаи меҳнатӣ бо корфармо дар Қатар лозим аст. Шартҳоро дар Хадамоти муҳоҷират ё сафорати Қатар пурсед.'], btns: [link('🏛 Сафорати Қатар дар Душанбе', QA_EMB, true)] },
+                { head: '🛡 Эҳтиёт шавед', text: ['Корфармо дар Қатар Шуморо бо иҷозати баромад нигоҳ дошта наметавонад: иҷозатҳои баромад бекор шудаанд.'] }
+            ],
+            uz: [
+                { head: '✈️ Qatarga kirish', text: ["2024-yil fevraldan Tojikiston fuqarolari Qatarga vizasiz kirib, 30 kun turishi mumkin.", "Ishlash uchun Qatardagi ish beruvchi bilan mehnat shartnomasi kerak. Shartlarni Migratsiya xizmati yoki Qatar elchixonasidan aniqlang."], btns: [link('🏛 Qatarning Dushanbedagi elchixonasi', QA_EMB, true)] },
+                { head: "🛡 Ehtiyot bo'ling", text: ["Qatardagi ish beruvchi sizni chiqish ruxsati bilan ushlab turolmaydi: chiqish ruxsatlari bekor qilingan."] }
+            ]
+        },
+        mig_work: {
+            ru: [
+                { head: '🤝 Через Службу миграции', text: ['На 2025 год Служба миграции предлагала работу в Катаре: животноводство, стройка, автосклады, гостиницы — от $600 в месяц.', 'Требования были такие: английский язык, нет судимости, возраст 20–38 лет. Билет, визу, жильё, питание и лечение оплачивал работодатель.', FREE_INFO.ru], btns: [agencyBtn('ru'), link('🌐 Сайт migration.tj', 'https://migration.tj/')] },
+                { head: '💼 Права по закону Катара', text: ['Минимальная зарплата — 1 000 риалов в месяц, плюс 500 на жильё и 300 на питание, если их не дают натурой.', 'Сменить работу можно без разрешения работодателя (NOC). Зарплата идёт через систему защиты зарплат (WPS).', 'За трудоустройство работник платить не должен.'], btns: [link('🌐 Правительство Катара: трудовая реформа', QA_GCO)] },
+                NO_MIDDLE.ru
+            ],
+            tg: [
+                { head: '🤝 Тавассути Хадамоти муҳоҷират', text: ['Барои соли 2025 Хадамоти муҳоҷират дар Қатар кор пешниҳод мекард: чорводорӣ, сохтмон, анборҳои автомобилӣ, меҳмонхонаҳо — аз $600 дар як моҳ.', 'Талабот чунин буд: забони англисӣ, судимӣ надоштан, синну сол 20–38. Чипта, раводид, манзил, хӯрок ва табобатро корфармо пардохт мекард.', FREE_INFO.tg], btns: [agencyBtn('tg'), link('🌐 Сомонаи migration.tj', 'https://migration.tj/')] },
+                { head: '💼 Ҳуқуқҳо тибқи қонуни Қатар', text: ['Музди ҳадди ақал — 1 000 риёл дар як моҳ, илова 500 барои манзил ва 300 барои хӯрок, агар онҳоро дар шакли натуралӣ надиҳанд.', 'Корро бе иҷозати корфармо (NOC) иваз кардан мумкин аст. Музд тавассути низоми ҳифзи музд (WPS) меояд.', 'Барои ба кор ҷойгиршавӣ коргар набояд пул диҳад.'], btns: [link('🌐 Ҳукумати Қатар: ислоҳоти меҳнат', QA_GCO)] },
+                NO_MIDDLE.tg
+            ],
+            uz: [
+                { head: '🤝 Migratsiya xizmati orqali', text: ["2025-yil uchun Migratsiya xizmati Qatarda ish taklif qilgan: chorvachilik, qurilish, avtoomborlar, mehmonxonalar — oyiga $600 dan.", "Talablar shunday edi: ingliz tili, sudlanmagan, yosh 20–38. Chipta, viza, uy-joy, ovqat va davolanishni ish beruvchi to'lagan.", FREE_INFO.uz], btns: [agencyBtn('uz'), link('🌐 migration.tj sayti', 'https://migration.tj/')] },
+                { head: "💼 Qatar qonuni bo'yicha huquqlar", text: ["Eng kam ish haqi — oyiga 1 000 rial, natura shaklida berilmasa, qo'shimcha 500 uy-joy va 300 ovqat uchun.", "Ishni ish beruvchi ruxsatisiz (NOC) almashtirish mumkin. Maosh ish haqini himoya qilish tizimi (WPS) orqali keladi.", "Ishga joylashish uchun ishchi pul to'lamasligi kerak."], btns: [link('🌐 Qatar hukumati: mehnat islohoti', QA_GCO)] },
+                NO_MIDDLE.uz
+            ]
+        },
+        mig_home: {
+            ru: [
+                { head: '🏠 Жильё', text: ['Жильё работодатель даёт натурой или доплачивает к минимальной зарплате 500 риалов в месяц.', 'Перед подписанием договора уточните, какой из двух вариантов у Вас.'] },
+                RENT.ru
+            ],
+            tg: [
+                { head: '🏠 Манзил', text: ['Корфармо манзилро дар шакли натуралӣ медиҳад ё ба музди ҳадди ақал моҳе 500 риёл илова мекунад.', 'Пеш аз имзои шартнома бипурсед, ки кадом аз ин ду вариант барои Шумост.'] },
+                RENT.tg
+            ],
+            uz: [
+                { head: '🏠 Uy-joy', text: ["Ish beruvchi uy-joyni natura shaklida beradi yoki eng kam ish haqiga oyiga 500 rial qo'shib to'laydi.", "Shartnomani imzolashdan oldin sizda qaysi variant ekanini aniqlang."] },
+                RENT.uz
+            ]
+        },
+        mig_help: {
+            ru: [
+                { head: '⚖️ Трудовые жалобы', text: ['Жалобу можно подать в электронных киосках в 11 отделениях Министерства труда Катара — на 11 языках.'], btns: [link('🌐 Правительство Катара: трудовая реформа', QA_GCO, true)] },
+                emb('ru'), sms('ru'),
+                { head: '🚨 Экстренная помощь в Катаре', text: ['Единый номер экстренных служб — 999.'], btns: [tel('999')] }
+            ],
+            tg: [
+                { head: '⚖️ Шикоятҳои меҳнатӣ', text: ['Шикоятро дар киоскҳои электронӣ дар 11 шуъбаи Вазорати меҳнати Қатар — бо 11 забон додан мумкин аст.'], btns: [link('🌐 Ҳукумати Қатар: ислоҳоти меҳнат', QA_GCO, true)] },
+                emb('tg'), sms('tg'),
+                { head: '🚨 Ёрии фаврӣ дар Қатар', text: ['Рақами ягонаи хадамоти фаврӣ — 999.'], btns: [tel('999')] }
+            ],
+            uz: [
+                { head: '⚖️ Mehnat shikoyatlari', text: ["Shikoyatni Qatar Mehnat vazirligining 11 ta bo'limidagi elektron kiosklarda — 11 tilda berish mumkin."], btns: [link('🌐 Qatar hukumati: mehnat islohoti', QA_GCO, true)] },
+                emb('uz'), sms('uz'),
+                { head: '🚨 Qatarda shoshilinch yordam', text: ['Favqulodda xizmatlarning yagona raqami — 999.'], btns: [tel('999')] }
+            ]
+        }
+    },
+    de: {
+        mig_docs: {
+            ru: [
+                { head: '🎫 Карта шансов (поиск работы)', text: ['Нужны диплом или профобразование не меньше 2 лет и немецкий не ниже A1 или английский B2. Ещё нужно минимум 6 баллов: за признание квалификации, язык, опыт, возраст.', 'Деньги на жизнь — от 1 027 € в месяц. Карта — до 1 года, можно подрабатывать до 20 часов в неделю.', 'Нужна медстраховка на весь срок (от 30 000 €). Пошлина — 75 €, платится в сомони.'], btns: [link('🏛 Посольство Германии в Душанбе', DE_EMB, true)] },
+                { head: '📄 Виза специалиста', text: ['Нужны признание диплома в Германии, предложение о работе и согласие Агентства по труду Германии.', 'Рассмотрение — 2–3 месяца. Пошлина — 75 €. Документы не на немецком — с переводом.'] }
+            ],
+            tg: [
+                { head: '🎫 Кортаи имкониятҳо (ҷустуҷӯи кор)', text: ['Диплом ё таҳсили касбии на камтар аз 2 сол ва забони олмонӣ на камтар аз A1 ё англисӣ B2 лозим. Боз ҳадди ақал 6 хол: барои эътирофи тахассус, забон, таҷриба, синну сол.', 'Пул барои зиндагӣ — аз 1 027 € дар як моҳ. Корта — то 1 сол, то 20 соат дар ҳафта кор кардан мумкин.', 'Суғуртаи тиббӣ барои тамоми мӯҳлат (аз 30 000 €) лозим. Боҷ — 75 €, бо сомонӣ пардохт мешавад.'], btns: [link('🏛 Сафорати Олмон дар Душанбе', DE_EMB, true)] },
+                { head: '📄 Раводиди мутахассис', text: ['Эътирофи диплом дар Олмон, пешниҳоди кор ва розигии Агентии меҳнати Олмон лозим аст.', 'Баррасӣ — 2–3 моҳ. Боҷ — 75 €. Ҳуҷҷатҳои на ба олмонӣ — бо тарҷума.'] }
+            ],
+            uz: [
+                { head: '🎫 Imkoniyatlar kartasi (ish qidirish)', text: ["Diplom yoki kamida 2 yillik kasbiy ta'lim va nemis tili kamida A1 yoki ingliz B2 kerak. Yana kamida 6 ball: malakani tan olish, til, tajriba, yosh uchun.", "Yashash uchun pul — oyiga 1 027 € dan. Karta — 1 yilgacha, haftasiga 20 soatgacha ishlash mumkin.", "Butun muddatga tibbiy sug'urta (30 000 € dan) kerak. Boj — 75 €, somoniyda to'lanadi."], btns: [link('🏛 Germaniyaning Dushanbedagi elchixonasi', DE_EMB, true)] },
+                { head: '📄 Mutaxassis vizasi', text: ["Germaniyada diplomni tan olish, ish taklifi va Germaniya Mehnat agentligining roziligi kerak.", "Ko'rib chiqish — 2–3 oy. Boj — 75 €. Nemis tilida bo'lmagan hujjatlar — tarjima bilan."] }
+            ]
+        },
+        mig_work: {
+            ru: [
+                { head: '🤝 Сотрудничество с Германией', text: ['30 апреля 2026 года Минтруд Таджикистана и Бавария подписали меморандум о трудовой миграции молодых специалистов.', 'В Таджикистане готовят официальные экзамены по немецкому языку (TELC). Германии нужны работники в соцсфере, красоте, физиотерапии, грузоперевозках, машиностроении и электрике.'], btns: [agencyBtn('ru'), link('🌐 Make it in Germany', DE_MIIG)] },
+                NO_MIDDLE.ru
+            ],
+            tg: [
+                { head: '🤝 Ҳамкорӣ бо Олмон', text: ['30 апрели 2026 Вазорати меҳнати Тоҷикистон ва Бавария дар бораи муҳоҷирати меҳнатии мутахассисони ҷавон ёддошт имзо карданд.', 'Дар Тоҷикистон имтиҳонҳои расмии забони олмонӣ (TELC)-ро омода мекунанд. Ба Олмон коргарон дар соҳаи иҷтимоӣ, зебоӣ, физиотерапия, боркашонӣ, мошинсозӣ ва барқ лозиманд.'], btns: [agencyBtn('tg'), link('🌐 Make it in Germany', DE_MIIG)] },
+                NO_MIDDLE.tg
+            ],
+            uz: [
+                { head: '🤝 Germaniya bilan hamkorlik', text: ["2026-yil 30-aprelda Tojikiston Mehnat vazirligi va Bavariya yosh mutaxassislar mehnat migratsiyasi bo'yicha memorandum imzoladi.", "Tojikistonda nemis tili bo'yicha rasmiy imtihonlar (TELC) tayyorlanmoqda. Germaniyaga ijtimoiy soha, go'zallik, fizioterapiya, yuk tashish, mashinasozlik va elektr sohasida ishchilar kerak."], btns: [agencyBtn('uz'), link('🌐 Make it in Germany', DE_MIIG)] },
+                NO_MIDDLE.uz
+            ]
+        },
+        mig_home: {
+            ru: [
+                { head: '🏠 Регистрация по адресу', text: ['В течение 2 недель после заселения зарегистрируйтесь в местном бюро регистрации жителей.', 'Нужны документ, удостоверяющий личность, и подтверждение от хозяина жилья (Wohnungsgeberbestätigung). Запись часто — онлайн.'] },
+                RENT.ru
+            ],
+            tg: [
+                { head: '🏠 Бақайдгирӣ дар суроға', text: ['Дар давоми 2 ҳафтаи баъди ҷойгиршавӣ дар бюрои маҳаллии бақайдгирии сокинон ба қайд гиред.', 'Ҳуҷҷати шахсият ва тасдиқнома аз соҳиби манзил (Wohnungsgeberbestätigung) лозим. Навбат аксаран онлайн аст.'] },
+                RENT.tg
+            ],
+            uz: [
+                { head: "🏠 Manzil bo'yicha ro'yxat", text: ["Joylashganingizdan keyin 2 hafta ichida mahalliy aholini ro'yxatga olish byurosida ro'yxatdan o'ting.", "Shaxsni tasdiqlovchi hujjat va uy egasidan tasdiqnoma (Wohnungsgeberbestätigung) kerak. Navbat ko'pincha onlayn."] },
+                RENT.uz
+            ]
+        },
+        mig_help: {
+            ru: [
+                { head: '🏛 Посольство Германии в Душанбе', text: ['Визы и памятки по всем видам виз — на сайте посольства.'], btns: [link('🌐 duschanbe.diplo.de', DE_EMB, true)] },
+                emb('ru'),
+                { head: '🚨 Экстренная помощь в Германии', text: ['Полиция — 110, скорая и пожарные — 112.'], btns: [tel('110'), tel('112')] }
+            ],
+            tg: [
+                { head: '🏛 Сафорати Олмон дар Душанбе', text: ['Раводидҳо ва ёддоштҳо оид ба ҳамаи навъҳои раводид — дар сомонаи сафорат.'], btns: [link('🌐 duschanbe.diplo.de', DE_EMB, true)] },
+                emb('tg'),
+                { head: '🚨 Ёрии фаврӣ дар Олмон', text: ['Пулис — 110, ёрии таъҷилӣ ва сӯхторнишонҳо — 112.'], btns: [tel('110'), tel('112')] }
+            ],
+            uz: [
+                { head: '🏛 Germaniyaning Dushanbedagi elchixonasi', text: ["Vizalar va barcha turdagi vizalar bo'yicha eslatmalar — elchixona saytida."], btns: [link('🌐 duschanbe.diplo.de', DE_EMB, true)] },
+                emb('uz'),
+                { head: '🚨 Germaniyada shoshilinch yordam', text: ["Politsiya — 110, tez yordam va o't o'chiruvchilar — 112."], btns: [tel('110'), tel('112')] }
+            ]
+        }
+    }
+});
+
+
+const MIG_COUNTRIES = ['ru', 'kz', 'gb', 'kr', 'tr', 'ae', 'qa', 'de'];
 function migCountry(v) { return MIG_COUNTRIES.includes(v) ? v : 'ru'; }
 
 module.exports = { MIG_COUNTRY_GUIDES, MIG_COUNTRIES, migCountry };
