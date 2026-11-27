@@ -6021,18 +6021,24 @@ async function conceptPicture(text, lang, given = null) {
 // «Илм ва табиат» (27.11.2026): темы науки — ответ из Википедии на языке человека (с картинкой той же статьи и ссылкой).
 // Названия — как статьи в Википедии каждого языка (проверка: /diag?wikichk=tg|ru|uz). Список тот же, что в izamon-sci.js на сайте.
 const SCI_TOPICS = [
-    ['sun', 'Офтоб', 'Солнце', 'Quyosh'], ['moon', 'Моҳ', 'Луна', 'Oy (yoʻldosh)'], ['earth', 'Замин', 'Земля', 'Yer'],
+    ['sun', 'Офтоб', 'Солнце', 'Quyosh'], ['moon', 'Моҳ', 'Луна', 'Oy'], ['earth', 'Замин', 'Земля', 'Yer'],
     ['solar', 'Системаи Офтобӣ', 'Солнечная система', 'Quyosh tizimi'], ['star', 'Ситора', 'Звезда', 'Yulduz'],
     ['quake', 'Заминларза', 'Землетрясение', 'Zilzila'], ['volcano', 'Вулқон', 'Вулкан', 'Vulqon'], ['rainbow', 'Рангинкамон', 'Радуга', 'Kamalak'],
     ['lightning', 'Барқ', 'Молния', 'Chaqmoq'], ['photo', 'Фотосинтез', 'Фотосинтез', 'Fotosintez'], ['water', 'Об', 'Вода', 'Suv'],
     ['air', 'Атмосфера', 'Атмосфера', 'Atmosfera'], ['dna', 'ДНК', 'ДНК', 'DNK'], ['bact', 'Бактерияҳо', 'Бактерии', 'Bakteriyalar'], ['magnet', 'Магнит', 'Магнит', 'Magnit']
 ];
-function sciTerm(text, lang) {
+// Статьи в Википедии, если название плитки — не точное название статьи (пробуем по очереди; проверка — /diag?wikitry=tg)
+const SCI_ALT = {
+    tg: { moon: ['Моҳ (радиф)', 'Моҳ (ҳамсафари табиӣ)'], solar: ['Манзумаи Офтобӣ', 'Низоми Офтобӣ', 'Системаи офтобӣ'], volcano: ['Вулкан', 'Оташфишон'],
+          rainbow: ['Тирукамон', 'Камони рангин', 'Рангинкамон'], water: ['Об (модда)', 'Об (моеъ)'], dna: ['Кислотаи дезоксирибонуклеинӣ'], magnet: ['Оҳанрабо', 'Магнитҳо'], lightning: ['Барқ (ҳодисаи табиӣ)', 'Раъду барқ'] },
+    ru: { dna: ['Дезоксирибонуклеиновая кислота'] },
+    uz: { sun: ['Quyosh (yulduz)', 'Quyosh (yulduz)'], moon: ['Oy (tabiiy yoʻldosh)', 'Oy (yoʻldosh)', 'Oy (sayyora yoʻldoshi)'], dna: ['Dezoksiribonuklein kislota'] }
+};
+function sciRow(text, lang) {
     const t = String(text || '').trim().toLowerCase();
-    const col = lang === 'ru' ? 2 : lang === 'uz' ? 3 : 1;
-    const row = SCI_TOPICS.find(r => r[col].toLowerCase() === t || r.slice(1).some(x => x.toLowerCase() === t));
-    return row ? row[col] : null;
+    return SCI_TOPICS.find(r => r.slice(1).some(x => x.toLowerCase() === t)) || null;
 }
+function sciTerm(text, lang) { const r = sciRow(text, lang); return r ? r[lang === 'ru' ? 2 : lang === 'uz' ? 3 : 1] : null; }
 const SCI_EMOJI = { sun: '☀️', moon: '🌙', earth: '🌍', solar: '🪐', star: '⭐', quake: '🏚️', volcano: '🌋', rainbow: '🌈', lightning: '⚡', photo: '🌱', water: '💧', air: '🌬️', dna: '🧬', bact: '🦠', magnet: '🧲' };
 const SCI_HEAD = {
     tg: ['Илм ва табиат', 'Мавзӯъро интихоб кунед — ҷавоб аз Википедия бо сурат ва истинод.'],
@@ -6046,11 +6052,18 @@ function sciGridHtml(lang) {
     return `<div class="iz-sci"><div class="iz-sci-h">${escapeHtml(h[0])}</div><div class="iz-sci-s">${escapeHtml(h[1])}</div><div class="iz-sci-g">${SCI_TOPICS.map(r => `<button type="button" class="iz-sci-t" data-t="${escapeAttr(r[col])}"><span class="iz-sci-e">${SCI_EMOJI[r[0]] || '🔬'}</span><span>${escapeHtml(name(r))}</span></button>`).join('')}</div></div>`;
 }
 async function sciAnswer(text, lang) {
-    const term = sciTerm(text, lang);
-    if (!term) return null;
-    const [wk, pic] = await Promise.all([wikiAnswer(term, lang, true).catch(() => null), withTimeout(conceptPicture(term, lang, term), 4000).catch(() => null)]);
-    if (!wk) return null;
-    return pic ? { ...wk, answer: withPictureHtml(wk.answer, pic, lang), picture: pic.page } : wk;
+    const row = sciRow(text, lang);
+    if (!row) return null;
+    const col = lang === 'ru' ? 2 : lang === 'uz' ? 3 : 1;
+    // сначала — запасные названия статьи (точнее: «Моҳ (радиф)» — светило, а не месяц), потом — название плитки
+    const cands = [...((SCI_ALT[lang] || {})[row[0]] || []), row[col]];
+    for (const term of cands) {
+        const [wk, pic] = await Promise.all([wikiAnswer(term, lang, true).catch(() => null), withTimeout(conceptPicture(term, lang, term), 4000).catch(() => null)]);
+        if (!wk) continue;
+        wk.answer = String(wk.answer).replace(/^📖 [^:<]{1,80}:/, `📖 ${escapeHtml(row[col])}:`); // заголовок — как на плитке («Моҳ», а не «Моҳ (радиф)»)
+        return pic ? { ...wk, answer: withPictureHtml(wk.answer, pic, lang), picture: pic.page, term } : { ...wk, term };
+    }
+    return null;
 }
 // Ответ-справка из Википедии на языке человека (tg/uz/ru) — когда ИИ не дал чистого ответа. Понятие: вопрос «что такое …»
 // или просто 1–3 слова без цифр («фотосинтез»). Только статья о том же слове, без смеси языков; 2–3 первых предложения.
@@ -10235,6 +10248,15 @@ async function handleDiag(req, res) {
         const l = req.query.wikichk, col = l === 'ru' ? 2 : l === 'uz' ? 3 : 1;
         const out = await Promise.all(SCI_TOPICS.map(async r => { const a = await sciAnswer(r[col], l).catch(e => ({ err: String(e && e.message || e).slice(0, 60) })); return [r[0], r[col], a && a.answer ? String(a.answer).replace(/<[^>]+>/g, '').length : 0, !!(a && a.picture), a && a.err || undefined]; }));
         return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang: l, topics: out });
+    }
+    if (['tg', 'ru', 'uz'].includes(req.query?.wikitry)) {
+        const l = req.query.wikitry, col = l === 'ru' ? 2 : l === 'uz' ? 3 : 1;
+        const out = {};
+        for (const r of SCI_TOPICS) {
+            const a = await sciAnswer(r[col], l).catch(() => null);
+            out[r[0]] = a ? [a.term, !!a.picture, String(a.answer).replace(/<[^>]+>/g, '').replace(/^📖\s*/, '').slice(0, 70)] : null;
+        }
+        return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang: l, out });
     }
     if (typeof req.query?.ask === 'string' && req.query.ask.trim()) {
         const askLang = ['tg', 'ru', 'uz'].includes(req.query.lang) ? req.query.lang : 'ru';
