@@ -9762,6 +9762,21 @@ async function handleDiag(req, res) {
     // Контакты площадок для партнёрства (26.11.2026): опубликованные на их сайтах Telegram, WhatsApp, Instagram, телефоны, почта
     // Telegram-каналы (26.11.2026): открытая страница канала — название, подписчики, описание с контактом админа и как разбираются посты.
     // Это только проверка для владельца iZamoN; на сайте канал появляется лишь после согласия админа (TG_CHANNELS).
+    // Разметка раздела сайта объявлений (27.11.2026): чтобы починить разбор, когда сайт поменял вёрстку. Только адреса BOARD_HOSTS.
+    if (req.query?.boardraw) {
+        const host = String(req.query.boardraw).toLowerCase(), path = String(req.query.path || '');
+        if (!BOARD_HOSTS[host] || !/^[a-z0-9\-_\/]{2,80}$/i.test(path)) return res.status(400).json({ error: 'bad host/path', hosts: Object.keys(BOARD_HOSTS) });
+        let html = '', st = 0, url = BOARD_HOSTS[host] + path;
+        try { const r = await fetchPage(url, { cap: 2500000, timeoutMs: 25000 }); html = r.html; st = 200; url = r.url; } catch (e) { return res.json({ url, error: String(e.message || e).slice(0, 120) }); }
+        const re = new RegExp(String(req.query.re || 'listing/\\d+'), 'g');
+        const hits = [...html.matchAll(re)].map(m => m.index);
+        const at = Number(req.query.at) || 0, from = hits.length ? Math.max(0, hits[Math.min(at, hits.length - 1)] - (Number(req.query.before) || 1500)) : Number(req.query.off) || 0;
+        const len = Math.min(Number(req.query.len) || 4000, 12000);
+        const classes = {}; for (const m of html.matchAll(/class="([^"]{2,60})"/g)) classes[m[1]] = (classes[m[1]] || 0) + 1;
+        return res.json({ url, st, size: html.length, hits: hits.length, parsed: host === 'ola.tj' ? parseOlaCards(html).length : null,
+            topClasses: Object.entries(classes).filter(([, n]) => n >= 10 && n <= 80).sort((a, b) => b[1] - a[1]).slice(0, 40).map(([k, n]) => k + '×' + n),
+            slice: html.slice(from, from + len) });
+    }
     // Instagram (26.11.2026): включён ли и каким входом — без значений ключей
     if (req.query?.igstat) {
         let linked = null;
