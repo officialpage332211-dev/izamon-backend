@@ -17,6 +17,7 @@ const net = require('net');
 const dns = require('dns').promises;
 const { GoogleGenAI } = require('@google/genai');
 const OpenAI = require('openai');
+const { MIG_COUNTRY_GUIDES, migCountry } = require('./mig-countries.js');
 
 const app = express();
 app.disable('x-powered-by');
@@ -320,7 +321,7 @@ const PORTAL_RULES = [
     { re: /^(?:кор\s+дар\s+хориҷа|работа\s+за\s+рубежом|chet\s+elda\s+ish)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_work', query: 'Мигрантам: работа за рубежом' },
     // «9. Миграция» → «Жильё»: не советы, а настоящие объявления (2026-11-19): комнаты, квартиры и койко-места в России, где сдают
     // гражданам Таджикистана и СНГ — так прямо написано в объявлении. Регистрация «за деньги» без проживания — нет
-    { re: /^(?:манзил|жильё|жилье|uy-joy)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'ads', opts: { max: 15, perHost: 5, tokens: 4500 },
+    { re: /^(?:манзил|жильё|жилье|uy-joy)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'ads', mig: 'mig_home', opts: { max: 15, perHost: 5, tokens: 4500 },
       query: 'Найди актуальные объявления о сдаче жилья в Москве и Московской области для приезжих: комната, квартира или койко-место, где прямо написано, что сдают гражданам Таджикистана, СНГ или иностранцам (avito.ru, cian.ru, domclick.ru, youla.ru, открытые Telegram-каналы): что сдаётся, цена в месяц, район или метро, контакт — только как написано в объявлении. Регистрацию «за деньги» без проживания и объявления «только славяне» не показывай. Не выдумывай.',
       spread: ['Найди актуальные объявления о сдаче жилья в Санкт-Петербурге, Екатеринбурге, Новосибирске, Казани, Краснодаре, Самаре и других городах России для приезжих: комната, квартира или койко-место, где прямо написано, что сдают гражданам Таджикистана, СНГ или иностранцам: что сдаётся, город и район, цена в месяц, контакт — только как написано в объявлении. Регистрацию «за деньги» без проживания и объявления «только славяне» не показывай. Не выдумывай.'] },
     { re: /^(?:ёрӣ\s+ва\s+телефонҳо|помощь\s+и\s+телефоны|yordam\s+va\s+telefonlar)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_help', query: 'Мигрантам: помощь и телефоны' },
@@ -1094,6 +1095,7 @@ function routeRequest({ cleaned, topic, category = '' }) {
             spread: rule.spread || null,
             opts: rule.opts || null,
             fixed: rule.fixed || null,
+            mig: rule.mig || null,
             userText: (q => topic ? q : `${q} Запрос пользователя: «${cleaned}».`)(typeof rule.query === 'function' ? rule.query(todayTJ()) : rule.query)
         };
     }
@@ -1911,7 +1913,8 @@ const MIG_GUIDES = {
         ]
     }
 };
-function migButtons(kind, lang) { const g = MIG_GUIDES[kind]; return g ? guideBlock(g[lang] || g.ru) : ''; }
+// c — страна из фильтра «Кишвар» (ru, kz, gb, kr); Россия — MIG_GUIDES, остальные — mig-countries.js
+function migButtons(kind, lang, c = 'ru') { const g = (c !== 'ru' && MIG_COUNTRY_GUIDES[c] && MIG_COUNTRY_GUIDES[c][kind]) || MIG_GUIDES[kind]; return g ? guideBlock(g[lang] || g.ru) : ''; }
 const CUSTOMS_LINKS = {
     ru: '⚠️ Цифры здесь ориентировочные: точную сумму уточняйте на таможне или у таможенного брокера.',
     tg: '⚠️ Рақамҳо тахминӣ мебошанд: маблағи дақиқро дар гумрук ё аз брокери гумрукӣ пурсед.',
@@ -5726,7 +5729,7 @@ async function rewriteForUser(text, { mode, lang, date, strict = false }) {
     return fallback || text;
 }
 
-async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null, few = null, opts = null, plain = '', heartTopic = '' }) {
+async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAll, kind, somon, trace, spread, fixed = null, few = null, opts = null, plain = '', heartTopic = '', migc = 'ru' }) {
     if (active >= MAX_ACTIVE) {
         return { body: { answer: BUSY_REPLY[lang], provider: 'busy', grounded: false, sources: [] }, ttl: 0 };
     }
@@ -5740,7 +5743,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                 return { body: { answer: tipsAnswer(weatherLines(w, lang), WEATHER_SRC, lang, 'weather'), provider: 'met.no', grounded: true, sources: WEATHER_SRC, view: 'tips' }, ttl: 30 * MIN };
             } catch (err) { console.warn(`[погода Сбой]: ${err.message}`); } // запасной путь — поиск с источниками
         }
-        if (factual && MIG_GUIDES[kind]) return { body: { answer: migButtons(kind, lang), provider: 'none', grounded: true, sources: [] }, ttl: 60 * MIN };
+        if (factual && MIG_GUIDES[kind]) return { body: { answer: migButtons(kind, lang, migc), provider: 'none', grounded: true, sources: [] }, ttl: 60 * MIN };
         if (factual) {
             // Сначала объявления самого iZamoN (с контактом автора), затем поиск по интернету.
             let ownBlock = '';
@@ -6089,6 +6092,9 @@ async function handleChat(req, res) {
     // «Садои дил»: анонимно выговориться. Без поиска, без кэша; переписка нигде не хранится (история — только в открытой вкладке).
     const heart = body.room === 'heart';
     if (heart) { mode = 'heart'; factual = false; kind = null; somon = null; }
+    // «9. Муҳоҷират»: страна из фильтра «Кишвар». «Манзил» вне России — справка, а не объявления из России
+    const migc = migCountry(body.migc);
+    if (!heart && routed.mig && migc !== 'ru') { mode = 'digest'; kind = routed.mig; somon = null; }
     // Набранный запрос («водитель», «iPhone 13», «диван»): сначала прямой поиск по сайтам объявлений
     if (!heart && !topic && !somon && process.env.KEYWORD_SEARCH !== 'off') {
         const kw = keywordSpec(followUp ? cleaned : routeOn, mode);
@@ -6140,7 +6146,7 @@ async function handleChat(req, res) {
 
     // С историей ответ зависит от разговора — такие ответы не кэшируем.
     const cacheable = factual && !history.length;
-    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id + (somon.district ? ':' + somon.district.id : '') : placeCity ? 'p:' + placeCity.id + (placeDist ? ':' + placeDist.id : '') : '-'}|${somon && somon.price ? `${somon.price.min}-${somon.price.max}` : '-'}|${somon && somon.skip ? 'p' + somon.skip : ''}|${norm(detectOn)}`;
+    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id + (somon.district ? ':' + somon.district.id : '') : placeCity ? 'p:' + placeCity.id + (placeDist ? ':' + placeDist.id : '') : '-'}|${somon && somon.price ? `${somon.price.min}-${somon.price.max}` : '-'}|${somon && somon.skip ? 'p' + somon.skip : ''}${/^mig_/.test(kind || '') ? '|c' + migc : ''}|${norm(detectOn)}`;
     // объяснение понятия — картинка из Википедии ищется одновременно с ответом
     const picP = !heart && !topic && mode === 'general' && !somon ? conceptPicture(cleaned, lang).catch(() => null) : null;
     const withPic = async b => {
@@ -6150,7 +6156,7 @@ async function handleChat(req, res) {
     };
     // только проверка с /diag?ask=…: сколько заняли этапы (somon.tj, перевод, фото, другие сайты)
     const diagTrace = req.__times && /^diag-/.test(String(req.ip || '')) ? Object.assign([], { times: req.__times }) : undefined;
-    const run = () => compute({ trace: diagTrace, plain: cleaned, heartTopic: heart ? heartTopicOf(body.heartTopic) : '', mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null });
+    const run = () => compute({ migc, trace: diagTrace, plain: cleaned, heartTopic: heart ? heartTopicOf(body.heartTopic) : '', mode, lang, factual, fullMessage: withDictionary(fullMessage, routeOn), date, kind, somon, adsQuery: topic ? topic.split(' - ').pop() : (somon && somon.keyword ? somon.q : routeOn), adsAll: !!(somon && somon.keyword), spread: routed.spread && !placeCity ? routed.spread : null, fixed: routed.fixed || null, few: factual ? null : few, opts: routed.opts || null });
     if (cacheable) {
         const hit = answerCache.get(key);
         if (hit) return res.json(await withPic({ ...hit, cached: true }));
