@@ -5524,7 +5524,7 @@ ${CARD_GLOSSARY[lang] || ''}
     }
 }
 
-function listingsAnswer(items, kind, lang, own, wide = null) {
+function listingsAnswer(items, kind, lang, own, wide = null, spec = null) {
     // последняя проверка перед показом: запретное не попадает в карточки ни из какого источника
     items = (items || []).filter(it => !itemForbidden(it, kind));
     own = (own || []).filter(a => !itemForbidden(a, 'ads'));
@@ -5541,7 +5541,9 @@ function listingsAnswer(items, kind, lang, own, wide = null) {
     // места (клиники, аптеки…): пометка для сайта — над карточками подсказка «выберите свой город», без фильтра цены
     const rt = ratesNow();
     const rAttr = rt ? `${rt.RUB > 0 ? ` data-rub="${rt.RUB}"` : ''}${rt.UZS > 0 ? ` data-uzs="${rt.UZS}"` : ''}${rt.USD > 0 ? ` data-usd="${rt.USD}"` : ''}` : ''; // курс: сколько сомони за 1 (для фильтра цены в рублях, сумах, долларах)
-    return `<div class="iz-lcs"${kind === 'places' || kind === 'tickets' ? ` data-kind="${kind}"` : ''}${rAttr}>${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
+    // район, названный в запросе («квартира да Зарафшон»): фильтр на сайте покажет его выбранным
+    const where = spec && spec.auto && spec.city && spec.district ? ` data-city="${escapeHtml(spec.city.id)}" data-dist="${escapeHtml(spec.district.id)}"` : '';
+    return `<div class="iz-lcs"${kind === 'places' || kind === 'tickets' ? ` data-kind="${kind}"` : ''}${rAttr}${where}>${head}${ownHtml}${items.map((it, i) => cardHtml(mark(it, ownList.length + i), kind, lang)).join('')}${kind === 'tickets' ? TICKET_LINKS : ''}</div>`;
 }
 
 // ---------------------------------------------------------------------------
@@ -5828,12 +5830,12 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                     const tl0 = Date.now();
                     let items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed, opts, debug: trace && trace.times ? trace.times : undefined });
                     // «Боз 15 эълон»: следующая страница — только карточки (пусто — значит, больше нет), без поиска через модель
-                    if (somon && somon.skip) return { body: { answer: items.length ? listingsAnswer(items, kind, lang, [], null) : '', provider: 'izamon', grounded: true, sources: [], view: 'cards', count: items.length, page: somon.skip / FEED_MAX }, ttl: items.length ? ttlFor(mode) : 3 * MIN };
+                    if (somon && somon.skip) return { body: { answer: items.length ? listingsAnswer(items, kind, lang, [], null, somon) : '', provider: 'izamon', grounded: true, sources: [], view: 'cards', count: items.length, page: somon.skip / FEED_MAX }, ttl: items.length ? ttlFor(mode) : 3 * MIN };
                     // поиск иногда возвращает пусто (сбой разбора, все страницы не открылись) — если время есть, ещё одна попытка: карточки лучше текста
                     if (!items.length && Date.now() - tl0 < 15000) items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed, opts });
                     if (items.length) {
                         // места (гостиницы, клиники…): поиск то находит пять мест, то одно — скудный ответ держим в памяти недолго, чтобы следующий человек получил полнее
-                        return { body: { answer: listingsAnswer(items, kind, lang, ownRows, items.wide), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: kind === 'places' && (items.length < 3 || (opts && opts.max && items.length < 8)) ? (items.length < 3 ? 2 : 10) * MIN : ttlFor(mode) };
+                        return { body: { answer: listingsAnswer(items, kind, lang, ownRows, items.wide, somon), provider: items.length ? 'openai' : 'izamon', grounded: true, sources: [], view: 'cards', count: items.length + ownRows.length }, ttl: kind === 'places' && (items.length < 3 || (opts && opts.max && items.length < 8)) ? (items.length < 3 ? 2 : 10) * MIN : ttlFor(mode) };
                     }
                 } catch (err) { console.warn(`[listings Сбой]: ${err.status || ''} ${err.message}`); }
             }
@@ -6165,13 +6167,13 @@ async function handleChat(req, res) {
     // Город: выбранный на сайте или названный в запросе — только для лент объявлений, вакансий и услуг
     let city = cityById(body.city) || (somon ? cityOf(routeOn) : null);
     // Район: выбранный на сайте (вместе с городом) или названный в запросе («квартира да Зарафшон» → Душанбе, Сино)
-    let district = city ? districtById(city.id, body.district) : null;
+    let district = city ? districtById(city.id, body.district) : null, auto = false;
     if (somon && !district) {
         const d = districtOf(routeOn);
-        if (d && (!city || city.id === d.city)) { district = d; city = city || cityById(d.city); }
+        if (d && (!city || city.id === d.city)) { district = d; city = city || cityById(d.city); auto = true; }
     }
     if (somon && city) somon = { ...somon, city };
-    if (somon && district) somon = { ...somon, district };
+    if (somon && district) somon = { ...somon, district, ...(auto ? { auto: true } : {}) };
     // «Боз 15 эълон»: следующая страница той же ленты (1–4)
     const page = Math.max(0, Math.min(4, parseInt(body.page, 10) || 0));
     if (somon && page) somon = { ...somon, skip: page * FEED_MAX };
