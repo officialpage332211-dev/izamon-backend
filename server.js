@@ -6033,6 +6033,18 @@ function sciTerm(text, lang) {
     const row = SCI_TOPICS.find(r => r[col].toLowerCase() === t || r.slice(1).some(x => x.toLowerCase() === t));
     return row ? row[col] : null;
 }
+const SCI_EMOJI = { sun: '☀️', moon: '🌙', earth: '🌍', solar: '🪐', star: '⭐', quake: '🏚️', volcano: '🌋', rainbow: '🌈', lightning: '⚡', photo: '🌱', water: '💧', air: '🌬️', dna: '🧬', bact: '🦠', magnet: '🧲' };
+const SCI_HEAD = {
+    tg: ['Илм ва табиат', 'Мавзӯъро интихоб кунед — ҷавоб аз Википедия бо сурат ва истинод.'],
+    ru: ['Наука и природа', 'Выберите тему — ответ из Википедии с картинкой и ссылкой.'],
+    uz: ['Fan va tabiat', 'Mavzuni tanlang — javob Vikipediyadan, rasm va havola bilan.']
+};
+// подраздел «Илм ва табиат»: плитки тем (сайт по нажатию отправляет тему с пометкой sci)
+function sciGridHtml(lang) {
+    const col = lang === 'ru' ? 2 : lang === 'uz' ? 3 : 1, h = SCI_HEAD[lang] || SCI_HEAD.tg;
+    const name = r => r[col].replace(/\s*\(.*\)$/, '');
+    return `<div class="iz-sci"><div class="iz-sci-h">${escapeHtml(h[0])}</div><div class="iz-sci-s">${escapeHtml(h[1])}</div><div class="iz-sci-g">${SCI_TOPICS.map(r => `<button type="button" class="iz-sci-t" data-t="${escapeAttr(r[col])}"><span class="iz-sci-e">${SCI_EMOJI[r[0]] || '🔬'}</span><span>${escapeHtml(name(r))}</span></button>`).join('')}</div></div>`;
+}
 async function sciAnswer(text, lang) {
     const term = sciTerm(text, lang);
     if (!term) return null;
@@ -6158,6 +6170,7 @@ async function handleChat(req, res) {
     if (!topic && body.room !== 'heart' && HARAM_ASK.test(cleaned)) {
         return res.json({ answer: SHARIA_REPLY[lang], provider: 'rules', grounded: false, sources: [] });
     }
+    if (topic && /илм\s+ва\s+табиат|наука\s+и\s+природа|fan\s+va\s+tabiat/i.test(topic)) return res.json({ answer: sciGridHtml(lang), provider: 'rules', grounded: true, sources: [], view: 'sci' });
     // «Илм ва табиат»: тема из списка — статья энциклопедии с картинкой, без ИИ (быстро и с источником)
     if (body.sci && !topic && cleaned.length <= 40) {
         try { const sa = await sciAnswer(cleaned, lang); if (sa) return res.json(sa); } catch (e) { /* дальше — обычный ответ */ }
