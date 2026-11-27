@@ -1050,13 +1050,21 @@ function keywordSection(t) {
     return null;
 }
 
+// «Квартира …» (без «комната», «дом», «ҳавлӣ»): только квартиры — без комнат в квартире и домов
+const KW_FLAT = /(?<![\p{L}])(?:квартир|kvartir|xonadon)/iu;
+const KW_NOT_FLAT = /(?<![\p{L}])(?:комнат|ҳуҷра|хучра|дом(?:а|у|ом)?(?![\p{L}])|хавли|ҳавлӣ|дач|hovli|xona(?![\p{L}]))/iu;
+const flatOnly = t => KW_FLAT.test(t) && !KW_NOT_FLAT.test(t);
+function onlyFlats(sp) {
+    const flat = x => /kvartir|flats/.test(x.path || '') || (x.host === 'savdo.tj');
+    return { ...sp, sources: sp.sources.filter(flat), boards: (sp.boards || []).filter(flat), section: true, flats: true };
+}
 // Набор для прямого поиска (somon.tj + paydo.tj) или null, если запрос — вопрос, разговор или справка.
 function keywordSpec(text, mode) {
     const t = String(text || '').trim();
     if (!t || t.length > 80 || KW_TALK.test(t)) return null;
     if (mode !== 'jobs' && !KW_ASK.test(t) && !KW_INFO.test(t)) {
         const sec = keywordSection(t);
-        if (sec && sec.somon) return { ...sec.somon, section: true };
+        if (sec && sec.somon) return flatOnly(t) ? onlyFlats(sec.somon) : { ...sec.somon, section: true };
     }
     if (mode === 'general' && (KW_ASK.test(t) || KW_INFO.test(t) || t.split(/\s+/).length > 6)) return null;
     if (mode !== 'general' && mode !== 'ads' && mode !== 'jobs') return null;
