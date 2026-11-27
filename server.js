@@ -6027,13 +6027,24 @@ const SCI_TOPICS = [
     ['lightning', 'Барқ', 'Молния', 'Chaqmoq'], ['photo', 'Фотосинтез', 'Фотосинтез', 'Fotosintez'], ['water', 'Об', 'Вода', 'Suv'],
     ['air', 'Атмосфера', 'Атмосфера', 'Atmosfera'], ['dna', 'ДНК', 'ДНК', 'DNK'], ['bact', 'Бактерияҳо', 'Бактерии', 'Bakteriyalar'], ['magnet', 'Магнит', 'Магнит', 'Magnit']
 ];
-// Статьи в Википедии, если название плитки — не точное название статьи (пробуем по очереди; проверка — /diag?wikitry=tg)
-const SCI_ALT = {
-    tg: { moon: ['Моҳ (радиф)', 'Моҳ (ҳамсафари табиӣ)'], solar: ['Манзумаи Офтобӣ', 'Низоми Офтобӣ', 'Системаи офтобӣ'], volcano: ['Вулкан', 'Оташфишон'],
-          rainbow: ['Тирукамон', 'Камони рангин', 'Рангинкамон'], water: ['Об (модда)', 'Об (моеъ)'], dna: ['Кислотаи дезоксирибонуклеинӣ'], magnet: ['Оҳанрабо', 'Магнитҳо'], lightning: ['Барқ (ҳодисаи табиӣ)', 'Раъду барқ'] },
-    ru: { dna: ['Дезоксирибонуклеиновая кислота'] },
-    uz: { sun: ['Quyosh (yulduz)', 'Quyosh (yulduz)'], moon: ['Oy (tabiiy yoʻldosh)', 'Oy (yoʻldosh)', 'Oy (sayyora yoʻldoshi)'], dna: ['Dezoksiribonuklein kislota'] }
-};
+// Статья на языке человека — по межъязыковой ссылке из русской статьи (ru.wikipedia: langlinks), а не по похожему названию:
+// по названию «Вулкан» таджикская Википедия отдаёт город в Румынии, «Атмосфера» — единицу давления. Нет статьи на языке — русская, с пометкой.
+const SCI_RU = { sun: 'Солнце', moon: 'Луна', earth: 'Земля', solar: 'Солнечная система', star: 'Звезда', quake: 'Землетрясение', volcano: 'Вулкан',
+    rainbow: 'Радуга', lightning: 'Молния', photo: 'Фотосинтез', water: 'Вода', air: 'Атмосфера Земли', dna: 'Дезоксирибонуклеиновая кислота', bact: 'Бактерии', magnet: 'Магнит' };
+const LANGLINK = new Map();
+async function langTitle(ruTitle, lang) {
+    if (lang === 'ru') return ruTitle;
+    const k = `${lang}|${ruTitle}`;
+    if (LANGLINK.has(k)) return LANGLINK.get(k);
+    let t = null;
+    try {
+        const r = await withTimeout(fetch(`https://ru.wikipedia.org/w/api.php?action=query&format=json&redirects=1&prop=langlinks&lllang=${lang}&titles=${encodeURIComponent(ruTitle)}`, { headers: { 'User-Agent': WIKI_UA, Accept: 'application/json' } }), 3500);
+        if (r && r.ok) { const d = await r.json(); const pg = Object.values((d && d.query && d.query.pages) || {})[0]; const ll = pg && pg.langlinks && pg.langlinks[0]; t = ll ? (ll['*'] || ll.title || null) : null; }
+        LANGLINK.set(k, t);
+    } catch { return null; }
+    return t;
+}
+const SCI_RU_NOTE = { tg: 'Мақола бо забони тоҷикӣ ҳоло нест — аз Википедияи русӣ:', uz: "O'zbek tilida maqola hozircha yo'q — rus Vikipediyasidan:" };
 function sciRow(text, lang) {
     const t = String(text || '').trim().toLowerCase();
     return SCI_TOPICS.find(r => r.slice(1).some(x => x.toLowerCase() === t)) || null;
@@ -6055,13 +6066,14 @@ async function sciAnswer(text, lang) {
     const row = sciRow(text, lang);
     if (!row) return null;
     const col = lang === 'ru' ? 2 : lang === 'uz' ? 3 : 1;
-    // сначала — запасные названия статьи (точнее: «Моҳ (радиф)» — светило, а не месяц), потом — название плитки
-    const cands = [...((SCI_ALT[lang] || {})[row[0]] || []), row[col]];
-    for (const term of cands) {
-        const [wk, pic] = await Promise.all([wikiAnswer(term, lang, true).catch(() => null), withTimeout(conceptPicture(term, lang, term), 4000).catch(() => null)]);
+    const ru = SCI_RU[row[0]];
+    const own = await langTitle(ru, lang);
+    // статья на языке человека; нет — русская с пометкой
+    for (const [term, wl] of own ? [[own, lang]] : [[ru, 'ru']]) {
+        const [wk, pic] = await Promise.all([wikiAnswer(term, wl, true).catch(() => null), withTimeout(conceptPicture(term, wl, term), 4000).catch(() => null)]);
         if (!wk) continue;
-        wk.answer = String(wk.answer).replace(/^📖 [^:<]{1,80}:/, `📖 ${escapeHtml(row[col])}:`); // заголовок — как на плитке («Моҳ», а не «Моҳ (радиф)»)
-        return pic ? { ...wk, answer: withPictureHtml(wk.answer, pic, lang), picture: pic.page, term } : { ...wk, term };
+        wk.answer = String(wk.answer).replace(/^📖 [^:<]{1,80}:/, `📖 ${escapeHtml(row[col])}:${wl !== lang && SCI_RU_NOTE[lang] ? ' <i>' + escapeHtml(SCI_RU_NOTE[lang]) + '</i>' : ''}`);
+        return pic ? { ...wk, answer: withPictureHtml(wk.answer, pic, lang), picture: pic.page, term, wl } : { ...wk, term, wl };
     }
     return null;
 }
@@ -10254,7 +10266,7 @@ async function handleDiag(req, res) {
         const out = {};
         for (const r of SCI_TOPICS) {
             const a = await sciAnswer(r[col], l).catch(() => null);
-            out[r[0]] = a ? [a.term, !!a.picture, String(a.answer).replace(/<[^>]+>/g, '').replace(/^📖\s*/, '').slice(0, 70)] : null;
+            out[r[0]] = a ? [a.term, a.wl, !!a.picture, String(a.answer).replace(/<[^>]+>/g, '').replace(/^📖\s*/, '').slice(0, 70)] : null;
         }
         return res.json({ version: String(process.env.RENDER_GIT_COMMIT || 'unknown').slice(0, 7), lang: l, out });
     }
