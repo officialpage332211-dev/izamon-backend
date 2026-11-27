@@ -4427,7 +4427,8 @@ function somonContacts(text) {
         let d = m[0].replace(/\D/g, '');
         if (d.length === 12 && d.startsWith('992')) d = d.slice(3);
         if (d.length !== 9 || !/^[2-9]/.test(d)) continue;
-        const f = `+992 ${d.slice(0, 3)} ${d.slice(3, 5)} ${d.slice(5, 7)} ${d.slice(7, 9)}`;
+        // как принято в Таджикистане: код оператора — две цифры (+992 93 111 22 33)
+        const f = `+992 ${d.slice(0, 2)} ${d.slice(2, 5)} ${d.slice(5, 7)} ${d.slice(7, 9)}`;
         if (!phones.includes(f)) phones.push(f);
     }
     const out = phones.slice(0, 3);
@@ -4855,25 +4856,28 @@ async function somonListings(spec, kind, debug, lang = 'ru') {
     // spec.mix: у каждого раздела сайта своя очередь («Земля и коммерческая»: участки не тонут среди помещений, которых больше)
     for (const x of flat) { const qk = spec.mix ? `${x.host}#${x.li}` : x.host; (queues[qk] = queues[qk] || []).push(x); }
     const out = [];
-    while (out.length < FEED_MAX && Object.values(queues).some(q => q.length)) {
+    // «Боз 15 эълон» (27.11.2026): spec.skip — сколько объявлений уже показано; собираем до skip + FEED_MAX и отдаём хвост
+    const skip = Math.max(0, Math.min(60, Number(spec.skip) || 0)), want = FEED_MAX + skip;
+    while (out.length < want && Object.values(queues).some(q => q.length)) {
         const round = [];
         for (const q of Object.values(queues)) {
             while (q.length) { const x = q.shift(); if (ok(x)) { round.push(x); break; } }
         }
         round.sort((x, y) => (x.age - y.age) || (x.n - y.n));
         for (const x of round) {
-            if (out.length >= FEED_MAX) break;
+            if (out.length >= want) break;
             const it = somonItem(x.a, kind, lang, spec.facts || null);
             if (it.title && it.url) { out.push(it); stat.hosts[x.host].kept++; }
         }
     }
     for (const x of overflow) {
-        if (out.length >= FEED_MAX) break;
+        if (out.length >= want) break;
         x.late = true;
         if (!ok(x)) continue;
         const it = somonItem(x.a, kind, lang, spec.facts || null);
         if (it.title && it.url) { out.push(it); stat.hosts[x.host].kept++; }
     }
+    if (skip) out.splice(0, skip);
     stat.kept = out.length;
     stat.withPhoto = out.filter(x => x.image).length;
     return out;
@@ -5116,6 +5120,7 @@ async function searchListings({ kind, lang, date, query, debug, somon, spread, f
         if (debug) debug.msSomon = Date.now() - ts;
         const widened = await widenCity(somon, direct, kind, lang);
         if (widened) { direct = widened.items; if (debug) debug.wide = { city: widened.wide.city.id, n: widened.wide.n }; }
+        if (somon.skip) return direct.length ? finishItems(direct, kind, lang, debug, somon.fixed || '') : [];
         if (direct.length >= 3) {
             // Список есть: другие сайты, Telegram-каналы и соцсети ищем одновременно с переводом и фото карточек somon.tj
             const extraP = WEB_EXTRA_KINDS.has(kind) && openai && process.env.WEB_EXTRA !== 'off'
@@ -5711,7 +5716,7 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
             // Сначала объявления самого iZamoN (с контактом автора), затем поиск по интернету.
             let ownBlock = '';
             let ownRows = [];
-            if (mode === 'ads' && adsOn()) {
+            if (mode === 'ads' && adsOn() && !(somon && somon.skip)) { // на следующих страницах свои объявления iZamoN не повторяем
                 try { ownRows = await withSellerStats(await searchAds(adsQuery, 5, !!adsAll)); ownBlock = ownRows.length ? listingsAnswer([], 'ads', lang, ownRows) : ''; } catch (err) { console.warn(`[ads Сбой]: ${err.message}`); }
             }
             // Карточки (объявления, вакансии, билеты, туры) и таблица курсов — самый понятный вид.
@@ -5737,6 +5742,8 @@ async function compute({ mode, lang, factual, fullMessage, date, adsQuery, adsAl
                 try {
                     const tl0 = Date.now();
                     let items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed, opts, debug: trace && trace.times ? trace.times : undefined });
+                    // «Боз 15 эълон»: следующая страница — только карточки (пусто — значит, больше нет), без поиска через модель
+                    if (somon && somon.skip) return { body: { answer: items.length ? listingsAnswer(items, kind, lang, [], null) : '', provider: 'izamon', grounded: true, sources: [], view: 'cards', count: items.length, page: somon.skip / FEED_MAX }, ttl: items.length ? ttlFor(mode) : 3 * MIN };
                     // поиск иногда возвращает пусто (сбой разбора, все страницы не открылись) — если время есть, ещё одна попытка: карточки лучше текста
                     if (!items.length && Date.now() - tl0 < 15000) items = await searchListings({ kind, lang, date, query: fullMessage, somon, spread, fixed, opts });
                     if (items.length) {
@@ -6073,6 +6080,9 @@ async function handleChat(req, res) {
     // Район: только вместе с выбранным городом (список районов задан для города)
     const district = city ? districtById(city.id, body.district) : null;
     if (somon && district) somon = { ...somon, district };
+    // «Боз 15 эълон»: следующая страница той же ленты (1–4)
+    const page = Math.max(0, Math.min(4, parseInt(body.page, 10) || 0));
+    if (somon && page) somon = { ...somon, skip: page * FEED_MAX };
     // Цена «от–до»: выбранная на сайте (pmin/pmax, сомони) или названная в запросе («до 3000», «до 500$»)
     const pText = somon ? priceRange(routeOn) : null;
     const pBody = { min: Math.max(0, Math.round(Number(body.pmin) || 0)), max: Math.max(0, Math.round(Number(body.pmax) || 0)) };
@@ -6101,7 +6111,7 @@ async function handleChat(req, res) {
 
     // С историей ответ зависит от разговора — такие ответы не кэшируем.
     const cacheable = factual && !history.length;
-    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id + (somon.district ? ':' + somon.district.id : '') : placeCity ? 'p:' + placeCity.id + (placeDist ? ':' + placeDist.id : '') : '-'}|${somon && somon.price ? `${somon.price.min}-${somon.price.max}` : '-'}|${norm(detectOn)}`;
+    const key = `${date.iso}|${lang}|${mode}|${kind || '-'}|${factual ? 'f' : 'n'}|${somon && somon.city ? somon.city.id + (somon.district ? ':' + somon.district.id : '') : placeCity ? 'p:' + placeCity.id + (placeDist ? ':' + placeDist.id : '') : '-'}|${somon && somon.price ? `${somon.price.min}-${somon.price.max}` : '-'}|${somon && somon.skip ? 'p' + somon.skip : ''}|${norm(detectOn)}`;
     // объяснение понятия — картинка из Википедии ищется одновременно с ответом
     const picP = !heart && !topic && mode === 'general' && !somon ? conceptPicture(cleaned, lang).catch(() => null) : null;
     const withPic = async b => {
