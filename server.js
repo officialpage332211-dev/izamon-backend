@@ -17,7 +17,7 @@ const net = require('net');
 const dns = require('dns').promises;
 const { GoogleGenAI } = require('@google/genai');
 const OpenAI = require('openai');
-const { MIG_COUNTRY_GUIDES, migCountry } = require('./mig-countries.js');
+const { MIG_COUNTRY_GUIDES, migCountry, MIG_SOS } = require('./mig-countries.js');
 
 const app = express();
 app.disable('x-powered-by');
@@ -317,14 +317,16 @@ const GIFT_NOT_FLOWERS = new RegExp(`${GIFT_NOT.source}|сервиз|серви�
 
 const PORTAL_RULES = [
     // «9. Миграция»: постоянные справки с проверенными фактами и официальными ссылками (MIG_GUIDES), без поиска и без ИИ
-    { re: /^(?:ҳуҷҷатҳо\s+ва\s+патент|документы\s+и\s+патент|hujjatlar\s+va\s+patent)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_docs', query: 'Мигрантам: документы и патент' },
-    { re: /^(?:кор\s+дар\s+хориҷа|работа\s+за\s+рубежом|chet\s+elda\s+ish)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_work', query: 'Мигрантам: работа за рубежом' },
+    { re: /^(?:ҳуҷҷатҳо\s+ва\s+патент|документы\s+и\s+патент|hujjatlar\s+va\s+patent|пеш\s+аз\s+сафар|перед\s+поездкой|safardan\s+oldin)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_docs', query: 'Мигрантам: документы и патент' },
+    { re: /^(?:кор\s+дар\s+хориҷа|работа\s+за\s+рубежом|chet\s+elda\s+ish|эълони\s+ҷалб|набор\s+на\s+работу|ishga\s+yollash)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_work', query: 'Мигрантам: работа за рубежом' },
     // «9. Миграция» → «Жильё»: не советы, а настоящие объявления (2026-11-19): комнаты, квартиры и койко-места в России, где сдают
     // гражданам Таджикистана и СНГ — так прямо написано в объявлении. Регистрация «за деньги» без проживания — нет
     { re: /^(?:манзил|жильё|жилье|uy-joy)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'ads', mig: 'mig_home', opts: { max: 15, perHost: 5, tokens: 4500 },
       query: 'Найди актуальные объявления о сдаче жилья в Москве и Московской области для приезжих: комната, квартира или койко-место, где прямо написано, что сдают гражданам Таджикистана, СНГ или иностранцам (avito.ru, cian.ru, domclick.ru, youla.ru, открытые Telegram-каналы): что сдаётся, цена в месяц, район или метро, контакт — только как написано в объявлении. Регистрацию «за деньги» без проживания и объявления «только славяне» не показывай. Не выдумывай.',
       spread: ['Найди актуальные объявления о сдаче жилья в Санкт-Петербурге, Екатеринбурге, Новосибирске, Казани, Краснодаре, Самаре и других городах России для приезжих: комната, квартира или койко-место, где прямо написано, что сдают гражданам Таджикистана, СНГ или иностранцам: что сдаётся, город и район, цена в месяц, контакт — только как написано в объявлении. Регистрацию «за деньги» без проживания и объявления «только славяне» не показывай. Не выдумывай.'] },
     { re: /^(?:ёрӣ\s+ва\s+телефонҳо|помощь\s+и\s+телефоны|yordam\s+va\s+telefonlar)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_help', query: 'Мигрантам: помощь и телефоны' },
+    // «Мушкил дорам / У меня беда / Muammom bor» (27.11.2026): помощь по ситуации — зарплата, паспорт, задержание, опасность (MIG_SOS)
+    { re: /^(?:мушкил\s+дорам|у\s+меня\s+беда|muammom\s+bor)$/, portal: /муҳоҷират|миграц|migratsiya/, mode: 'digest', kind: 'mig_sos', query: 'Мигрантам: у меня беда' },
     // ---------- «3. Товары»: новые подразделы (продукты, детские товары, стройматериалы, для дома, книги) ----------
     // Стоят раньше остальных правил: «Kitoblar» (Книги на узбекском) иначе попало бы в «Донишномаҳо» (энциклопедия)
     { re: /^(?:хӯрокворӣ|хурокворӣ|продукты|oziq-ovqat|oziq\s+ovqat)$/, portal: GOODS_PORTAL, mode: 'ads',
@@ -1914,6 +1916,7 @@ const MIG_GUIDES = {
     }
 };
 // c — страна из фильтра «Кишвар» (ru, kz, gb, kr); Россия — MIG_GUIDES, остальные — mig-countries.js
+MIG_GUIDES.mig_sos = MIG_SOS.ru; // «Мушкил дорам» для России
 function migButtons(kind, lang, c = 'ru') { const g = (c !== 'ru' && MIG_COUNTRY_GUIDES[c] && MIG_COUNTRY_GUIDES[c][kind]) || MIG_GUIDES[kind]; return g ? guideBlock(g[lang] || g.ru) : ''; }
 const CUSTOMS_LINKS = {
     ru: '⚠️ Цифры здесь ориентировочные: точную сумму уточняйте на таможне или у таможенного брокера.',

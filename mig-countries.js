@@ -704,7 +704,81 @@ Object.assign(MIG_COUNTRY_GUIDES, {
 });
 
 
+// ---------- «Мушкил дорам / У меня беда» (27.11.2026): помощь по ситуации для каждой страны. Только номера и ссылки, уже
+// проверенные выше (источники — в комментариях этапов 1–3 и в MIG_GUIDES server.js: Онлайнинспекция.рф, представительство Минтруда
+// в России +7 495 967-98-44, consular.tj, Служба миграции 225-05-75) ----------
+const SOS_T = {
+    intro: { ru: ['🆘 Что случилось?', 'Выберите свою ситуацию — кнопка сразу ведёт туда, где помогут.'], tg: ['🆘 Чӣ шуд?', 'Ҳолати худро интихоб кунед — тугма фавран ба ҷое мебарад, ки ёрӣ медиҳанд.'], uz: ["🆘 Nima bo'ldi?", "Holatingizni tanlang — tugma darhol yordam beradigan joyga olib boradi."] },
+    wage: { ru: '💰 Не платят зарплату', tg: '💰 Музд намедиҳанд', uz: "💰 Maosh berilmayapti" },
+    pass: { ru: '🛂 Отобрали или потеряли паспорт', tg: '🛂 Шиносномаро гирифтанд ё гум шуд', uz: "🛂 Pasportni olib qo'yishdi yoki yo'qoldi" },
+    police: { ru: '🚓 Задержали', tg: '🚓 Боздошт шудам', uz: '🚓 Ushlandim' },
+    danger: { ru: '🚨 Опасность для жизни', tg: '🚨 Хатари ҷон', uz: '🚨 Hayotga xavf' },
+    consul: { ru: 'Обращайтесь в посольство или консульство Таджикистана.', tg: 'Ба сафорат ё консулгарии Тоҷикистон муроҷиат кунед.', uz: "Tojikiston elchixonasi yoki konsulligiga murojaat qiling." },
+    sms: { ru: 'Позвоните в Службу миграции Таджикистана — она помогает гражданам за рубежом.', tg: 'Ба Хадамоти муҳоҷирати Тоҷикистон занг занед — он ба шаҳрвандон дар хориҷа ёрӣ медиҳад.', uz: "Tojikiston Migratsiya xizmatiga qo'ng'iroq qiling — u chet eldagi fuqarolarga yordam beradi." }
+};
+const SMS_TEL = () => tel('225-05-75', '+992372250575');
+const RU_GIT = 'https://xn--80akibcicpdbetz7e2g.xn--p1ai/';
+// d: { wage: [text{ru,tg,uz}, btns], pass: …, police: …, danger: [text, btns] } — пустое поле = общий ответ (консульство / Служба миграции)
+function sosGuide(d) {
+    const out = {};
+    for (const l of ['ru', 'tg', 'uz']) {
+        const blk = (k, def) => { const v = d[k] || def; return { head: SOS_T[k][l], text: [v[0][l]], btns: v[1] ? v[1](l) : [] }; };
+        out[l] = [
+            { head: SOS_T.intro[l][0], text: [SOS_T.intro[l][1]] },
+            blk('wage', [SOS_T.sms, () => [SMS_TEL()]]),
+            blk('pass', [SOS_T.consul, l2 => [consularBtn(l2)]]),
+            blk('police', [SOS_T.consul, l2 => [consularBtn(l2)]]),
+            blk('danger', null)
+        ];
+    }
+    return out;
+}
+const T = (ru, tg, uz) => ({ ru, tg, uz });
+const NUM = (...n) => () => n.map(([x, h], i) => tel(x, h || x, !i));
+const MIG_SOS = {
+    ru: sosGuide({
+        wage: [T('Подайте жалобу в трудовую инспекцию России онлайн: «Сообщить о проблеме», вход через Госуслуги.', 'Ба нозироти меҳнати Русия онлайн шикоят кунед: «Сообщить о проблеме», воридшавӣ бо Госуслуги.', "Rossiya mehnat inspeksiyasiga onlayn shikoyat qiling: «Сообщить о проблеме», Госуслуги orqali kirish."), () => [link('⚖️ Онлайнинспекция.рф', RU_GIT, true)]],
+        police: [T('Звоните в представительство Минтруда Таджикистана в России или в консульство.', 'Ба намояндагии Вазорати меҳнати Тоҷикистон дар Русия ё ба консулгарӣ занг занед.', "Tojikiston Mehnat vazirligining Rossiyadagi vakolatxonasiga yoki konsullikka qo'ng'iroq qiling."), l => [tel('+7 495 967-98-44', '+74959679844', true), consularBtn(l)]],
+        danger: [T('Единый номер экстренных служб России — 112.', 'Рақами ягонаи хадамоти фаврии Русия — 112.', "Rossiya favqulodda xizmatlarining yagona raqami — 112."), NUM(['112'])]
+    }),
+    kz: sosGuide({ danger: [T('Единый номер экстренных служб Казахстана — 112.', 'Рақами ягонаи хадамоти фаврии Қазоқистон — 112.', "Qozog'iston favqulodda xizmatlarining yagona raqami — 112."), NUM(['112'])] }),
+    gb: sosGuide({
+        wage: [T('Сначала — менеджер фермы или оператор программы. Заставляют работать или не отпускают — горячая линия против эксплуатации.', 'Аввал — мудири ферма ё оператори барнома. Маҷбур мекунанд ё намегузоранд — хати боварӣ зидди истисмор.', "Avval — ferma menejeri yoki dastur operatori. Majburlashsa yoki qo'yib yuborishmasa — ekspluatatsiyaga qarshi ishonch telefoni."), NUM(['08000 121 700', '08000121700'])],
+        pass: [T('Забрали документы — это признак эксплуатации: горячая линия. Потеряли — консульство.', 'Ҳуҷҷатҳоро гирифтанд — ин нишонаи истисмор аст: хати боварӣ. Гум кардед — консулгарӣ.', "Hujjatlarni olib qo'yishdi — bu ekspluatatsiya belgisi: ishonch telefoni. Yo'qotdingiz — konsullik."), l => [tel('08000 121 700', '08000121700', true), consularBtn(l)]],
+        danger: [T('Полиция, скорая, пожарные — 999.', 'Пулис, ёрии таъҷилӣ, сӯхторнишонҳо — 999.', "Politsiya, tez yordam, o't o'chiruvchilar — 999."), NUM(['999'])]
+    }),
+    kr: sosGuide({
+        wage: [T('Справочная для иностранцев 1345 (на разных языках) или Агентство по трудоустройству за рубежом.', 'Хадамоти маълумот барои хориҷиён 1345 (бо забонҳои гуногун) ё Агентии шуғл дар хориҷа.', "Chet elliklar uchun ma'lumot xizmati 1345 (turli tillarda) yoki Chet elda bandlik agentligi."), NUM(['1345'], ['+992 93 093 49 94', '+992930934994'])],
+        danger: [T('Полиция — 112, пожарные и скорая — 119.', 'Пулис — 112, сӯхторнишонҳо ва ёрии таъҷилӣ — 119.', "Politsiya — 112, o't o'chiruvchilar va tez yordam — 119."), NUM(['112'], ['119'])]
+    }),
+    tr: sosGuide({
+        wage: [T('Справочная для иностранцев 157 — круглосуточно, есть русский и персидский.', 'Хадамоти маълумот барои хориҷиён 157 — шабонарӯзӣ, забонҳои русӣ ва форсӣ ҳаст.', "Chet elliklar uchun ma'lumot xizmati 157 — kecha-kunduz, rus va fors tillari bor."), NUM(['157'])],
+        police: [T('Справочная 157 помогает и в беде. Сообщите в консульство Таджикистана.', 'Хадамоти 157 дар мушкилот ҳам ёрӣ медиҳад. Ба консулгарии Тоҷикистон хабар диҳед.', "157 xizmati muammoda ham yordam beradi. Tojikiston konsulligiga xabar bering."), l => [tel('157', '157', true), consularBtn(l)]],
+        danger: [T('Единый номер экстренных служб Турции — 112.', 'Рақами ягонаи хадамоти фаврии Туркия — 112.', "Turkiya favqulodda xizmatlarining yagona raqami — 112."), NUM(['112'])]
+    }),
+    ae: sosGuide({
+        wage: [T('Бесплатная линия Министерства труда ОАЭ (MoHRE) по трудовым спорам — 80084.', 'Хати ройгони Вазорати меҳнати АМА (MoHRE) оид ба баҳсҳои меҳнатӣ — 80084.', "BAA Mehnat vazirligining (MoHRE) mehnat nizolari bo'yicha bepul liniyasi — 80084."), NUM(['80084'])],
+        pass: [T('В ОАЭ забирать у работника паспорт запрещено — жалуйтесь в MoHRE по номеру 80084. Потеряли — консульство.', 'Дар АМА шиносномаи коргарро гирифтан манъ аст — ба MoHRE бо рақами 80084 шикоят кунед. Гум кардед — консулгарӣ.', "BAAda ishchining pasportini olib qo'yish taqiqlangan — MoHRE ga 80084 raqami orqali shikoyat qiling. Yo'qotdingiz — konsullik."), l => [tel('80084', '80084', true), consularBtn(l)]],
+        danger: [T('Полиция — 999, скорая — 998.', 'Пулис — 999, ёрии таъҷилӣ — 998.', "Politsiya — 999, tez yordam — 998."), NUM(['999'], ['998'])]
+    }),
+    qa: sosGuide({
+        wage: [T('Жалобу можно подать в электронных киосках в 11 отделениях Министерства труда Катара — на 11 языках.', 'Шикоятро дар киоскҳои электронӣ дар 11 шуъбаи Вазорати меҳнати Қатар — бо 11 забон додан мумкин аст.', "Shikoyatni Qatar Mehnat vazirligining 11 ta bo'limidagi elektron kiosklarda — 11 tilda berish mumkin."), l => [link({ ru: '🌐 Правительство Катара: трудовая реформа', tg: '🌐 Ҳукумати Қатар: ислоҳоти меҳнат', uz: '🌐 Qatar hukumati: mehnat islohoti' }[l], QA_GCO, true)]],
+        danger: [T('Единый номер экстренных служб Катара — 999.', 'Рақами ягонаи хадамоти фаврии Қатар — 999.', "Qatar favqulodda xizmatlarining yagona raqami — 999."), NUM(['999'])]
+    }),
+    de: sosGuide({ danger: [T('Полиция — 110, скорая и пожарные — 112.', 'Пулис — 110, ёрии таъҷилӣ ва сӯхторнишонҳо — 112.', "Politsiya — 110, tez yordam va o't o'chiruvchilar — 112."), NUM(['110'], ['112'])] }),
+    jp: sosGuide({ danger: [T('Полиция — 110, пожарные и скорая — 119.', 'Пулис — 110, сӯхторнишонҳо ва ёрии таъҷилӣ — 119.', "Politsiya — 110, o't o'chiruvchilar va tez yordam — 119."), NUM(['110'], ['119'])] }),
+    ro: sosGuide({
+        wage: [T('Брать с работника плату запрещено, агентство отвечает по договору трёх сторон. Позвоните в Службу миграции Таджикистана.', 'Аз коргар пул гирифтан манъ аст, агентӣ тибқи шартномаи се тараф ҷавоб медиҳад. Ба Хадамоти муҳоҷирати Тоҷикистон занг занед.', "Ishchidan pul olish taqiqlangan, agentlik uch tomonlama shartnoma bo'yicha javob beradi. Tojikiston Migratsiya xizmatiga qo'ng'iroq qiling."), () => [SMS_TEL()]],
+        danger: [T('Единый номер экстренных служб Румынии — 112.', 'Рақами ягонаи хадамоти фаврии Руминия — 112.', "Ruminiya favqulodda xizmatlarining yagona raqami — 112."), NUM(['112'])]
+    })
+};
+for (const c of Object.keys(MIG_SOS)) {
+    if (c === 'ru') continue;
+    MIG_COUNTRY_GUIDES[c].mig_sos = MIG_SOS[c];
+}
+
+
 const MIG_COUNTRIES = ['ru', 'kz', 'gb', 'kr', 'tr', 'ae', 'qa', 'de', 'jp', 'ro'];
 function migCountry(v) { return MIG_COUNTRIES.includes(v) ? v : 'ru'; }
 
-module.exports = { MIG_COUNTRY_GUIDES, MIG_COUNTRIES, migCountry };
+module.exports = { MIG_COUNTRY_GUIDES, MIG_COUNTRIES, migCountry, MIG_SOS };
