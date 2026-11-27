@@ -565,7 +565,146 @@ Object.assign(MIG_COUNTRY_GUIDES, {
 });
 
 
-const MIG_COUNTRIES = ['ru', 'kz', 'gb', 'kr', 'tr', 'ae', 'qa', 'de'];
+// ---------- Этап 3 (27.11.2026): Япония, Румыния. Бельгия и Китай не добавлены: меморандум с Бельгией ещё на внутреннем
+// согласовании, без вакансий и порядка подачи (Asia-Plus, 04.02.2026); программ набора в Китай для граждан Таджикистана нет ----------
+// Япония — «Специалист с особыми навыками» (SSW i): от 18 лет, экзамен по навыкам отрасли, японский JFT-Basic или JLPT N4,
+//   договор с работодателем, работодатель получает Сертификат соответствия (CoE), с ним — виза в посольстве Японии; 16 отраслей;
+//   залоги и «штрафные» договоры запрещены; после приезда — регистрация по месту жительства в муниципалитете (MOFA Japan, SSW
+//   General Process); набор Службы миграции 2025: 20–39 лет, разговорный японский, отрасли, от $12 в час, жильё и 3-разовое
+//   питание от работодателя, визу и билет оплачивает работник, ул. С. Айни 121, тел. 225-05-75, 225-02-21 (Asia-Plus, 24.07.2025);
+//   10 граждан Таджикистана уже работают в Японии, документы — на сайте JITCO (Asia-Plus, 04.02.2026); 110 полиция, 119 пожарные и скорая.
+// Румыния — с 27.04.2026 (Срочное постановление №32/2026): визы D/AM1 (квалифицированные) и D/AM2 (постоянные, сезонные), отдельное
+//   разрешение на работу отменено, единая заявка, D/AM2 подают только агентства с разрешением ANOFM или уполномоченные работодатели,
+//   с работника нельзя брать комиссию, обязательный трёхсторонний договор, договор на двух языках, работодатель — от 24 месяцев
+//   работы и от 50 сотрудников, гарантия 1 000 € за работника, сбор за долгосрочную визу 300 €, платформа WorkinRomania.gov.ro
+//   (EY Romania, 30.04.2026); вид на жительство — в отделении IGI по месту жительства, если работаете больше 90 дней, зарплата
+//   не ниже минимальной (EU Immigration Portal, 01.04.2025); 112 — экстренные службы.
+const JP_SSW = 'https://www.mofa.go.jp/mofaj/ca/fna/ssw/us/introduction/';
+const RO_PORTAL = 'https://workinromania.gov.ro/';
+const JP_SMS = [['225-05-75', 'tel:+992372250575'], ['225-02-21', 'tel:+992372250221']];
+const jpBtns = () => JP_SMS.map(([l, h], i) => ({ label: '📞 ' + l, href: h, main: !i }));
+
+Object.assign(MIG_COUNTRY_GUIDES, {
+    jp: {
+        mig_docs: {
+            ru: [
+                { head: '📘 «Специалист с особыми навыками»', text: ['Возраст — от 18 лет. Нужно сдать экзамен по навыкам своей отрасли и японский язык: JFT-Basic или JLPT N4.', 'Подписываете договор с работодателем в Японии. Он получает для Вас Сертификат соответствия (CoE), а с ним Вы подаёте на визу в посольство Японии.', 'Таких отраслей в Японии 16.'], btns: [link('🌐 МИД Японии: как оформить', JP_SSW, true)] },
+                { head: '🛡 Осторожно', text: ['Залог и договоры со «штрафами» за уход запрещены. Просят залог — это нарушение.'] }
+            ],
+            tg: [
+                { head: '📘 «Мутахассиси дорои маҳорати махсус»', text: ['Синну сол — аз 18. Имтиҳони маҳорати соҳаи худ ва забони япониро супоред: JFT-Basic ё JLPT N4.', 'Бо корфармо дар Япония шартнома мебандед. Ӯ барои Шумо Сертификати мутобиқат (CoE) мегирад ва бо он ба сафорати Япония барои раводид ариза медиҳед.', 'Чунин соҳаҳо дар Япония 16 то ҳастанд.'], btns: [link('🌐 ВКХ Япония: чӣ тавр расмӣ кардан', JP_SSW, true)] },
+                { head: '🛡 Эҳтиёт шавед', text: ['Гарав ва шартномаҳо бо «ҷарима» барои рафтан манъ аст. Гарав мехоҳанд — ин вайронкорӣ аст.'] }
+            ],
+            uz: [
+                { head: "📘 «Maxsus ko'nikmali mutaxassis»", text: ["Yosh — 18 dan. O'z sohangiz bo'yicha ko'nikma imtihoni va yapon tilini topshirasiz: JFT-Basic yoki JLPT N4.", "Yaponiyadagi ish beruvchi bilan shartnoma tuzasiz. U siz uchun Muvofiqlik sertifikatini (CoE) oladi, u bilan Yaponiya elchixonasiga vizaga topshirasiz.", "Bunday sohalar Yaponiyada 16 ta."], btns: [link('🌐 Yaponiya TIV: qanday rasmiylashtirish', JP_SSW, true)] },
+                { head: "🛡 Ehtiyot bo'ling", text: ["Garov va ketish uchun «jarima»li shartnomalar taqiqlangan. Garov so'rashsa — bu qoidabuzarlik."] }
+            ]
+        },
+        mig_work: {
+            ru: [
+                { head: '🤝 Через Службу миграции', text: ['В 2025 году Служба миграции набирала людей на работу в Японии: производство, стройка, судостроение, транспорт, авиация, железная дорога, рыболовство, сельское и лесное хозяйство.', 'Требования были такие: 20–39 лет, без судимости, разговорный японский. Оплата — от $12 в час, жильё и трёхразовое питание даёт работодатель, визу и билет оплачивает работник.', 'По итогам 2025 года в Японии уже работают 10 граждан Таджикистана.'], btns: jpBtns() },
+                NO_MIDDLE.ru
+            ],
+            tg: [
+                { head: '🤝 Тавассути Хадамоти муҳоҷират', text: ['Соли 2025 Хадамоти муҳоҷират барои кор дар Япония одам ҷалб мекард: истеҳсолот, сохтмон, киштисозӣ, нақлиёт, ҳавопаймоӣ, роҳи оҳан, моҳигирӣ, кишоварзӣ ва хоҷагии ҷангал.', 'Талабот чунин буд: 20–39 сола, бе судимӣ, забони гуфтугӯии японӣ. Музд — аз $12 дар як соат, манзил ва хӯроки серуза аз корфармо, раводид ва чиптаро коргар пардохт мекунад.', 'Дар натиҷаи соли 2025 дар Япония аллакай 10 шаҳрванди Тоҷикистон кор мекунанд.'], btns: jpBtns() },
+                NO_MIDDLE.tg
+            ],
+            uz: [
+                { head: '🤝 Migratsiya xizmati orqali', text: ["2025-yilda Migratsiya xizmati Yaponiyada ishlash uchun odam yollagan: ishlab chiqarish, qurilish, kemasozlik, transport, aviatsiya, temir yo'l, baliqchilik, qishloq va o'rmon xo'jaligi.", "Talablar shunday edi: 20–39 yosh, sudlanmagan, so'zlashuv darajasida yapon tili. Maosh — soatiga $12 dan, uy-joy va uch mahal ovqatni ish beruvchi beradi, viza va chiptani ishchi to'laydi.", "2025-yil yakunlariga ko'ra Yaponiyada allaqachon 10 nafar Tojikiston fuqarosi ishlamoqda."], btns: jpBtns() },
+                NO_MIDDLE.uz
+            ]
+        },
+        mig_home: {
+            ru: [
+                { head: '🏠 После приезда', text: ['Зарегистрируйтесь по месту жительства в мэрии своего города, откройте счёт для зарплаты и оформите жильё.', 'В наборе Службы миграции 2025 года жильё давал работодатель — уточните это в договоре до подписи.'] },
+                RENT.ru
+            ],
+            tg: [
+                { head: '🏠 Баъди омадан', text: ['Дар мэрияи шаҳри худ дар ҷои зист ба қайд гиред, барои музд суратҳисоб кушоед ва манзилро расмӣ кунед.', 'Дар ҷалби Хадамоти муҳоҷирати соли 2025 манзилро корфармо медод — инро пеш аз имзо дар шартнома аниқ кунед.'] },
+                RENT.tg
+            ],
+            uz: [
+                { head: '🏠 Kelganingizdan keyin', text: ["Shahringiz meriyasida yashash joyi bo'yicha ro'yxatdan o'ting, maosh uchun hisob oching va uy-joyni rasmiylashtiring.", "Migratsiya xizmatining 2025-yilgi yollashida uy-joyni ish beruvchi bergan — buni imzolashdan oldin shartnomada aniqlang."] },
+                RENT.uz
+            ]
+        },
+        mig_help: {
+            ru: [
+                { head: '🏢 Служба миграции — набор в Японию', text: ['Душанбе, ул. С. Айни, 121.'], btns: jpBtns() },
+                emb('ru'),
+                { head: '🚨 Экстренная помощь в Японии', text: ['Полиция — 110, пожарные и скорая — 119.'], btns: [tel('110'), tel('119')] }
+            ],
+            tg: [
+                { head: '🏢 Хадамоти муҳоҷират — ҷалб ба Япония', text: ['Душанбе, кӯчаи С. Айнӣ, 121.'], btns: jpBtns() },
+                emb('tg'),
+                { head: '🚨 Ёрии фаврӣ дар Япония', text: ['Пулис — 110, сӯхторнишонҳо ва ёрии таъҷилӣ — 119.'], btns: [tel('110'), tel('119')] }
+            ],
+            uz: [
+                { head: '🏢 Migratsiya xizmati — Yaponiyaga yollash', text: ["Dushanbe, S. Ayniy ko'chasi, 121."], btns: jpBtns() },
+                emb('uz'),
+                { head: '🚨 Yaponiyada shoshilinch yordam', text: ["Politsiya — 110, o't o'chiruvchilar va tez yordam — 119."], btns: [tel('110'), tel('119')] }
+            ]
+        }
+    },
+    ro: {
+        mig_docs: {
+            ru: [
+                { head: '🛂 Рабочая виза (с 27 апреля 2026 года)', text: ['Новые визы: D/AM1 — для квалифицированных работников, D/AM2 — для постоянной и сезонной работы.', 'Отдельного разрешения на работу больше нет: подаётся одна общая заявка. По D/AM2 её подаёт только агентство с разрешением или уполномоченный работодатель.', 'Сбор за долгосрочную визу — 300 €. Заявки идут через платформу WorkinRomania.gov.ro.'], btns: [link('🌐 WorkinRomania.gov.ro', RO_PORTAL, true)] },
+                { head: '🏠 После въезда', text: ['Работаете больше 90 дней — оформите вид на жительство в отделении Иммиграционной службы Румынии (IGI) по месту жительства.'] }
+            ],
+            tg: [
+                { head: '🛂 Раводиди корӣ (аз 27 апрели 2026)', text: ['Раводидҳои нав: D/AM1 — барои коргарони баландихтисос, D/AM2 — барои кори доимӣ ва мавсимӣ.', 'Иҷозати алоҳидаи кор дигар нест: як аризаи умумӣ дода мешавад. Барои D/AM2 онро танҳо агентии иҷозатдор ё корфармои ваколатдор медиҳад.', 'Пардохт барои раводиди дарозмуддат — 300 €. Аризаҳо тавассути платформаи WorkinRomania.gov.ro мегузаранд.'], btns: [link('🌐 WorkinRomania.gov.ro', RO_PORTAL, true)] },
+                { head: '🏠 Баъди вуруд', text: ['Зиёда аз 90 рӯз кор мекунед — дар шуъбаи Хадамоти муҳоҷирати Руминия (IGI) дар ҷои зист иҷозати истиқомат гиред.'] }
+            ],
+            uz: [
+                { head: '🛂 Ishchi viza (2026-yil 27-apreldan)', text: ["Yangi vizalar: D/AM1 — malakali ishchilar uchun, D/AM2 — doimiy va mavsumiy ish uchun.", "Alohida ishlash ruxsati endi yo'q: bitta umumiy ariza beriladi. D/AM2 bo'yicha uni faqat ruxsatli agentlik yoki vakolatli ish beruvchi beradi.", "Uzoq muddatli viza yig'imi — 300 €. Arizalar WorkinRomania.gov.ro platformasi orqali o'tadi."], btns: [link('🌐 WorkinRomania.gov.ro', RO_PORTAL, true)] },
+                { head: '🏠 Kirgandan keyin', text: ["90 kundan ortiq ishlasangiz — yashash joyingizdagi Ruminiya Immigratsiya xizmati (IGI) bo'limida yashash ruxsatini oling."] }
+            ]
+        },
+        mig_work: {
+            ru: [
+                { head: '🏢 Только через агентства с разрешением', text: ['Агентство по трудоустройству должно иметь разрешение Национального агентства занятости Румынии (ANOFM).', 'С работника нельзя брать комиссию или любую плату. Обязателен договор трёх сторон: агентство, работодатель и Вы.', 'Трудовой договор — на румынском и на понятном Вам языке. Зарплата — не ниже минимальной в Румынии.'] },
+                { head: '🔎 Проверьте работодателя', text: ['Работодатель по визе D/AM2 должен работать не меньше 24 месяцев, иметь не меньше 50 сотрудников и внести гарантию 1 000 € за каждого иностранного работника.'] },
+                NO_MIDDLE.ru
+            ],
+            tg: [
+                { head: '🏢 Танҳо тавассути агентиҳои иҷозатдор', text: ['Агентии ба кор ҷойгиркунӣ бояд иҷозати Агентии миллии шуғли Руминия (ANOFM)-ро дошта бошад.', 'Аз коргар комиссия ё ягон пардохт гирифтан мумкин нест. Шартномаи се тараф ҳатмист: агентӣ, корфармо ва Шумо.', 'Шартномаи меҳнатӣ — бо забони руминӣ ва забоне, ки Шумо мефаҳмед. Музд — на камтар аз ҳадди ақал дар Руминия.'] },
+                { head: '🔎 Корфарморо санҷед', text: ['Корфармо барои раводиди D/AM2 бояд на камтар аз 24 моҳ кор карда бошад, на камтар аз 50 корманд дошта бошад ва барои ҳар коргари хориҷӣ 1 000 € кафолат гузорад.'] },
+                NO_MIDDLE.tg
+            ],
+            uz: [
+                { head: '🏢 Faqat ruxsatli agentliklar orqali', text: ["Ishga joylashtirish agentligida Ruminiya Milliy bandlik agentligi (ANOFM) ruxsati bo'lishi kerak.", "Ishchidan komissiya yoki har qanday to'lov olish mumkin emas. Uch tomonlama shartnoma majburiy: agentlik, ish beruvchi va siz.", "Mehnat shartnomasi — rumin tilida va siz tushunadigan tilda. Maosh — Ruminiyadagi eng kam ish haqidan kam emas."] },
+                { head: '🔎 Ish beruvchini tekshiring', text: ["D/AM2 vizasi bo'yicha ish beruvchi kamida 24 oy faoliyat yuritgan, kamida 50 xodimga ega bo'lishi va har bir chet ellik ishchi uchun 1 000 € kafolat qo'yishi kerak."] },
+                NO_MIDDLE.uz
+            ]
+        },
+        mig_home: {
+            ru: [
+                { head: '🏠 Вид на жительство', text: ['Работаете в Румынии больше 90 дней — нужен вид на жительство: его оформляют в отделении IGI там, где Вы живёте.'] },
+                RENT.ru
+            ],
+            tg: [
+                { head: '🏠 Иҷозати истиқомат', text: ['Дар Руминия зиёда аз 90 рӯз кор мекунед — иҷозати истиқомат лозим: онро дар шуъбаи IGI дар ҷое, ки зиндагӣ мекунед, расмӣ мекунанд.'] },
+                RENT.tg
+            ],
+            uz: [
+                { head: '🏠 Yashash ruxsati', text: ["Ruminiyada 90 kundan ortiq ishlasangiz — yashash ruxsati kerak: u yashayotgan joyingizdagi IGI bo'limida rasmiylashtiriladi."] },
+                RENT.uz
+            ]
+        },
+        mig_help: {
+            ru: [emb('ru'), sms('ru'),
+                { head: '🚨 Экстренная помощь в Румынии', text: ['Единый номер экстренных служб — 112.'], btns: [tel('112')] }],
+            tg: [emb('tg'), sms('tg'),
+                { head: '🚨 Ёрии фаврӣ дар Руминия', text: ['Рақами ягонаи хадамоти фаврӣ — 112.'], btns: [tel('112')] }],
+            uz: [emb('uz'), sms('uz'),
+                { head: '🚨 Ruminiyada shoshilinch yordam', text: ['Favqulodda xizmatlarning yagona raqami — 112.'], btns: [tel('112')] }]
+        }
+    }
+});
+
+
+const MIG_COUNTRIES = ['ru', 'kz', 'gb', 'kr', 'tr', 'ae', 'qa', 'de', 'jp', 'ro'];
 function migCountry(v) { return MIG_COUNTRIES.includes(v) ? v : 'ru'; }
 
 module.exports = { MIG_COUNTRY_GUIDES, MIG_COUNTRIES, migCountry };
